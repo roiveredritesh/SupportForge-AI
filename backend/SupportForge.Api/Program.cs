@@ -73,3 +73,8 @@ app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 app.Run();
+
+namespace SupportForge.Api
+{
+    public partial class Program { }
+}
