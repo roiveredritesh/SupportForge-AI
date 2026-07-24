@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -7,28 +8,29 @@ namespace SupportForge.Ingestion.Code;
 
 public sealed class CodeIngestionJobFactory : IIngestionJobFactory
 {
-    private readonly GitRepoSyncService _gitSync;
-    private readonly ILlmClient _llm;
-    private readonly IVectorStoreService _vectorStore;
+    private readonly IServiceProvider _services;
     private readonly string _cacheRoot;
-    private readonly IProjectRepository _projects;
 
-    public CodeIngestionJobFactory(GitRepoSyncService gitSync, ILlmClient llm, IVectorStoreService vectorStore, string cacheRoot, IProjectRepository projects)
+    public CodeIngestionJobFactory(IServiceProvider services, string cacheRoot)
     {
-        _gitSync = gitSync;
-        _llm = llm;
-        _vectorStore = vectorStore;
+        _services = services;
         _cacheRoot = cacheRoot;
-        _projects = projects;
     }
 
-    public IEnumerable<IIngestionJob> CreateJobs(Project project) =>
-        project.Repos.Select(r => new CodeIngestionJob(
+    public IEnumerable<IIngestionJob> CreateJobs(Project project)
+    {
+        var gitSync = _services.GetRequiredService<GitRepoSyncService>();
+        var llm = _services.GetRequiredService<ILlmClient>();
+        var vectorStore = _services.GetRequiredService<IVectorStoreService>();
+        var projects = _services.GetRequiredService<IProjectRepository>();
+
+        return project.Repos.Select(r => new CodeIngestionJob(
             project.Id,
             $"https://github.com/{r.Owner}/{r.Repo}.git",
             r.DefaultBranch,
             Path.Combine(_cacheRoot, project.Id, r.Repo),
             r.Owner,
             r.Repo,
-            _gitSync, _llm, _vectorStore, _projects));
+            gitSync, llm, vectorStore, projects)).ToList();
+    }
 }

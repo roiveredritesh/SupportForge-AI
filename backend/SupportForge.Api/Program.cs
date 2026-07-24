@@ -53,17 +53,11 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(ne
 }));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionBackgroundService>();
-builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(
-    sp.GetRequiredService<ILlmClient>(),
-    sp.GetRequiredService<IVectorStoreService>(),
-    sp.GetRequiredService<IProjectRepository>()));
+builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp));
 builder.Services.AddSingleton<GitRepoSyncService>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFactory(
-    sp.GetRequiredService<GitRepoSyncService>(),
-    sp.GetRequiredService<ILlmClient>(),
-    sp.GetRequiredService<IVectorStoreService>(),
-    Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos"),
-    sp.GetRequiredService<IProjectRepository>()));
+    sp,
+    Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos")));
 
 var app = builder.Build();
 

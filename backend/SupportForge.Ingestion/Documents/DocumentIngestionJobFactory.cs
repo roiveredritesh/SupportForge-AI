@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -7,19 +8,19 @@ namespace SupportForge.Ingestion.Documents;
 
 public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
 {
-    private readonly ILlmClient _llm;
-    private readonly IVectorStoreService _vectorStore;
-    private readonly IProjectRepository _projects;
+    private readonly IServiceProvider _services;
 
-    public DocumentIngestionJobFactory(ILlmClient llm, IVectorStoreService vectorStore, IProjectRepository projects)
+    public DocumentIngestionJobFactory(IServiceProvider services) => _services = services;
+
+    public IEnumerable<IIngestionJob> CreateJobs(Project project)
     {
-        _llm = llm;
-        _vectorStore = vectorStore;
-        _projects = projects;
-    }
+        var llm = _services.GetRequiredService<ILlmClient>();
+        var vectorStore = _services.GetRequiredService<IVectorStoreService>();
+        var projects = _services.GetRequiredService<IProjectRepository>();
 
-    public IEnumerable<IIngestionJob> CreateJobs(Project project) =>
-        project.KbSources
+        return project.KbSources
             .Where(s => s.Type == KbSourceType.Documents)
-            .Select(s => new DocumentIngestionJob(project.Id, s.Location, _llm, _vectorStore, _projects));
+            .Select(s => new DocumentIngestionJob(project.Id, s.Location, llm, vectorStore, projects))
+            .ToList();
+    }
 }
