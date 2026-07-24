@@ -11,6 +11,7 @@
     <ProjectReference Include="..\SupportForge.Agents\SupportForge.Agents.csproj" />
     <ProjectReference Include="..\SupportForge.VectorStore\SupportForge.VectorStore.csproj" />
     <ProjectReference Include="..\SupportForge.Common\SupportForge.Common.csproj" />
+    <ProjectReference Include="..\SupportForge.Ingestion\SupportForge.Ingestion.csproj" />
   </ItemGroup>
 
   <ItemGroup>
