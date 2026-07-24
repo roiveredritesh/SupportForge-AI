@@ -10,6 +10,8 @@
 | `VectorStore:Pinecone:ApiKey` | Pinecone API key (prod only) | `...` |
 | `VectorStore:Pinecone:Environment` | Pinecone environment/region | `us-east-1` |
 
+As environment variables, replace `:` with `__` (double underscore) — e.g. `OpenAI:ApiKey` becomes `OpenAI__ApiKey`. This is .NET's configuration provider convention; setting `OpenAI:ApiKey` as a literal env var name will not bind.
+
 ## Onboarding a new project
 1. Open the Admin page (`/admin`).
 2. Enter a unique Project ID (lowercase, no spaces — used directly as a vector collection prefix) and a display Name.
