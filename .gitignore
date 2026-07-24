@@ -7,3 +7,4 @@ dist/
 appsettings.Development.json
 frontend/.env
 .claude/
+publish/
