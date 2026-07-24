@@ -10,7 +10,7 @@ export function ThemeToggle() {
 
   return (
     <button
-      className="text-sm border rounded px-2 py-1 dark:bg-gray-800 dark:text-gray-100"
+      className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
       onClick={toggleTheme}
       aria-label="Toggle dark mode"
     >
