@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 
 namespace SupportForge.Agents;
 
@@ -65,7 +66,7 @@ public class OpenAiLlmClient : ILlmClient
     private sealed class ChatResponse { public List<Choice> Choices { get; set; } = new(); public Usage? Usage { get; set; } }
     private sealed class Choice { public Message Message { get; set; } = new(); }
     private sealed class Message { public string? Content { get; set; } }
-    private sealed class Usage { public int TotalTokens { get; set; } }
+    private sealed class Usage { [JsonPropertyName("total_tokens")] public int TotalTokens { get; set; } }
     private sealed class EmbeddingResponse { public List<EmbeddingData> Data { get; set; } = new(); }
     private sealed class EmbeddingData { public float[] Embedding { get; set; } = Array.Empty<float>(); }
 }
