@@ -15,7 +15,7 @@ public class ChatControllerTests
         var llm = new Mock<ILlmClient>();
         llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), default)).ReturnsAsync("code_issue");
 
-        var pipeline = new AgentPipeline(new IAgent[] { new TriageAgent(llm.Object), new DrafterAgent(llm.Object) });
+        var pipeline = new CoordinatorPipeline(new IAgent[] { new TriageAgent(llm.Object), new DrafterAgent(llm.Object) });
         var controller = new ChatController(pipeline);
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "Getting a 500 error" });

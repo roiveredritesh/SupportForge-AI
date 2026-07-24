@@ -1,4 +1,5 @@
 using SupportForge.Agents;
+using SupportForge.Agents.Tools;
 using SupportForge.Core;
 using SupportForge.Ingestion;
 using SupportForge.Ingestion.Code;
@@ -26,10 +27,19 @@ builder.Services.AddHttpClient<ILlmClient, OpenAiLlmClient>(client =>
     client.DefaultRequestHeaders.Add("Authorization", $"Bearer {builder.Configuration["OpenAI:ApiKey"]}");
 });
 builder.Services.AddScoped<TriageAgent>();
+builder.Services.AddScoped<KbResearcherAgent>();
+builder.Services.AddScoped<CodeAnalyzerAgent>();
+builder.Services.AddScoped<VisionAnalyzerAgent>();
 builder.Services.AddScoped<DrafterAgent>();
-builder.Services.AddScoped<AgentPipeline>(sp => new AgentPipeline(new IAgent[]
+builder.Services.AddScoped<KbSearchTool>();
+builder.Services.AddScoped<CodeSearchTool>();
+builder.Services.AddScoped<VisionAnalysisTool>();
+builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(new IAgent[]
 {
     sp.GetRequiredService<TriageAgent>(),
+    sp.GetRequiredService<KbResearcherAgent>(),
+    sp.GetRequiredService<CodeAnalyzerAgent>(),
+    sp.GetRequiredService<VisionAnalyzerAgent>(),
     sp.GetRequiredService<DrafterAgent>(),
 }));
 builder.Services.AddSingleton<IngestionQueue>();

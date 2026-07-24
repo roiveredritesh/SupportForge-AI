@@ -8,9 +8,9 @@ namespace SupportForge.Api.Controllers;
 [Route("api/chat")]
 public class ChatController : ControllerBase
 {
-    private readonly AgentPipeline _pipeline;
+    private readonly CoordinatorPipeline _pipeline;
 
-    public ChatController(AgentPipeline pipeline) => _pipeline = pipeline;
+    public ChatController(CoordinatorPipeline pipeline) => _pipeline = pipeline;
 
     [HttpPost("query")]
     public async Task<ActionResult<ChatQueryResponse>> Query([FromBody] ChatQueryRequest request, CancellationToken ct = default)

@@ -1,10 +1,10 @@
 namespace SupportForge.Agents;
 
-public sealed class AgentPipeline
+public sealed class CoordinatorPipeline
 {
     private readonly IReadOnlyList<IAgent> _agents;
 
-    public AgentPipeline(IEnumerable<IAgent> agents) => _agents = agents.ToList();
+    public CoordinatorPipeline(IEnumerable<IAgent> agents) => _agents = agents.ToList();
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
