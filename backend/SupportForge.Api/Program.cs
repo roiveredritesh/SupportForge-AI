@@ -1,3 +1,4 @@
+using SupportForge.Core;
 using SupportForge.VectorStore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,8 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod());
 });
 builder.Services.AddVectorStore(builder.Configuration);
+builder.Services.AddSingleton<IProjectRepository>(
+    new JsonFileProjectRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 
 var app = builder.Build();
 
