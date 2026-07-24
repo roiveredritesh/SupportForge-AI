@@ -1,10 +1,14 @@
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SupportForge.Agents;
 
 public class OpenAiLlmClient : ILlmClient
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     private readonly HttpClient _http;
     private readonly string _chatModel;
     private readonly string _embeddingModel;
@@ -36,6 +40,45 @@ public class OpenAiLlmClient : ILlmClient
         var body = await response.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: ct);
         LastTotalTokens = body?.Usage?.TotalTokens ?? 0;
         return body?.Choices.FirstOrDefault()?.Message.Content?.Trim() ?? string.Empty;
+    }
+
+    public virtual async IAsyncEnumerable<string> StreamCompleteAsync(string systemPrompt, string userPrompt, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+        {
+            Content = JsonContent.Create(new
+            {
+                model = _chatModel,
+                stream = true,
+                messages = new object[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt },
+                },
+            }),
+        };
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        var totalTokens = 0;
+        while (await reader.ReadLineAsync(ct) is { } line)
+        {
+            if (!line.StartsWith("data: ")) continue;
+            var data = line["data: ".Length..];
+            if (data == "[DONE]") break;
+
+            var chunk = JsonSerializer.Deserialize<StreamChunk>(data, JsonOptions);
+            if (chunk?.Usage is { } usage) totalTokens = usage.TotalTokens;
+
+            var delta = chunk?.Choices.FirstOrDefault()?.Delta.Content;
+            if (!string.IsNullOrEmpty(delta))
+                yield return delta;
+        }
+        LastTotalTokens = totalTokens;
     }
 
     public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
@@ -85,4 +128,7 @@ public class OpenAiLlmClient : ILlmClient
     private sealed class Usage { [JsonPropertyName("total_tokens")] public int TotalTokens { get; set; } }
     private sealed class EmbeddingResponse { public List<EmbeddingData> Data { get; set; } = new(); }
     private sealed class EmbeddingData { public float[] Embedding { get; set; } = Array.Empty<float>(); }
+    private sealed class StreamChunk { public List<StreamChoice> Choices { get; set; } = new(); public Usage? Usage { get; set; } }
+    private sealed class StreamChoice { public StreamDelta Delta { get; set; } = new(); }
+    private sealed class StreamDelta { public string? Content { get; set; } }
 }
