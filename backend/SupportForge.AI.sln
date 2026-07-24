@@ -1,23 +1,21 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backend", "backend", "{1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Api", "SupportForge.Api\SupportForge.Api.csproj", "{AB881BD1-1DFB-480D-8D7E-8C7104687D61}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Api", "backend\SupportForge.Api\SupportForge.Api.csproj", "{AB881BD1-1DFB-480D-8D7E-8C7104687D61}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Core", "SupportForge.Core\SupportForge.Core.csproj", "{9CC6FA90-9EE5-464A-914F-7FBAF5D6675B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Core", "backend\SupportForge.Core\SupportForge.Core.csproj", "{9CC6FA90-9EE5-464A-914F-7FBAF5D6675B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Agents", "SupportForge.Agents\SupportForge.Agents.csproj", "{FA43C556-2FA2-4883-B779-45D702650E1D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Agents", "backend\SupportForge.Agents\SupportForge.Agents.csproj", "{FA43C556-2FA2-4883-B779-45D702650E1D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Ingestion", "SupportForge.Ingestion\SupportForge.Ingestion.csproj", "{3E46CC65-BD44-4081-AAE0-6A6EB07F37A1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Ingestion", "backend\SupportForge.Ingestion\SupportForge.Ingestion.csproj", "{3E46CC65-BD44-4081-AAE0-6A6EB07F37A1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.VectorStore", "SupportForge.VectorStore\SupportForge.VectorStore.csproj", "{185E2F59-9041-4544-8585-25ECB3170F72}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.VectorStore", "backend\SupportForge.VectorStore\SupportForge.VectorStore.csproj", "{185E2F59-9041-4544-8585-25ECB3170F72}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Common", "SupportForge.Common\SupportForge.Common.csproj", "{0E2B4806-77BC-4A42-9792-C2E4BBA3AF71}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Common", "backend\SupportForge.Common\SupportForge.Common.csproj", "{0E2B4806-77BC-4A42-9792-C2E4BBA3AF71}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Api.Tests", "backend\SupportForge.Api.Tests\SupportForge.Api.Tests.csproj", "{6245194C-B05C-43E4-8CC1-D0C0BBB5804B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SupportForge.Api.Tests", "SupportForge.Api.Tests\SupportForge.Api.Tests.csproj", "{6245194C-B05C-43E4-8CC1-D0C0BBB5804B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -116,14 +114,5 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
-		{AB881BD1-1DFB-480D-8D7E-8C7104687D61} = {1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}
-		{9CC6FA90-9EE5-464A-914F-7FBAF5D6675B} = {1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}
-		{FA43C556-2FA2-4883-B779-45D702650E1D} = {1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}
-		{3E46CC65-BD44-4081-AAE0-6A6EB07F37A1} = {1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}
-		{185E2F59-9041-4544-8585-25ECB3170F72} = {1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}
-		{0E2B4806-77BC-4A42-9792-C2E4BBA3AF71} = {1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}
-		{6245194C-B05C-43E4-8CC1-D0C0BBB5804B} = {1AE8ACA6-933B-BF2A-3671-3E2EAC007D16}
 	EndGlobalSection
 EndGlobal
