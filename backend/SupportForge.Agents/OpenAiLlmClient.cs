@@ -34,6 +34,30 @@ public sealed class OpenAiLlmClient : ILlmClient
         return body?.Data.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
     }
 
+    public async Task<string> AnalyzeImageAsync(string base64Image, string prompt, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("chat/completions", new
+        {
+            model = "gpt-4o-mini",
+            messages = new object[]
+            {
+                new
+                {
+                    role = "user",
+                    content = new object[]
+                    {
+                        new { type = "text", text = prompt },
+                        new { type = "image_url", image_url = new { url = $"data:image/png;base64,{base64Image}" } },
+                    },
+                },
+            },
+        }, ct);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: ct);
+        return body?.Choices.FirstOrDefault()?.Message.Content?.Trim() ?? string.Empty;
+    }
+
     private sealed class ChatResponse { public List<Choice> Choices { get; set; } = new(); }
     private sealed class Choice { public Message Message { get; set; } = new(); }
     private sealed class Message { public string? Content { get; set; } }
