@@ -6,3 +6,4 @@ dist/
 *.user
 appsettings.Development.json
 frontend/.env
+.claude/
