@@ -1,0 +1,89 @@
+import { NavLink, Outlet } from 'react-router-dom';
+import { ThemeToggle } from './ThemeToggle';
+
+const NAV_ITEMS = [
+  { to: '/', label: 'Dashboard', end: true, icon: DashboardIcon },
+  { to: '/query', label: 'AI Chat', end: false, icon: ChatIcon },
+  { to: '/admin', label: 'Settings', end: false, icon: SettingsIcon },
+];
+
+export default function Layout() {
+  return (
+    <div className="flex min-h-screen bg-slate-50 dark:bg-gray-900 dark:text-gray-100">
+      <aside className="w-60 shrink-0 border-r border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-800 flex flex-col">
+        <div className="flex items-center gap-2 px-5 py-5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
+            S
+          </span>
+          <div>
+            <p className="text-sm font-semibold leading-tight">SupportForge AI</p>
+            <p className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-gray-500">
+              Support Pipeline
+            </p>
+          </div>
+        </div>
+
+        <nav className="flex-1 space-y-1 px-3">
+          {NAV_ITEMS.map(({ to, label, end, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-gray-700'
+                }`
+              }
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="flex flex-1 flex-col">
+        <header className="flex h-14 items-center justify-end border-b border-slate-200 px-6 dark:border-gray-700">
+          <ThemeToggle />
+        </header>
+        <main className="flex-1">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function DashboardIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path d="M3 3h6v6H3V3zm8 0h6v4h-6V3zm0 6h6v8h-6V9zM3 11h6v6H3v-6z" />
+    </svg>
+  );
+}
+
+function ChatIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M2 5a2 2 0 012-2h12a2 2 0 012 2v7a2 2 0 01-2 2H9l-4 3v-3H4a2 2 0 01-2-2V5z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function SettingsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
