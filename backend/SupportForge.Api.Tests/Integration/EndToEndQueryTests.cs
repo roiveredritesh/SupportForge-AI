@@ -12,10 +12,13 @@ public class EndToEndQueryTests : IClassFixture<WebApplicationFactory<Program>>
 
     public EndToEndQueryTests(WebApplicationFactory<Program> factory) => _factory = factory;
 
-    [Fact]
+    [SkippableFact]
     [Trait("Category", "Integration")]
     public async Task Query_AfterIngestion_ReturnsAnswerCitingKbSource()
     {
+        Skip.If(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OpenAI__ApiKey")),
+            "requires OpenAI__ApiKey and a running Chroma instance at localhost:8000");
+
         var client = _factory.CreateClient();
         var kbPath = Path.Combine(AppContext.BaseDirectory, "Integration", "TestData", "sample-kb");
 
