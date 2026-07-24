@@ -11,10 +11,14 @@ public static class FreshnessCalculator
     public static FreshnessScore Calculate(Project project)
     {
         var now = DateTimeOffset.UtcNow;
-        var stale = project.KbSources
+        var staleKbSources = project.KbSources
             .Where(s => s.LastSyncedAt is null || now - s.LastSyncedAt.Value > StaleThreshold)
-            .Select(s => s.Location)
-            .ToList();
+            .Select(s => s.Location);
+        var staleRepos = project.Repos
+            .Where(r => r.LastSyncedAt is null || now - r.LastSyncedAt.Value > StaleThreshold)
+            .Select(r => $"{r.Owner}/{r.Repo}");
+
+        var stale = staleKbSources.Concat(staleRepos).ToList();
 
         return new FreshnessScore(stale.Count == 0, stale);
     }

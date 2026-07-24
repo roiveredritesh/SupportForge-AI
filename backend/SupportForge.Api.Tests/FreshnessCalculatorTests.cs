@@ -40,4 +40,36 @@ public class FreshnessCalculatorTests
         Assert.True(result.IsFresh);
         Assert.Empty(result.StaleSources);
     }
+
+    [Fact]
+    public void Calculate_ReturnsStale_WhenCodeRepoOlderThan7Days()
+    {
+        var project = new Project
+        {
+            Id = "proj1",
+            Name = "Test",
+            Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null, DateTimeOffset.UtcNow.AddDays(-10)) },
+        };
+
+        var result = FreshnessCalculator.Calculate(project);
+
+        Assert.False(result.IsFresh);
+        Assert.Equal("acme/widgets", result.StaleSources.Single());
+    }
+
+    [Fact]
+    public void Calculate_ReturnsStale_WhenCodeRepoNeverSynced()
+    {
+        var project = new Project
+        {
+            Id = "proj1",
+            Name = "Test",
+            Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null, null) },
+        };
+
+        var result = FreshnessCalculator.Calculate(project);
+
+        Assert.False(result.IsFresh);
+        Assert.Equal("acme/widgets", result.StaleSources.Single());
+    }
 }
