@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\SupportForge.Core\SupportForge.Core.csproj" />
+    <ProjectReference Include="..\SupportForge.VectorStore\SupportForge.VectorStore.csproj" />
+    <ProjectReference Include="..\SupportForge.Common\SupportForge.Common.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
