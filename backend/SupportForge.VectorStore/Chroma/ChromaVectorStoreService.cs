@@ -8,16 +8,18 @@ namespace SupportForge.VectorStore.Chroma;
 public sealed class ChromaVectorStoreService : IVectorStoreService
 {
     private readonly HttpClient _http;
+    private readonly string _collectionsPath;
 
     public ChromaVectorStoreService(HttpClient http, IOptions<ChromaOptions> options)
     {
         _http = http;
         _http.BaseAddress ??= new Uri(options.Value.BaseUrl);
+        _collectionsPath = $"/api/v2/tenants/{options.Value.Tenant}/databases/{options.Value.Database}/collections";
     }
 
     public async Task UpsertAsync(string collection, IReadOnlyList<VectorDocument> documents, CancellationToken ct = default)
     {
-        await EnsureCollectionAsync(collection, ct);
+        var collectionId = await ResolveCollectionIdAsync(collection, ct);
 
         var payload = new
         {
@@ -27,7 +29,7 @@ public sealed class ChromaVectorStoreService : IVectorStoreService
             metadatas = documents.Select(d => d.Metadata).ToArray(),
         };
 
-        var response = await _http.PostAsJsonAsync($"/api/v1/collections/{collection}/upsert", payload, ct);
+        var response = await _http.PostAsJsonAsync($"{_collectionsPath}/{collectionId}/upsert", payload, ct);
         response.EnsureSuccessStatusCode();
     }
 
@@ -38,6 +40,8 @@ public sealed class ChromaVectorStoreService : IVectorStoreService
         IReadOnlyDictionary<string, string>? metadataFilter = null,
         CancellationToken ct = default)
     {
+        var collectionId = await ResolveCollectionIdAsync(collection, ct);
+
         var payload = new
         {
             query_embeddings = new[] { queryEmbedding },
@@ -45,7 +49,7 @@ public sealed class ChromaVectorStoreService : IVectorStoreService
             where = metadataFilter,
         };
 
-        var response = await _http.PostAsJsonAsync($"/api/v1/collections/{collection}/query", payload, ct);
+        var response = await _http.PostAsJsonAsync($"{_collectionsPath}/{collectionId}/query", payload, ct);
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadFromJsonAsync<ChromaQueryResponse>(cancellationToken: ct)
@@ -66,21 +70,33 @@ public sealed class ChromaVectorStoreService : IVectorStoreService
 
     public async Task DeleteAsync(string collection, IReadOnlyList<string> ids, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync($"/api/v1/collections/{collection}/delete", new { ids }, ct);
+        var collectionId = await ResolveCollectionIdAsync(collection, ct);
+        var response = await _http.PostAsJsonAsync($"{_collectionsPath}/{collectionId}/delete", new { ids }, ct);
         response.EnsureSuccessStatusCode();
     }
 
     public async Task DeleteCollectionAsync(string collection, CancellationToken ct = default)
     {
-        var response = await _http.DeleteAsync($"/api/v1/collections/{collection}", ct);
+        var response = await _http.DeleteAsync($"{_collectionsPath}/{collection}", ct);
         if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
             response.EnsureSuccessStatusCode();
     }
 
-    private async Task EnsureCollectionAsync(string collection, CancellationToken ct)
+    // Chroma's v2 API resolves GET/DELETE collection routes by name, but upsert/query/delete-records
+    // routes require the collection's UUID, so those need a get_or_create round-trip first.
+    private async Task<string> ResolveCollectionIdAsync(string collection, CancellationToken ct)
     {
-        var response = await _http.PostAsJsonAsync("/api/v1/collections", new { name = collection, get_or_create = true }, ct);
+        var response = await _http.PostAsJsonAsync(_collectionsPath, new { name = collection, get_or_create = true }, ct);
         response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<ChromaCollection>(cancellationToken: ct)
+                   ?? throw new InvalidOperationException("Empty Chroma response");
+        return body.Id;
+    }
+
+    private sealed class ChromaCollection
+    {
+        public string Id { get; set; } = string.Empty;
     }
 
     private sealed class ChromaQueryResponse

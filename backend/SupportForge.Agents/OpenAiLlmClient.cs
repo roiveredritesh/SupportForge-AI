@@ -6,16 +6,25 @@ namespace SupportForge.Agents;
 public class OpenAiLlmClient : ILlmClient
 {
     private readonly HttpClient _http;
+    private readonly string _chatModel;
+    private readonly string _embeddingModel;
+    private readonly string? _embeddingInputType;
 
     public virtual int LastTotalTokens { get; protected set; }
 
-    public OpenAiLlmClient(HttpClient http) => _http = http;
+    public OpenAiLlmClient(HttpClient http, string chatModel = "gpt-4o-mini", string embeddingModel = "text-embedding-3-small", string? embeddingInputType = null)
+    {
+        _http = http;
+        _chatModel = chatModel;
+        _embeddingModel = embeddingModel;
+        _embeddingInputType = embeddingInputType;
+    }
 
     public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("chat/completions", new
         {
-            model = "gpt-4o-mini",
+            model = _chatModel,
             messages = new object[]
             {
                 new { role = "system", content = systemPrompt },
@@ -31,7 +40,14 @@ public class OpenAiLlmClient : ILlmClient
 
     public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("embeddings", new { model = "text-embedding-3-small", input = text }, ct);
+        // ponytail: NIM asymmetric embedding models need input_type "query" vs "passage" depending on
+        // whether text is being indexed or searched; this client doesn't distinguish callers, so a single
+        // configured type is used for both. Fine for dev/testing; split indexing from search if retrieval
+        // quality matters.
+        object payload = _embeddingInputType is null
+            ? new { model = _embeddingModel, input = text }
+            : new { model = _embeddingModel, input = text, input_type = _embeddingInputType, encoding_format = "float" };
+        var response = await _http.PostAsJsonAsync("embeddings", payload, ct);
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadFromJsonAsync<EmbeddingResponse>(cancellationToken: ct);
@@ -42,7 +58,7 @@ public class OpenAiLlmClient : ILlmClient
     {
         var response = await _http.PostAsJsonAsync("chat/completions", new
         {
-            model = "gpt-4o-mini",
+            model = _chatModel,
             messages = new object[]
             {
                 new
