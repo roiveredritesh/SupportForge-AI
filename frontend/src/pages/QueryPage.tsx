@@ -3,6 +3,7 @@ import { ScreenshotDropzone } from '../components/ScreenshotDropzone';
 import { useChatQuery } from '../hooks/useChatQuery';
 import { useAppStore } from '../store/useAppStore';
 import { ResultsPanel } from '../components/ResultsPanel';
+import { useSubmitFeedback } from '../hooks/useSubmitFeedback';
 
 const STEPS = ['Triage', 'Research', 'Analysis', 'Drafting'] as const;
 
@@ -11,6 +12,7 @@ export default function QueryPage() {
   const [query, setQuery] = useState('');
   const [screenshotBase64, setScreenshotBase64] = useState<string | undefined>();
   const chatQuery = useChatQuery();
+  const submitFeedback = useSubmitFeedback();
 
   const handleSubmit = () => {
     if (!selectedProjectId) return;
@@ -39,7 +41,14 @@ export default function QueryPage() {
         <p className="text-sm text-gray-500">{STEPS.join(' → ')}...</p>
       )}
 
-      {chatQuery.data && <ResultsPanel result={chatQuery.data} />}
+      {chatQuery.data && (
+        <ResultsPanel
+          result={chatQuery.data}
+          onCopy={() => navigator.clipboard.writeText(chatQuery.data!.draft)}
+          onMarkUseful={(useful) => submitFeedback.mutate({ projectId: selectedProjectId!, query, useful, escalated: false })}
+          onEscalate={() => submitFeedback.mutate({ projectId: selectedProjectId!, query, escalated: true })}
+        />
+      )}
       {chatQuery.isError && (
         <p className="text-sm text-red-600">
           Something went wrong. <button className="underline" onClick={handleSubmit}>Retry</button>
