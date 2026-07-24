@@ -1,3 +1,4 @@
+using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.VectorStore;
 
@@ -16,6 +17,12 @@ builder.Services.AddCors(options =>
 builder.Services.AddVectorStore(builder.Configuration);
 builder.Services.AddSingleton<IProjectRepository>(
     new JsonFileProjectRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddHttpClient<ILlmClient, OpenAiLlmClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.openai.com/v1/");
+    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {builder.Configuration["OpenAI:ApiKey"]}");
+});
+builder.Services.AddScoped<TriageAgent>();
 
 var app = builder.Build();
 
