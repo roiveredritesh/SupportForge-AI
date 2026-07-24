@@ -23,6 +23,12 @@ builder.Services.AddHttpClient<ILlmClient, OpenAiLlmClient>(client =>
     client.DefaultRequestHeaders.Add("Authorization", $"Bearer {builder.Configuration["OpenAI:ApiKey"]}");
 });
 builder.Services.AddScoped<TriageAgent>();
+builder.Services.AddScoped<DrafterAgent>();
+builder.Services.AddScoped<AgentPipeline>(sp => new AgentPipeline(new IAgent[]
+{
+    sp.GetRequiredService<TriageAgent>(),
+    sp.GetRequiredService<DrafterAgent>(),
+}));
 
 var app = builder.Build();
 
