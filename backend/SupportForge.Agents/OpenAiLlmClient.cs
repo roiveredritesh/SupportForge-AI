@@ -7,7 +7,7 @@ public class OpenAiLlmClient : ILlmClient
 {
     private readonly HttpClient _http;
 
-    public int LastTotalTokens { get; private set; }
+    public virtual int LastTotalTokens { get; protected set; }
 
     public OpenAiLlmClient(HttpClient http) => _http = http;
 

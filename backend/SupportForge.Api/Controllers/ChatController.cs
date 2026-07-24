@@ -12,13 +12,11 @@ public class ChatController : ControllerBase
 {
     private readonly CoordinatorPipeline _pipeline;
     private readonly ITokenUsageRepository _tokenUsage;
-    private readonly ILlmClient _llm;
 
-    public ChatController(CoordinatorPipeline pipeline, ITokenUsageRepository tokenUsage, ILlmClient llm)
+    public ChatController(CoordinatorPipeline pipeline, ITokenUsageRepository tokenUsage)
     {
         _pipeline = pipeline;
         _tokenUsage = tokenUsage;
-        _llm = llm;
     }
 
     [HttpPost("query")]
@@ -32,7 +30,7 @@ public class ChatController : ControllerBase
         };
 
         var result = await _pipeline.RunAsync(context, ct);
-        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, ((OpenAiLlmClient)_llm).LastTotalTokens, DateTimeOffset.UtcNow), ct);
+        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
 
         return Ok(new ChatQueryResponse
         {

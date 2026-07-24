@@ -25,6 +25,7 @@ public sealed class DrafterAgent : IAgent
 
         context.Draft = await _llm.CompleteAsync(systemPrompt, userPrompt, ct);
         context.Confidence = context.KbSnippets.Count + context.CodeSnippets.Count > 0 ? 0.8 : 0.4;
+        context.TotalTokensUsed += _llm.LastTotalTokens;
         return context;
     }
 }

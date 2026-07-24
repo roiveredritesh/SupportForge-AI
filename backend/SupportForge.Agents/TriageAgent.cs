@@ -16,6 +16,7 @@ public sealed class TriageAgent : IAgent
 
         var intent = await _llm.CompleteAsync(systemPrompt, context.Query, ct);
         context.Intent = intent.Trim();
+        context.TotalTokensUsed += _llm.LastTotalTokens;
         return context;
     }
 }

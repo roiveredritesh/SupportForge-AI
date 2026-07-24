@@ -13,4 +13,5 @@ public sealed class AgentContext
     public string Draft { get; set; } = string.Empty;
     public List<(string Label, string Url)> Sources { get; } = new();
     public double Confidence { get; set; }
+    public int TotalTokensUsed { get; set; }
 }
