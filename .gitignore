@@ -8,3 +8,4 @@ appsettings.Development.json
 frontend/.env
 .claude/
 publish/
+App_Data/
