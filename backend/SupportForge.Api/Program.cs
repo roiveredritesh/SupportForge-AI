@@ -1,6 +1,7 @@
 using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Ingestion;
+using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
 using SupportForge.VectorStore;
 
@@ -34,6 +35,12 @@ builder.Services.AddScoped<AgentPipeline>(sp => new AgentPipeline(new IAgent[]
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionBackgroundService>();
 builder.Services.AddSingleton<IIngestionJobFactory, DocumentIngestionJobFactory>();
+builder.Services.AddSingleton<GitRepoSyncService>();
+builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFactory(
+    sp.GetRequiredService<GitRepoSyncService>(),
+    sp.GetRequiredService<ILlmClient>(),
+    sp.GetRequiredService<IVectorStoreService>(),
+    Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos")));
 
 var app = builder.Build();
 
