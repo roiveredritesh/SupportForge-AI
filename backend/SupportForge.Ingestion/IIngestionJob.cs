@@ -1,3 +1,5 @@
+using SupportForge.Core.Entities;
+
 namespace SupportForge.Ingestion;
 
 public interface IIngestionJob
@@ -8,5 +10,5 @@ public interface IIngestionJob
 
 public interface IIngestionJobFactory
 {
-    IEnumerable<IIngestionJob> CreateJobs(SupportForge.Core.Entities.Project project);
+    IEnumerable<IIngestionJob> CreateJobs(Project project);
 }

@@ -1,6 +1,7 @@
 using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Ingestion;
+using SupportForge.Ingestion.Documents;
 using SupportForge.VectorStore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -32,6 +33,7 @@ builder.Services.AddScoped<AgentPipeline>(sp => new AgentPipeline(new IAgent[]
 }));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionBackgroundService>();
+builder.Services.AddSingleton<IIngestionJobFactory, DocumentIngestionJobFactory>();
 
 var app = builder.Build();
 
