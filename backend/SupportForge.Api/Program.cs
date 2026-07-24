@@ -1,3 +1,5 @@
+using SupportForge.VectorStore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
@@ -10,6 +12,7 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
+builder.Services.AddVectorStore(builder.Configuration);
 
 var app = builder.Build();
 
