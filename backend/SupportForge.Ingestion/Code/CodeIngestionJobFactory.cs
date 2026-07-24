@@ -1,4 +1,5 @@
 using SupportForge.Agents;
+using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.VectorStore;
 
@@ -10,13 +11,15 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
     private readonly ILlmClient _llm;
     private readonly IVectorStoreService _vectorStore;
     private readonly string _cacheRoot;
+    private readonly IProjectRepository _projects;
 
-    public CodeIngestionJobFactory(GitRepoSyncService gitSync, ILlmClient llm, IVectorStoreService vectorStore, string cacheRoot)
+    public CodeIngestionJobFactory(GitRepoSyncService gitSync, ILlmClient llm, IVectorStoreService vectorStore, string cacheRoot, IProjectRepository projects)
     {
         _gitSync = gitSync;
         _llm = llm;
         _vectorStore = vectorStore;
         _cacheRoot = cacheRoot;
+        _projects = projects;
     }
 
     public IEnumerable<IIngestionJob> CreateJobs(Project project) =>
@@ -25,5 +28,7 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
             $"https://github.com/{r.Owner}/{r.Repo}.git",
             r.DefaultBranch,
             Path.Combine(_cacheRoot, project.Id, r.Repo),
-            _gitSync, _llm, _vectorStore));
+            r.Owner,
+            r.Repo,
+            _gitSync, _llm, _vectorStore, _projects));
 }

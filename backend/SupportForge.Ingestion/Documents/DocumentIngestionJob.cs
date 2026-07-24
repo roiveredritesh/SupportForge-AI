@@ -1,4 +1,5 @@
 using SupportForge.Agents;
+using SupportForge.Core;
 using SupportForge.VectorStore;
 using SupportForge.VectorStore.Models;
 
@@ -9,15 +10,17 @@ public sealed class DocumentIngestionJob : IIngestionJob
     private readonly string _folderPath;
     private readonly ILlmClient _llm;
     private readonly IVectorStoreService _vectorStore;
+    private readonly IProjectRepository _projects;
 
     public string ProjectId { get; }
 
-    public DocumentIngestionJob(string projectId, string folderPath, ILlmClient llm, IVectorStoreService vectorStore)
+    public DocumentIngestionJob(string projectId, string folderPath, ILlmClient llm, IVectorStoreService vectorStore, IProjectRepository projects)
     {
         ProjectId = projectId;
         _folderPath = folderPath;
         _llm = llm;
         _vectorStore = vectorStore;
+        _projects = projects;
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -46,5 +49,16 @@ public sealed class DocumentIngestionJob : IIngestionJob
 
         if (documents.Count > 0)
             await _vectorStore.UpsertAsync($"{ProjectId}-kb", documents, ct);
+
+        var project = await _projects.GetByIdAsync(ProjectId, ct);
+        if (project != null)
+        {
+            var sourceIndex = project.KbSources.FindIndex(s => s.Location == _folderPath);
+            if (sourceIndex >= 0)
+            {
+                project.KbSources[sourceIndex] = project.KbSources[sourceIndex] with { LastSyncedAt = DateTimeOffset.UtcNow };
+                await _projects.UpsertAsync(project, ct);
+            }
+        }
     }
 }
