@@ -2,13 +2,15 @@ using System.Net.Http.Json;
 
 namespace SupportForge.Agents;
 
-public sealed class OpenAiLlmClient : ILlmClient
+public class OpenAiLlmClient : ILlmClient
 {
     private readonly HttpClient _http;
 
+    public int LastTotalTokens { get; private set; }
+
     public OpenAiLlmClient(HttpClient http) => _http = http;
 
-    public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
+    public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("chat/completions", new
         {
@@ -22,10 +24,11 @@ public sealed class OpenAiLlmClient : ILlmClient
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: ct);
+        LastTotalTokens = body?.Usage?.TotalTokens ?? 0;
         return body?.Choices.FirstOrDefault()?.Message.Content?.Trim() ?? string.Empty;
     }
 
-    public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("embeddings", new { model = "text-embedding-3-small", input = text }, ct);
         response.EnsureSuccessStatusCode();
@@ -34,7 +37,7 @@ public sealed class OpenAiLlmClient : ILlmClient
         return body?.Data.FirstOrDefault()?.Embedding ?? Array.Empty<float>();
     }
 
-    public async Task<string> AnalyzeImageAsync(string base64Image, string prompt, CancellationToken ct = default)
+    public virtual async Task<string> AnalyzeImageAsync(string base64Image, string prompt, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("chat/completions", new
         {
@@ -55,12 +58,14 @@ public sealed class OpenAiLlmClient : ILlmClient
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadFromJsonAsync<ChatResponse>(cancellationToken: ct);
+        LastTotalTokens = body?.Usage?.TotalTokens ?? 0;
         return body?.Choices.FirstOrDefault()?.Message.Content?.Trim() ?? string.Empty;
     }
 
-    private sealed class ChatResponse { public List<Choice> Choices { get; set; } = new(); }
+    private sealed class ChatResponse { public List<Choice> Choices { get; set; } = new(); public Usage? Usage { get; set; } }
     private sealed class Choice { public Message Message { get; set; } = new(); }
     private sealed class Message { public string? Content { get; set; } }
+    private sealed class Usage { public int TotalTokens { get; set; } }
     private sealed class EmbeddingResponse { public List<EmbeddingData> Data { get; set; } = new(); }
     private sealed class EmbeddingData { public float[] Embedding { get; set; } = Array.Empty<float>(); }
 }

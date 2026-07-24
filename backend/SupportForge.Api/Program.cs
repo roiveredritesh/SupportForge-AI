@@ -23,6 +23,8 @@ builder.Services.AddSingleton<IProjectRepository>(
     new JsonFileProjectRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IFeedbackRepository>(
     new JsonFileFeedbackRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<ITokenUsageRepository>(
+    new JsonFileTokenUsageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddHttpClient<ILlmClient, OpenAiLlmClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.openai.com/v1/");
