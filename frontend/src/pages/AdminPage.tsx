@@ -51,15 +51,27 @@ export default function AdminPage() {
         <h2 className="font-medium">Existing Projects</h2>
         <ul className="space-y-2">
           {projects?.map((p) => (
-            <li key={p.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
-              <span>{p.name} ({p.id})</span>
-              <button
-                className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
-                onClick={() => triggerIngestion.mutate(p.id)}
-                disabled={triggerIngestion.isPending}
-              >
-                Re-index
-              </button>
+            <li key={p.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
+              <div className="flex items-center justify-between">
+                <span>{p.name} ({p.id})</span>
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                  onClick={() => triggerIngestion.mutate(p.id)}
+                  disabled={triggerIngestion.isPending}
+                >
+                  Re-index
+                </button>
+              </div>
+              {(p.repos.length > 0 || p.kbSources.length > 0) && (
+                <ul className="mt-1 space-y-0.5 text-sm text-gray-500">
+                  {p.repos.map((r) => (
+                    <li key={`${r.owner}/${r.repo}`}>Repo: {r.owner}/{r.repo} ({r.defaultBranch})</li>
+                  ))}
+                  {p.kbSources.map((k) => (
+                    <li key={k.location}>KB: {k.location}</li>
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
         </ul>

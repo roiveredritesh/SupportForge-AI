@@ -22,13 +22,21 @@ export default function DashboardPage() {
       </div>
 
       <div className="flex gap-3">
-        <Link
-          to="/query"
-          className="inline-block rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-50"
-          aria-disabled={!selectedProjectId}
-        >
-          New Query
-        </Link>
+        {selectedProjectId ? (
+          <Link
+            to="/query"
+            className="inline-block rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
+          >
+            New Query
+          </Link>
+        ) : (
+          <span
+            className="inline-block cursor-not-allowed rounded-lg bg-indigo-600 px-4 py-2 text-white opacity-50"
+            title="Select a project first"
+          >
+            New Query
+          </span>
+        )}
         <Link
           to="/admin"
           className="inline-block rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"

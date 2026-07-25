@@ -1,16 +1,35 @@
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using SupportForge.Agents;
+using SupportForge.Agents.Tools;
 using SupportForge.Api.Controllers;
 using SupportForge.Api.Contracts;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
+using SupportForge.VectorStore;
+using SupportForge.VectorStore.Models;
 using Xunit;
 
 namespace SupportForge.Api.Tests.Controllers;
 
 public class ChatControllerTests
 {
+    private static ChatController MakeController(CoordinatorPipeline pipeline, ILlmClient llm, ITokenUsageRepository tokenUsage)
+    {
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.QueryAsync(It.IsAny<string>(), It.IsAny<float[]>(), It.IsAny<int>(), null, default))
+            .ReturnsAsync(new List<VectorQueryResult>());
+
+        return new ChatController(
+            pipeline,
+            new TriageAgent(llm),
+            new KbResearcherAgent(new KbSearchTool(llm, vectorStore.Object)),
+            new CodeAnalyzerAgent(new CodeSearchTool(llm, vectorStore.Object)),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(llm)),
+            llm,
+            tokenUsage);
+    }
+
     [Fact]
     public async Task Query_ReturnsDraftAndConfidence_FromPipeline()
     {
@@ -20,7 +39,7 @@ public class ChatControllerTests
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(new IAgent[] { new TriageAgent(openAiLlm), new DrafterAgent(openAiLlm) });
         var tokenUsage = new Mock<ITokenUsageRepository>();
-        var controller = new ChatController(pipeline, tokenUsage.Object);
+        var controller = MakeController(pipeline, openAiLlm, tokenUsage.Object);
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "Getting a 500 error" });
 
@@ -45,7 +64,7 @@ public class ChatControllerTests
         tokenUsage.Setup(t => t.AddAsync(It.IsAny<TokenUsageEntry>(), default))
             .Callback<TokenUsageEntry, CancellationToken>((entry, _) => recorded = entry)
             .Returns(Task.CompletedTask);
-        var controller = new ChatController(pipeline, tokenUsage.Object);
+        var controller = MakeController(pipeline, openAiLlm, tokenUsage.Object);
 
         await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "Getting a 500 error" });
 
