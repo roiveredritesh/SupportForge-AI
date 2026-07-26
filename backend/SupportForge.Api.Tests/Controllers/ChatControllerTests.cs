@@ -26,6 +26,8 @@ public class ChatControllerTests
         var messages = new Mock<IChatMessageRepository>();
         messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
+        messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ChatMessage>());
 
         return new ChatController(
             pipeline,

@@ -16,7 +16,7 @@ public sealed class CodeAnalyzerAgent : IAgent
         var results = await _tool.SearchAsync(context.ProjectId, context.Query, ct: ct);
         foreach (var (text, file) in results)
         {
-            context.CodeSnippets.Add(text);
+            context.CodeSnippets.Add($"// {file}\n{text}");
             context.Sources.Add(($"Code: {file}", file));
         }
         return context;

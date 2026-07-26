@@ -92,6 +92,14 @@ public class ChatController : ControllerBase
         await _conversations.UpsertAsync(conversation, ct);
     }
 
+    // Last 6 messages (3 turns) — ponytail: fixed-window cap, revisit with token-aware
+    // trimming if transcripts get long.
+    private async Task<List<(string Role, string Content)>> LoadRecapAsync(string conversationId, CancellationToken ct)
+    {
+        var history = await _messages.GetByConversationIdAsync(conversationId, ct);
+        return history.TakeLast(6).Select(m => (m.Role, m.Content)).ToList();
+    }
+
     [HttpPost("query")]
     public async Task<ActionResult<ChatQueryResponse>> Query([FromBody] ChatQueryRequest request, CancellationToken ct = default)
     {
@@ -104,6 +112,7 @@ public class ChatController : ControllerBase
             Query = request.Query,
             ScreenshotBase64 = request.ScreenshotBase64,
         };
+        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
 
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
@@ -139,6 +148,7 @@ public class ChatController : ControllerBase
             Query = request.Query,
             ScreenshotBase64 = request.ScreenshotBase64,
         };
+        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
 
         context = await _triage.RunAsync(context, ct);
         context = await _kbResearcher.RunAsync(context, ct);
