@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using SupportForge.Agents;
@@ -19,6 +20,7 @@ public class IngestionJobFactoryTests
         services.AddTransient<ILlmClient>(_ => new Mock<ILlmClient>().Object);
         services.AddTransient<IVectorStoreService>(_ => new Mock<IVectorStoreService>().Object);
         services.AddSingleton<IProjectRepository>(new Mock<IProjectRepository>().Object);
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton<GitRepoSyncService>();
         return services.BuildServiceProvider();
     }

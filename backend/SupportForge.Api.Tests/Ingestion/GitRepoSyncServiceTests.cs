@@ -1,4 +1,5 @@
 using LibGit2Sharp;
+using Microsoft.Extensions.Configuration;
 using SupportForge.Ingestion.Code;
 using Xunit;
 
@@ -24,7 +25,7 @@ public class GitRepoSyncServiceTests
             seedRepo.Network.Push(seedRepo.Branches["master"]);
         }
 
-        var sut = new GitRepoSyncService();
+        var sut = new GitRepoSyncService(new ConfigurationBuilder().Build());
         sut.CloneOrPull(remoteDir, localDir, "master");
 
         Assert.True(File.Exists(Path.Combine(localDir, "readme.md")));
