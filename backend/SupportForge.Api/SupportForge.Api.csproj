@@ -8,6 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- App_Data/repos holds git-cloned source ingested at runtime; the SDK's default globs would
+         otherwise sweep those files into this project's own compilation. -->
+    <Compile Remove="App_Data\**" />
+    <Content Remove="App_Data\**" />
+    <EmbeddedResource Remove="App_Data\**" />
+    <None Remove="App_Data\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\SupportForge.Core\SupportForge.Core.csproj" />
     <ProjectReference Include="..\SupportForge.Agents\SupportForge.Agents.csproj" />
     <ProjectReference Include="..\SupportForge.VectorStore\SupportForge.VectorStore.csproj" />
