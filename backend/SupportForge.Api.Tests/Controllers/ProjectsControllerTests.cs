@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Moq;
 using SupportForge.Api.Controllers;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
+using SupportForge.VectorStore;
 using Xunit;
 
 namespace SupportForge.Api.Tests.Controllers;
@@ -16,7 +19,15 @@ public class ProjectsControllerTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var repo = new JsonFileProjectRepository(tempDir);
-        var controller = new ProjectsController(repo);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            env.Object);
 
         var project = new Project { Id = "proj1", Name = "Test Project" };
         await controller.CreateOrUpdate(project);

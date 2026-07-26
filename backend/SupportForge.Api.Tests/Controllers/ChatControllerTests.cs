@@ -20,6 +20,13 @@ public class ChatControllerTests
         vectorStore.Setup(v => v.QueryAsync(It.IsAny<string>(), It.IsAny<float[]>(), It.IsAny<int>(), null, default))
             .ReturnsAsync(new List<VectorQueryResult>());
 
+        var conversations = new Mock<IConversationRepository>();
+        conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var messages = new Mock<IChatMessageRepository>();
+        messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
         return new ChatController(
             pipeline,
             new TriageAgent(llm),
@@ -27,7 +34,9 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new CodeSearchTool(llm, vectorStore.Object)),
             new VisionAnalyzerAgent(new VisionAnalysisTool(llm)),
             llm,
-            tokenUsage);
+            tokenUsage,
+            conversations.Object,
+            messages.Object);
     }
 
     [Fact]

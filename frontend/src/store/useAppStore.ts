@@ -5,7 +5,7 @@ type Theme = 'light' | 'dark';
 
 interface AppState {
   selectedProjectId: string | null;
-  setSelectedProjectId: (id: string) => void;
+  setSelectedProjectId: (id: string | null) => void;
   theme: Theme;
   toggleTheme: () => void;
 }

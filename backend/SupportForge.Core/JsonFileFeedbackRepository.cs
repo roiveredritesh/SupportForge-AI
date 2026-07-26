@@ -28,4 +28,19 @@ public sealed class JsonFileFeedbackRepository : IFeedbackRepository
         }
         finally { _lock.Release(); }
     }
+
+    public async Task DeleteByProjectIdAsync(string projectId, CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var all = File.Exists(_filePath)
+                ? JsonSerializer.Deserialize<List<FeedbackEntry>>(await File.ReadAllTextAsync(_filePath, ct)) ?? new()
+                : new List<FeedbackEntry>();
+
+            all.RemoveAll(f => f.ProjectId == projectId);
+            await File.WriteAllTextAsync(_filePath, JsonSerializer.Serialize(all, new JsonSerializerOptions { WriteIndented = true }), ct);
+        }
+        finally { _lock.Release(); }
+    }
 }
