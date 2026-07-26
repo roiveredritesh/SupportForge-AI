@@ -1,0 +1,61 @@
+import ReactMarkdown from 'react-markdown';
+import { ConfidenceBadge } from './ConfidenceBadge';
+import type { Source } from '../hooks/useChatQuery';
+
+export interface MessageBubbleActions {
+  onCopy: () => void;
+  onMarkUseful: (useful: boolean) => void;
+  onEscalate: () => void;
+}
+
+interface Props {
+  role: 'user' | 'assistant';
+  content: string;
+  confidence?: number;
+  sources?: Source[];
+  actions?: MessageBubbleActions;
+}
+
+export function MessageBubble({ role, content, confidence, sources, actions }: Props) {
+  if (role === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[80%] whitespace-pre-wrap rounded-lg bg-indigo-600 px-4 py-2 text-white">
+          {content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[80%] space-y-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        {confidence !== undefined && <ConfidenceBadge confidence={confidence} />}
+
+        <div className="prose prose-sm max-w-none dark:prose-invert">
+          <ReactMarkdown>{content}</ReactMarkdown>
+        </div>
+
+        {sources && sources.length > 0 && (
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            <strong>Sources:</strong>
+            <ul className="list-disc list-inside">
+              {sources.map((s) => (
+                <li key={s.url}>{s.label}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {actions && (
+          <div className="flex gap-2 pt-2">
+            <button className="rounded border px-3 py-1 text-sm" onClick={actions.onCopy}>Copy Response</button>
+            <button className="rounded border px-3 py-1 text-sm" onClick={() => actions.onMarkUseful(true)}>Mark Useful</button>
+            <button className="rounded border px-3 py-1 text-sm" onClick={() => actions.onMarkUseful(false)}>Not Useful</button>
+            <button className="rounded border px-3 py-1 text-sm" onClick={actions.onEscalate}>Escalate</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

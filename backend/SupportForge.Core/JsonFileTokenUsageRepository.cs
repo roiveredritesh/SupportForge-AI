@@ -41,4 +41,19 @@ public sealed class JsonFileTokenUsageRepository : ITokenUsageRepository
         }
         finally { _lock.Release(); }
     }
+
+    public async Task DeleteByProjectIdAsync(string projectId, CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var all = File.Exists(_filePath)
+                ? JsonSerializer.Deserialize<List<TokenUsageEntry>>(await File.ReadAllTextAsync(_filePath, ct)) ?? new()
+                : new List<TokenUsageEntry>();
+
+            all.RemoveAll(e => e.ProjectId == projectId);
+            await File.WriteAllTextAsync(_filePath, JsonSerializer.Serialize(all), ct);
+        }
+        finally { _lock.Release(); }
+    }
 }

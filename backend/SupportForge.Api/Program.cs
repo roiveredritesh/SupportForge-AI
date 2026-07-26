@@ -33,6 +33,10 @@ builder.Services.AddSingleton<IFeedbackRepository>(
     new JsonFileFeedbackRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<ITokenUsageRepository>(
     new JsonFileTokenUsageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IConversationRepository>(
+    new JsonFileConversationRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IChatMessageRepository>(
+    new JsonFileChatMessageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 // "Llm:Provider" selects which named section below (e.g. "OpenAI", "NvidiaNim") supplies
 // BaseUrl/ChatModel/EmbeddingModel/EmbeddingInputType — switch providers by changing just this flag.
 var llmProvider = builder.Configuration["Llm:Provider"] ?? "OpenAI";

@@ -5,6 +5,7 @@ export interface ChatQueryRequest {
   projectId: string;
   query: string;
   screenshotBase64?: string;
+  conversationId?: string;
 }
 
 export interface Source { label: string; url: string; }
@@ -13,6 +14,7 @@ export interface ChatQueryResponse {
   draft: string;
   confidence: number;
   sources: Source[];
+  conversationId: string;
 }
 
 export function useChatQuery() {

@@ -49,4 +49,20 @@ public sealed class JsonFileProjectRepository : IProjectRepository
         }
         finally { _lock.Release(); }
     }
+
+    public async Task DeleteAsync(string id, CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var all = File.Exists(_filePath)
+                ? JsonSerializer.Deserialize<List<Project>>(await File.ReadAllTextAsync(_filePath, ct)) ?? new()
+                : new List<Project>();
+
+            all.RemoveAll(p => p.Id == id);
+
+            await File.WriteAllTextAsync(_filePath, JsonSerializer.Serialize(all, new JsonSerializerOptions { WriteIndented = true }), ct);
+        }
+        finally { _lock.Release(); }
+    }
 }

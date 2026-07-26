@@ -2,11 +2,21 @@ import { useState } from 'react';
 import { useProjects } from '../hooks/useProjects';
 import { useCreateProject } from '../hooks/useCreateProject';
 import { useTriggerIngestion } from '../hooks/useTriggerIngestion';
+import { useDeleteProject } from '../hooks/useDeleteProject';
+import { useAppStore } from '../store/useAppStore';
 
 export default function AdminPage() {
   const { data: projects } = useProjects();
   const createProject = useCreateProject();
   const triggerIngestion = useTriggerIngestion();
+  const deleteProject = useDeleteProject();
+  const { selectedProjectId, setSelectedProjectId } = useAppStore();
+
+  const handleDelete = (id: string) => {
+    if (!window.confirm('Delete this project and all its indexed data, feedback, and chat history? This cannot be undone.')) return;
+    deleteProject.mutate(id);
+    if (id === selectedProjectId) setSelectedProjectId(null);
+  };
 
   const [id, setId] = useState('');
   const [name, setName] = useState('');
@@ -54,13 +64,22 @@ export default function AdminPage() {
             <li key={p.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
               <div className="flex items-center justify-between">
                 <span>{p.name} ({p.id})</span>
-                <button
-                  className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
-                  onClick={() => triggerIngestion.mutate(p.id)}
-                  disabled={triggerIngestion.isPending}
-                >
-                  Re-index
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                    onClick={() => triggerIngestion.mutate(p.id)}
+                    disabled={triggerIngestion.isPending}
+                  >
+                    Re-index
+                  </button>
+                  <button
+                    className="rounded-lg border border-red-300 px-3 py-1 text-sm text-red-600 hover:bg-red-50 dark:border-red-700 dark:hover:bg-red-950"
+                    onClick={() => handleDelete(p.id)}
+                    disabled={deleteProject.isPending}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
               {(p.repos.length > 0 || p.kbSources.length > 0) && (
                 <ul className="mt-1 space-y-0.5 text-sm text-gray-500">

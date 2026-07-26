@@ -2,7 +2,7 @@ import { Routes, Route } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
-import QueryPage from './pages/QueryPage';
+import ChatPage from './pages/ChatPage';
 import AdminPage from './pages/AdminPage';
 
 export default function App() {
@@ -11,7 +11,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/query" element={<QueryPage />} />
+          <Route path="/query" element={<ChatPage />} />
           <Route path="/admin" element={<AdminPage />} />
         </Route>
       </Routes>
