@@ -36,6 +36,10 @@ public sealed class IngestionBackgroundService : BackgroundService
             {
                 _logger.LogError(ex, "Ingestion job failed for project {ProjectId}", job.ProjectId);
             }
+            finally
+            {
+                _queue.MarkComplete(job.ProjectId);
+            }
         }
     }
 }

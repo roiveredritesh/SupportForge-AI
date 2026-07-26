@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
+using SupportForge.Ingestion;
 using SupportForge.VectorStore;
 
 namespace SupportForge.Api.Controllers;
@@ -15,6 +16,7 @@ public class ProjectsController : ControllerBase
     private readonly ITokenUsageRepository _tokenUsage;
     private readonly IConversationRepository _conversations;
     private readonly IWebHostEnvironment _env;
+    private readonly IngestionQueue _ingestionQueue;
 
     public ProjectsController(
         IProjectRepository repo,
@@ -22,7 +24,8 @@ public class ProjectsController : ControllerBase
         IFeedbackRepository feedback,
         ITokenUsageRepository tokenUsage,
         IConversationRepository conversations,
-        IWebHostEnvironment env)
+        IWebHostEnvironment env,
+        IngestionQueue ingestionQueue)
     {
         _repo = repo;
         _vectorStore = vectorStore;
@@ -30,6 +33,7 @@ public class ProjectsController : ControllerBase
         _tokenUsage = tokenUsage;
         _conversations = conversations;
         _env = env;
+        _ingestionQueue = ingestionQueue;
     }
 
     [HttpGet]
@@ -53,6 +57,11 @@ public class ProjectsController : ControllerBase
         // (and this endpoint) retryable instead of orphaning its data with no way to find it again.
         await _vectorStore.DeleteCollectionAsync($"{id}-kb", ct);
         await _vectorStore.DeleteCollectionAsync($"{id}-code", ct);
+
+        // A code-sync (POST /api/ingestion/trigger, or an automatic re-sync) may still be
+        // cloning/reading this project's repo on the background ingestion worker; deleting
+        // out from under it is a real, long-lived lock that no amount of retrying will out-wait.
+        await _ingestionQueue.WaitUntilIdleAsync(id, TimeSpan.FromSeconds(30), ct);
 
         var repoDir = Path.Combine(_env.ContentRootPath, "App_Data", "repos", id);
         await DeleteRepoDirWithRetryAsync(repoDir);
