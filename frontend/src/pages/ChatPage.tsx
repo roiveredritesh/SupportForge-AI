@@ -9,6 +9,7 @@ import { useChatQueryStream } from '../hooks/useChatQueryStream';
 import { useAppStore } from '../store/useAppStore';
 import { useConversation } from '../hooks/useConversations';
 import { useSubmitFeedback } from '../hooks/useSubmitFeedback';
+import type { MessageBubbleActions } from '../components/MessageBubble';
 
 export default function ChatPage() {
   const { selectedProjectId } = useAppStore();
@@ -67,6 +68,18 @@ export default function ChatPage() {
     setQuery('');
   };
 
+  const messages = conversationQuery.data?.messages ?? [];
+  const lastUserQuery = !pendingQuery ? [...messages].reverse().find((m) => m.role === 'user')?.content : undefined;
+  const lastAssistantActions: MessageBubbleActions | undefined = lastUserQuery
+    ? {
+        onCopy: () => navigator.clipboard.writeText([...messages].reverse().find((m) => m.role === 'assistant')?.content ?? ''),
+        onMarkUseful: (useful) =>
+          submitFeedback.mutate({ projectId: selectedProjectId!, query: lastUserQuery, useful, escalated: false }),
+        onEscalate: () =>
+          submitFeedback.mutate({ projectId: selectedProjectId!, query: lastUserQuery, escalated: true }),
+      }
+    : undefined;
+
   if (!selectedProjectId) {
     return (
       <div className="mx-auto max-w-3xl space-y-4 p-6">
@@ -93,7 +106,8 @@ export default function ChatPage() {
         </div>
 
         <MessageThread
-          messages={conversationQuery.data?.messages ?? []}
+          messages={messages}
+          lastAssistantActions={lastAssistantActions}
           pending={
             pendingQuery
               ? {

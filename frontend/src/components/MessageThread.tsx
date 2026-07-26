@@ -13,13 +13,25 @@ interface PendingTurn {
 interface Props {
   messages: ChatMessage[];
   pending?: PendingTurn;
+  lastAssistantActions?: MessageBubbleActions;
 }
 
-export function MessageThread({ messages, pending }: Props) {
+export function MessageThread({ messages, pending, lastAssistantActions }: Props) {
+  const lastAssistantId = !pending
+    ? [...messages].reverse().find((m) => m.role === 'assistant')?.id
+    : undefined;
+
   return (
     <div className="flex-1 space-y-4 overflow-y-auto p-6">
       {messages.map((m) => (
-        <MessageBubble key={m.id} role={m.role} content={m.content} confidence={m.confidence} sources={m.sources} />
+        <MessageBubble
+          key={m.id}
+          role={m.role}
+          content={m.content}
+          confidence={m.confidence}
+          sources={m.sources}
+          actions={m.id === lastAssistantId ? lastAssistantActions : undefined}
+        />
       ))}
 
       {pending && (
