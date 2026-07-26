@@ -55,7 +55,7 @@ public class ProjectsController : ControllerBase
         await _vectorStore.DeleteCollectionAsync($"{id}-code", ct);
 
         var repoDir = Path.Combine(_env.ContentRootPath, "App_Data", "repos", id);
-        if (Directory.Exists(repoDir)) Directory.Delete(repoDir, recursive: true);
+        await DeleteRepoDirWithRetryAsync(repoDir);
 
         await _feedback.DeleteByProjectIdAsync(id, ct);
         await _tokenUsage.DeleteByProjectIdAsync(id, ct);
@@ -63,5 +63,30 @@ public class ProjectsController : ControllerBase
 
         await _repo.DeleteAsync(id, ct);
         return NoContent();
+    }
+
+    // ponytail: libgit2 (via LibGit2Sharp) memory-maps pack/idx files on Windows and doesn't
+    // always release the mapping the instant a Repository is disposed, so a recursive delete
+    // run right after a clone/pull can hit a still-locked pack file. Retry with a GC nudge
+    // (forces native finalizers to run) instead of a fixed sleep; give up after a few tries so
+    // a genuinely stuck lock still surfaces as a real error.
+    private static async Task DeleteRepoDirWithRetryAsync(string repoDir, int maxAttempts = 3)
+    {
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            if (!Directory.Exists(repoDir)) return;
+
+            try
+            {
+                Directory.Delete(repoDir, recursive: true);
+                return;
+            }
+            catch (Exception ex) when ((ex is UnauthorizedAccessException or IOException) && attempt < maxAttempts)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                await Task.Delay(200 * attempt);
+            }
+        }
     }
 }
