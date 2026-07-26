@@ -37,6 +37,7 @@ public sealed class DocumentIngestionJob : IIngestionJob
         foreach (var file in files)
         {
             var text = await File.ReadAllTextAsync(file, ct);
+            if (string.IsNullOrWhiteSpace(text)) continue;
             var chunks = DocumentChunker.Chunk(text);
 
             for (var i = 0; i < chunks.Count; i++)
@@ -50,8 +51,12 @@ public sealed class DocumentIngestionJob : IIngestionJob
             }
         }
 
-        if (documents.Count > 0)
-            await _vectorStore.UpsertAsync($"{ProjectId}-kb", documents, ct);
+        if (documents.Count == 0)
+            throw new InvalidOperationException(
+                $"KB folder '{_folderPath}' (source '{_sourceLocation}') contained no readable .md/.txt content for project '{ProjectId}'. " +
+                "Only .md and .txt files are supported (e.g. PDFs are not parsed).");
+
+        await _vectorStore.UpsertAsync($"{ProjectId}-kb", documents, ct);
 
         var project = await _projects.GetByIdAsync(ProjectId, ct);
         if (project != null)
