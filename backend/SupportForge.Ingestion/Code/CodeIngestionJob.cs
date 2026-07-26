@@ -49,7 +49,10 @@ public sealed class CodeIngestionJob : IIngestionJob
         {
             var text = await File.ReadAllTextAsync(file, ct);
             var relativePath = Path.GetRelativePath(_localCachePath, file);
-            var chunks = DocumentChunker.Chunk(text, maxChars: 2000);
+            // ponytail: code tokenizes far denser than prose (observed ~0.29 tokens/char for C#), so the
+            // 2000-char cap blew past the embedding model's 512-token limit and NVIDIA rejected the
+            // request with 400. 1000 chars keeps code chunks under that limit with margin.
+            var chunks = DocumentChunker.Chunk(text, maxChars: 1000);
 
             for (var i = 0; i < chunks.Count; i++)
             {
