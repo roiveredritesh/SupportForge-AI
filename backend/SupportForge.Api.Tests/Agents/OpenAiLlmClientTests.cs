@@ -1,6 +1,5 @@
-using System.Net;
+using Microsoft.Extensions.AI;
 using Moq;
-using Moq.Protected;
 using SupportForge.Agents;
 using Xunit;
 
@@ -9,26 +8,21 @@ namespace SupportForge.Api.Tests.Agents;
 public class OpenAiLlmClientTests
 {
     [Fact]
-    public async Task CompleteAsync_ParsesSnakeCaseUsageField_IntoLastTotalTokens()
+    public async Task CompleteAsync_ReadsUsage_IntoLastTotalTokens()
     {
-        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
-        handler.Protected()
-            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+        var chatClient = new Mock<IChatClient>();
+        chatClient
+            .Setup(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ChatResponse(new ChatMessage(ChatRole.Assistant, "hello"))
             {
-                Content = new StringContent("""
-                {
-                  "choices": [{ "message": { "content": "hello" } }],
-                  "usage": { "total_tokens": 42 }
-                }
-                """)
+                Usage = new UsageDetails { TotalTokenCount = 42 },
             });
 
-        var client = new HttpClient(handler.Object) { BaseAddress = new Uri("https://api.openai.com/v1/") };
-        var sut = new OpenAiLlmClient(client);
+        var sut = new OpenAiLlmClient(chatClient.Object, null!, "unused-model");
 
-        await sut.CompleteAsync("system", "user");
+        var result = await sut.CompleteAsync("system", "user");
 
+        Assert.Equal("hello", result);
         Assert.Equal(42, sut.LastTotalTokens);
     }
 }

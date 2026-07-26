@@ -2,6 +2,7 @@ using Moq;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
 using SupportForge.VectorStore;
+using SupportForge.VectorStore.Models;
 using Xunit;
 
 namespace SupportForge.Api.Tests.Agents;
@@ -20,5 +21,28 @@ public class CodeAnalyzerAgentTests
 
         Assert.Empty(result.CodeSnippets);
         vectorStore.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task RunAsync_SearchesCode_WhenIntentIsCodeQuestion()
+    {
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore
+            .Setup(v => v.QueryAsync("proj1-code", It.IsAny<float[]>(), It.IsAny<int>(), null, default))
+            .ReturnsAsync(new List<VectorQueryResult>
+            {
+                new("id1", "public class CodeAnalyzerAgent { ... }", 0.9f, new Dictionary<string, string> { ["file"] = "CodeAnalyzerAgent.cs" }),
+            });
+
+        var agent = new CodeAnalyzerAgent(new CodeSearchTool(llm.Object, vectorStore.Object));
+        var context = new AgentContext { ProjectId = "proj1", Query = "how does CodeAnalyzerAgent work?", Intent = "code_question" };
+
+        var result = await agent.RunAsync(context);
+
+        Assert.Single(result.CodeSnippets);
+        Assert.Contains(result.Sources, s => s.Label == "Code: CodeAnalyzerAgent.cs");
     }
 }

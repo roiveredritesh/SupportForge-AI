@@ -11,7 +11,7 @@ public sealed class CodeAnalyzerAgent : IAgent
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
-        if (context.Intent != "code_issue") return context;
+        if (context.Intent is not ("code_issue" or "code_question")) return context;
 
         var results = await _tool.SearchAsync(context.ProjectId, context.Query, ct: ct);
         foreach (var (text, file) in results)

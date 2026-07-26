@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace SupportForge.Agents;
 
 public sealed class AgentContext
@@ -11,7 +13,10 @@ public sealed class AgentContext
     public List<string> CodeSnippets { get; } = new();
     public string? VisionFindings { get; set; }
     public string Draft { get; set; } = string.Empty;
-    public List<(string Label, string Url)> Sources { get; } = new();
+
+    // ConcurrentBag: KbResearcherAgent and CodeAnalyzerAgent both write here from
+    // concurrent fan-out branches in CoordinatorPipeline.
+    public ConcurrentBag<(string Label, string Url)> Sources { get; } = new();
     public double Confidence { get; set; }
     public int TotalTokensUsed { get; set; }
 }

@@ -34,10 +34,11 @@ public class ChatControllerTests
     public async Task Query_ReturnsDraftAndConfidence_FromPipeline()
     {
         var llmMock = new Mock<ILlmClient>();
-        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), default)).ReturnsAsync("code_issue");
+        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("code_issue");
 
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
-        var pipeline = new CoordinatorPipeline(new IAgent[] { new TriageAgent(openAiLlm), new DrafterAgent(openAiLlm) });
+        var pipeline = new CoordinatorPipeline(
+            new TriageAgent(openAiLlm), new NoOpAgent("KbResearcher"), new NoOpAgent("CodeAnalyzer"), new NoOpAgent("VisionAnalyzer"), new DrafterAgent(openAiLlm));
         var tokenUsage = new Mock<ITokenUsageRepository>();
         var controller = MakeController(pipeline, openAiLlm, tokenUsage.Object);
 
@@ -55,10 +56,11 @@ public class ChatControllerTests
         llmMock.SetupSequence(l => l.LastTotalTokens)
             .Returns(10)  // Triage's call
             .Returns(25); // Drafter's call
-        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), default)).ReturnsAsync("code_issue");
+        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("code_issue");
 
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
-        var pipeline = new CoordinatorPipeline(new IAgent[] { new TriageAgent(openAiLlm), new DrafterAgent(openAiLlm) });
+        var pipeline = new CoordinatorPipeline(
+            new TriageAgent(openAiLlm), new NoOpAgent("KbResearcher"), new NoOpAgent("CodeAnalyzer"), new NoOpAgent("VisionAnalyzer"), new DrafterAgent(openAiLlm));
         var tokenUsage = new Mock<ITokenUsageRepository>();
         TokenUsageEntry? recorded = null;
         tokenUsage.Setup(t => t.AddAsync(It.IsAny<TokenUsageEntry>(), default))
@@ -72,11 +74,18 @@ public class ChatControllerTests
         Assert.Equal(35, recorded!.TotalTokens);
     }
 
+    private sealed class NoOpAgent : IAgent
+    {
+        public string Name { get; }
+        public NoOpAgent(string name) => Name = name;
+        public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default) => Task.FromResult(context);
+    }
+
     private sealed class TestOpenAiLlmClient : OpenAiLlmClient
     {
         private readonly ILlmClient _inner;
 
-        public TestOpenAiLlmClient(ILlmClient inner) : base(null!)
+        public TestOpenAiLlmClient(ILlmClient inner) : base(null!, null!, "unused-model")
         {
             _inner = inner;
         }

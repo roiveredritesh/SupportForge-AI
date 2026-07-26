@@ -1,3 +1,6 @@
+using System.ClientModel;
+using Microsoft.Extensions.AI;
+using OpenAI;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
 using SupportForge.Core;
@@ -30,16 +33,22 @@ builder.Services.AddSingleton<IFeedbackRepository>(
     new JsonFileFeedbackRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<ITokenUsageRepository>(
     new JsonFileTokenUsageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
-var llmBaseUrl = builder.Configuration["Llm:BaseUrl"] ?? "https://api.openai.com/v1/";
-var llmApiKey = builder.Configuration["Llm:ApiKey"] ?? builder.Configuration["OpenAI:ApiKey"];
-var llmChatModel = builder.Configuration["Llm:ChatModel"] ?? "gpt-4o-mini";
-var llmEmbeddingModel = builder.Configuration["Llm:EmbeddingModel"] ?? "text-embedding-3-small";
-var llmEmbeddingInputType = builder.Configuration["Llm:EmbeddingInputType"];
-builder.Services.AddHttpClient("Llm", client =>
-{
-    client.BaseAddress = new Uri(llmBaseUrl);
-    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {llmApiKey}");
-}).AddTypedClient<ILlmClient>((client, _) => new OpenAiLlmClient(client, llmChatModel, llmEmbeddingModel, llmEmbeddingInputType));
+// "Llm:Provider" selects which named section below (e.g. "OpenAI", "NvidiaNim") supplies
+// BaseUrl/ChatModel/EmbeddingModel/EmbeddingInputType — switch providers by changing just this flag.
+var llmProvider = builder.Configuration["Llm:Provider"] ?? "OpenAI";
+var llmProviderSection = builder.Configuration.GetSection($"Llm:{llmProvider}");
+var llmBaseUrl = llmProviderSection["BaseUrl"] ?? "https://api.openai.com/v1/";
+var llmApiKey = llmProviderSection["ApiKey"] ?? builder.Configuration["Llm:ApiKey"] ?? builder.Configuration["OpenAI:ApiKey"];
+var llmChatModel = llmProviderSection["ChatModel"] ?? "gpt-4o-mini";
+var llmEmbeddingModel = llmProviderSection["EmbeddingModel"] ?? "text-embedding-3-small";
+var llmEmbeddingInputType = llmProviderSection["EmbeddingInputType"];
+var openAiClientOptions = new OpenAIClientOptions { Endpoint = new Uri(llmBaseUrl) };
+var openAiCredential = new ApiKeyCredential(llmApiKey ?? string.Empty);
+builder.Services.AddSingleton<ILlmClient>(_ => new OpenAiLlmClient(
+    new OpenAI.Chat.ChatClient(llmChatModel, openAiCredential, openAiClientOptions).AsIChatClient(),
+    new OpenAI.Embeddings.EmbeddingClient(llmEmbeddingModel, openAiCredential, openAiClientOptions),
+    llmEmbeddingModel,
+    llmEmbeddingInputType));
 builder.Services.AddScoped<TriageAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
 builder.Services.AddScoped<CodeAnalyzerAgent>();
@@ -48,14 +57,12 @@ builder.Services.AddScoped<DrafterAgent>();
 builder.Services.AddScoped<KbSearchTool>();
 builder.Services.AddScoped<CodeSearchTool>();
 builder.Services.AddScoped<VisionAnalysisTool>();
-builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(new IAgent[]
-{
+builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<TriageAgent>(),
     sp.GetRequiredService<KbResearcherAgent>(),
     sp.GetRequiredService<CodeAnalyzerAgent>(),
     sp.GetRequiredService<VisionAnalyzerAgent>(),
-    sp.GetRequiredService<DrafterAgent>(),
-}));
+    sp.GetRequiredService<DrafterAgent>()));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionBackgroundService>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp));

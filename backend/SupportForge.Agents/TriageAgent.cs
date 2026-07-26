@@ -10,7 +10,12 @@ public sealed class TriageAgent : IAgent
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
         const string systemPrompt = """
-            You classify support queries into exactly one label: "kb_question", "code_issue", or "screenshot_error".
+            You classify support queries into exactly one label:
+            - "kb_question": product/feature/process questions answered by documentation, not the source code.
+            - "code_issue": a bug report or error involving the project's source code.
+            - "code_question": a question about the project's source code that is not a bug report — e.g. "how does X work",
+              "explain function Y", "where is Z implemented", architecture questions.
+            - "screenshot_error": the query is about an attached screenshot showing an error or UI state.
             Respond with only the label, nothing else.
             """;
 

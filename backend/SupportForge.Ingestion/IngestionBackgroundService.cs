@@ -18,7 +18,16 @@ public sealed class IngestionBackgroundService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var job = await _queue.DequeueAsync(stoppingToken);
+            IIngestionJob job;
+            try
+            {
+                job = await _queue.DequeueAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+
             try
             {
                 await job.RunAsync(stoppingToken);
