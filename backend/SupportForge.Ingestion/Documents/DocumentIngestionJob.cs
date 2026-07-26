@@ -8,16 +8,18 @@ namespace SupportForge.Ingestion.Documents;
 public sealed class DocumentIngestionJob : IIngestionJob
 {
     private readonly string _folderPath;
+    private readonly string _sourceLocation;
     private readonly ILlmClient _llm;
     private readonly IVectorStoreService _vectorStore;
     private readonly IProjectRepository _projects;
 
     public string ProjectId { get; }
 
-    public DocumentIngestionJob(string projectId, string folderPath, ILlmClient llm, IVectorStoreService vectorStore, IProjectRepository projects)
+    public DocumentIngestionJob(string projectId, string folderPath, string sourceLocation, ILlmClient llm, IVectorStoreService vectorStore, IProjectRepository projects)
     {
         ProjectId = projectId;
         _folderPath = folderPath;
+        _sourceLocation = sourceLocation;
         _llm = llm;
         _vectorStore = vectorStore;
         _projects = projects;
@@ -25,7 +27,8 @@ public sealed class DocumentIngestionJob : IIngestionJob
 
     public async Task RunAsync(CancellationToken ct)
     {
-        if (!Directory.Exists(_folderPath)) return;
+        if (!Directory.Exists(_folderPath))
+            throw new DirectoryNotFoundException($"KB folder '{_folderPath}' (source '{_sourceLocation}') not found for project '{ProjectId}'.");
 
         var files = Directory.EnumerateFiles(_folderPath, "*.*", SearchOption.AllDirectories)
             .Where(f => f.EndsWith(".md") || f.EndsWith(".txt"));
@@ -53,7 +56,7 @@ public sealed class DocumentIngestionJob : IIngestionJob
         var project = await _projects.GetByIdAsync(ProjectId, ct);
         if (project != null)
         {
-            var sourceIndex = project.KbSources.FindIndex(s => s.Location == _folderPath);
+            var sourceIndex = project.KbSources.FindIndex(s => s.Location == _sourceLocation);
             if (sourceIndex >= 0)
             {
                 project.KbSources[sourceIndex] = project.KbSources[sourceIndex] with { LastSyncedAt = DateTimeOffset.UtcNow };

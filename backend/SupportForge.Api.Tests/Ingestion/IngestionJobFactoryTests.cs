@@ -32,7 +32,7 @@ public class IngestionJobFactoryTests
     public void DocumentIngestionJobFactory_ResolvesFreshLlmClient_OnEachCreateJobsCall()
     {
         using var provider = BuildProvider();
-        var factory = new DocumentIngestionJobFactory(provider);
+        var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
         var project = new Project
         {
             Id = "proj1",
