@@ -1,3 +1,5 @@
+using Docnet.Core;
+using Docnet.Core.Models;
 using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.VectorStore;
@@ -31,12 +33,12 @@ public sealed class DocumentIngestionJob : IIngestionJob
             throw new DirectoryNotFoundException($"KB folder '{_folderPath}' (source '{_sourceLocation}') not found for project '{ProjectId}'.");
 
         var files = Directory.EnumerateFiles(_folderPath, "*.*", SearchOption.AllDirectories)
-            .Where(f => f.EndsWith(".md") || f.EndsWith(".txt"));
+            .Where(f => f.EndsWith(".md") || f.EndsWith(".txt") || f.EndsWith(".pdf"));
 
         var documents = new List<VectorDocument>();
         foreach (var file in files)
         {
-            var text = await File.ReadAllTextAsync(file, ct);
+            var text = file.EndsWith(".pdf") ? ExtractPdfText(file) : await File.ReadAllTextAsync(file, ct);
             if (string.IsNullOrWhiteSpace(text)) continue;
             var chunks = DocumentChunker.Chunk(text);
 
@@ -51,10 +53,30 @@ public sealed class DocumentIngestionJob : IIngestionJob
             }
         }
 
+        static string ExtractPdfText(string file)
+        {
+            try
+            {
+                using var reader = DocLib.Instance.GetDocReader(file, new PageDimensions(1080, 1920));
+                var text = new System.Text.StringBuilder();
+                for (var i = 0; i < reader.GetPageCount(); i++)
+                {
+                    using var page = reader.GetPageReader(i);
+                    text.AppendLine(page.GetText());
+                }
+                return text.ToString();
+            }
+            catch (Exception)
+            {
+                // ponytail: a single corrupt/unreadable PDF shouldn't abort the whole ingestion job;
+                // treat it like an empty file so the loop's blank-content check skips it.
+                return string.Empty;
+            }
+        }
+
         if (documents.Count == 0)
             throw new InvalidOperationException(
-                $"KB folder '{_folderPath}' (source '{_sourceLocation}') contained no readable .md/.txt content for project '{ProjectId}'. " +
-                "Only .md and .txt files are supported (e.g. PDFs are not parsed).");
+                $"KB folder '{_folderPath}' (source '{_sourceLocation}') contained no readable .md/.txt/.pdf content for project '{ProjectId}'.");
 
         await _vectorStore.UpsertAsync($"{ProjectId}-kb", documents, ct);
 
