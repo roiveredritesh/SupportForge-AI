@@ -2,6 +2,8 @@ namespace SupportForge.Agents;
 
 public sealed class DrafterAgent : IAgent
 {
+    private const int MaxSnippetsPerSource = 5;
+
     public const string SystemPrompt = """
         You are a support engineer drafting a reply to a customer.
         Use only the provided KB/code context. If context is empty, say you need more information.
@@ -16,13 +18,22 @@ public sealed class DrafterAgent : IAgent
     public static string BuildUserPrompt(AgentContext context) => $"""
         Customer question: {context.Query}
         Intent: {context.Intent}
-        KB context: {string.Join("\n---\n", context.KbSnippets)}
-        Code context: {string.Join("\n---\n", context.CodeSnippets)}
+        KB context: {string.Join("\n---\n", context.KbSnippets.Take(MaxSnippetsPerSource))}
+        Code context: {string.Join("\n---\n", context.CodeSnippets.Take(MaxSnippetsPerSource))}
         Vision findings: {context.VisionFindings}
         """;
 
-    public static double ComputeConfidence(AgentContext context) =>
-        context.KbSnippets.Count + context.CodeSnippets.Count > 0 ? 0.8 : 0.4;
+    public static double ComputeConfidence(AgentContext context)
+    {
+        var applicable = new[] { context.KbVerification, context.CodeVerification, context.VisionVerification }
+            .Where(v => v.Status != VerificationStatus.NotRun)
+            .ToList();
+
+        if (applicable.Count == 0) return 0.3;
+
+        var passed = applicable.Count(v => v.Status == VerificationStatus.Passed);
+        return 0.2 + 0.7 * passed / applicable.Count;
+    }
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
