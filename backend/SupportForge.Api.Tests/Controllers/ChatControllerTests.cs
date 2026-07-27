@@ -190,7 +190,7 @@ public class ChatControllerTests
             return await _inner.AnalyzeImageAsync(base64Image, prompt, ct);
         }
 
-        public override async IAsyncEnumerable<string> StreamCompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
+        public override async IAsyncEnumerable<string> StreamCompleteAsync(string systemPrompt, string userPrompt, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
         {
             await foreach (var token in _inner.StreamCompleteAsync(systemPrompt, userPrompt, ct))
             {
