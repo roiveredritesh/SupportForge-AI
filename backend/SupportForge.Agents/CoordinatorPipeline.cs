@@ -113,16 +113,16 @@ public sealed class CoordinatorPipeline
         builder.AddFanOutEdge(triageExec, parallelExecs);
 
         builder.AddEdge(kbExec, kbVerifierExec);
-        builder.AddEdge<AgentContext>(kbVerifierExec, kbExec, ctx => ctx.KbVerification.Status == VerificationStatus.FailedRetrying);
-        builder.AddEdge<AgentContext>(kbVerifierExec, kbCollectorExec, ctx => ctx.KbVerification.Status != VerificationStatus.FailedRetrying);
+        builder.AddEdge<AgentContext>(kbVerifierExec, kbExec, ctx => ctx!.KbVerification.Status == VerificationStatus.FailedRetrying);
+        builder.AddEdge<AgentContext>(kbVerifierExec, kbCollectorExec, ctx => ctx!.KbVerification.Status != VerificationStatus.FailedRetrying);
 
         builder.AddEdge(codeExec, codeVerifierExec);
-        builder.AddEdge<AgentContext>(codeVerifierExec, codeExec, ctx => ctx.CodeVerification.Status == VerificationStatus.FailedRetrying);
-        builder.AddEdge<AgentContext>(codeVerifierExec, codeCollectorExec, ctx => ctx.CodeVerification.Status != VerificationStatus.FailedRetrying);
+        builder.AddEdge<AgentContext>(codeVerifierExec, codeExec, ctx => ctx!.CodeVerification.Status == VerificationStatus.FailedRetrying);
+        builder.AddEdge<AgentContext>(codeVerifierExec, codeCollectorExec, ctx => ctx!.CodeVerification.Status != VerificationStatus.FailedRetrying);
 
         builder.AddEdge(visionExec, visionVerifierExec);
-        builder.AddEdge<AgentContext>(visionVerifierExec, visionExec, ctx => ctx.VisionVerification.Status == VerificationStatus.FailedRetrying);
-        builder.AddEdge<AgentContext>(visionVerifierExec, visionCollectorExec, ctx => ctx.VisionVerification.Status != VerificationStatus.FailedRetrying);
+        builder.AddEdge<AgentContext>(visionVerifierExec, visionExec, ctx => ctx!.VisionVerification.Status == VerificationStatus.FailedRetrying);
+        builder.AddEdge<AgentContext>(visionVerifierExec, visionCollectorExec, ctx => ctx!.VisionVerification.Status != VerificationStatus.FailedRetrying);
 
         builder.AddFanInBarrierEdge(collectorExecs, mergeExec);
         builder.AddEdge(mergeExec, drafterExec);
