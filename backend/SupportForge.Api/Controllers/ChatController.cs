@@ -16,7 +16,10 @@ public class ChatController : ControllerBase
     private readonly TriageAgent _triage;
     private readonly KbResearcherAgent _kbResearcher;
     private readonly CodeAnalyzerAgent _codeAnalyzer;
+    private readonly KbResearcherVerifier _kbVerifier;
+    private readonly CodeAnalyzerVerifier _codeVerifier;
     private readonly VisionAnalyzerAgent _visionAnalyzer;
+    private readonly VisionAnalyzerVerifier _visionVerifier;
     private readonly ILlmClient _llm;
     private readonly ITokenUsageRepository _tokenUsage;
     private readonly IConversationRepository _conversations;
@@ -27,7 +30,10 @@ public class ChatController : ControllerBase
         TriageAgent triage,
         KbResearcherAgent kbResearcher,
         CodeAnalyzerAgent codeAnalyzer,
+        KbResearcherVerifier kbVerifier,
+        CodeAnalyzerVerifier codeVerifier,
         VisionAnalyzerAgent visionAnalyzer,
+        VisionAnalyzerVerifier visionVerifier,
         ILlmClient llm,
         ITokenUsageRepository tokenUsage,
         IConversationRepository conversations,
@@ -37,11 +43,29 @@ public class ChatController : ControllerBase
         _triage = triage;
         _kbResearcher = kbResearcher;
         _codeAnalyzer = codeAnalyzer;
+        _kbVerifier = kbVerifier;
+        _codeVerifier = codeVerifier;
         _visionAnalyzer = visionAnalyzer;
+        _visionVerifier = visionVerifier;
         _llm = llm;
         _tokenUsage = tokenUsage;
         _conversations = conversations;
         _messages = messages;
+    }
+
+    // Mirrors CoordinatorPipeline's retry-once-then-flag semantics for this manual (non-graph)
+    // streaming path: run the specialist, verify, and retry exactly once if verification asks for it.
+    private static async Task<AgentContext> RunWithVerificationAsync(
+        IAgent specialist, IAgent verifier, AgentContext context, Func<AgentContext, VerificationResult> getResult, CancellationToken ct)
+    {
+        context = await specialist.RunAsync(context, ct);
+        context = await verifier.RunAsync(context, ct);
+        if (getResult(context).Status == VerificationStatus.FailedRetrying)
+        {
+            context = await specialist.RunAsync(context, ct);
+            context = await verifier.RunAsync(context, ct);
+        }
+        return context;
     }
 
     // Resolves the request's ConversationId to an existing conversation (must belong to the
@@ -141,9 +165,9 @@ public class ChatController : ControllerBase
         };
 
         context = await _triage.RunAsync(context, ct);
-        context = await _kbResearcher.RunAsync(context, ct);
-        context = await _codeAnalyzer.RunAsync(context, ct);
-        context = await _visionAnalyzer.RunAsync(context, ct);
+        context = await RunWithVerificationAsync(_kbResearcher, _kbVerifier, context, c => c.KbVerification, ct);
+        context = await RunWithVerificationAsync(_codeAnalyzer, _codeVerifier, context, c => c.CodeVerification, ct);
+        context = await RunWithVerificationAsync(_visionAnalyzer, _visionVerifier, context, c => c.VisionVerification, ct);
 
         Response.ContentType = "text/event-stream";
         Response.Headers.CacheControl = "no-cache";
