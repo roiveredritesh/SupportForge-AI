@@ -19,4 +19,7 @@ public sealed class AgentContext
     public ConcurrentBag<(string Label, string Url)> Sources { get; } = new();
     public double Confidence { get; set; }
     public int TotalTokensUsed { get; set; }
+    public VerificationResult KbVerification { get; } = new();
+    public VerificationResult CodeVerification { get; } = new();
+    public VerificationResult VisionVerification { get; } = new();
 }
