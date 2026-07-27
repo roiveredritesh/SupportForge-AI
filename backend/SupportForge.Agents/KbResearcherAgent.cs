@@ -11,12 +11,16 @@ public sealed class KbResearcherAgent : IAgent
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
-        var results = await _tool.SearchAsync(context.ProjectId, context.Query, ct: ct);
+        var topK = context.KbVerification.Attempts > 0 ? 10 : 5;
+        var results = await _tool.SearchAsync(context.ProjectId, context.Query, topK, ct: ct);
+
+        context.KbSnippets.Clear();
         foreach (var (text, source) in results)
         {
             context.KbSnippets.Add(text);
             context.Sources.Add(($"KB: {Path.GetFileName(source)}", source));
         }
+        context.KbVerification.Attempts++;
         return context;
     }
 }
