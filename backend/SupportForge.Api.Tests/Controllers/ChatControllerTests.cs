@@ -47,7 +47,14 @@ public class ChatControllerTests
 
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm), new NoOpAgent("KbResearcher"), new NoOpAgent("CodeAnalyzer"), new NoOpAgent("VisionAnalyzer"), new DrafterAgent(openAiLlm));
+            new TriageAgent(openAiLlm),
+            new NoOpAgent("KbResearcher"),
+            new NoOpAgent("KbResearcherVerifier"),
+            new NoOpAgent("CodeAnalyzer"),
+            new NoOpAgent("CodeAnalyzerVerifier"),
+            new NoOpAgent("VisionAnalyzer"),
+            new NoOpAgent("VisionAnalyzerVerifier"),
+            new DrafterAgent(openAiLlm));
         var tokenUsage = new Mock<ITokenUsageRepository>();
         var controller = MakeController(pipeline, openAiLlm, tokenUsage.Object);
 
@@ -69,7 +76,14 @@ public class ChatControllerTests
 
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm), new NoOpAgent("KbResearcher"), new NoOpAgent("CodeAnalyzer"), new NoOpAgent("VisionAnalyzer"), new DrafterAgent(openAiLlm));
+            new TriageAgent(openAiLlm),
+            new NoOpAgent("KbResearcher"),
+            new NoOpAgent("KbResearcherVerifier"),
+            new NoOpAgent("CodeAnalyzer"),
+            new NoOpAgent("CodeAnalyzerVerifier"),
+            new NoOpAgent("VisionAnalyzer"),
+            new NoOpAgent("VisionAnalyzerVerifier"),
+            new DrafterAgent(openAiLlm));
         var tokenUsage = new Mock<ITokenUsageRepository>();
         TokenUsageEntry? recorded = null;
         tokenUsage.Setup(t => t.AddAsync(It.IsAny<TokenUsageEntry>(), default))

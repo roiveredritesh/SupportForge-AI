@@ -55,8 +55,11 @@ builder.Services.AddSingleton<ILlmClient>(_ => new OpenAiLlmClient(
     llmEmbeddingInputType));
 builder.Services.AddScoped<TriageAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
+builder.Services.AddScoped<KbResearcherVerifier>();
 builder.Services.AddScoped<CodeAnalyzerAgent>();
+builder.Services.AddScoped<CodeAnalyzerVerifier>();
 builder.Services.AddScoped<VisionAnalyzerAgent>();
+builder.Services.AddScoped<VisionAnalyzerVerifier>();
 builder.Services.AddScoped<DrafterAgent>();
 builder.Services.AddScoped<KbSearchTool>();
 builder.Services.AddScoped<CodeSearchTool>();
@@ -64,8 +67,11 @@ builder.Services.AddScoped<VisionAnalysisTool>();
 builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<TriageAgent>(),
     sp.GetRequiredService<KbResearcherAgent>(),
+    sp.GetRequiredService<KbResearcherVerifier>(),
     sp.GetRequiredService<CodeAnalyzerAgent>(),
+    sp.GetRequiredService<CodeAnalyzerVerifier>(),
     sp.GetRequiredService<VisionAnalyzerAgent>(),
+    sp.GetRequiredService<VisionAnalyzerVerifier>(),
     sp.GetRequiredService<DrafterAgent>()));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionBackgroundService>();
