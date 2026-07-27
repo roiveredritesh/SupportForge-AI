@@ -13,8 +13,9 @@ public sealed class VisionAnalyzerAgent : IAgent
     {
         if (string.IsNullOrEmpty(context.ScreenshotBase64)) return context;
 
-        context.VisionFindings = await _tool.AnalyzeAsync(context.ScreenshotBase64, ct);
+        context.VisionFindings = await _tool.AnalyzeAsync(context.ScreenshotBase64, context.VisionVerification.Attempts > 0, ct);
         context.TotalTokensUsed += _tool.LastTotalTokens;
+        context.VisionVerification.Attempts++;
         return context;
     }
 }

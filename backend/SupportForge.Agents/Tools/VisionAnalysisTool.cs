@@ -8,11 +8,12 @@ public sealed class VisionAnalysisTool
 
     public int LastTotalTokens { get; private set; }
 
-    public async Task<string> AnalyzeAsync(string base64Image, CancellationToken ct = default)
+    public async Task<string> AnalyzeAsync(string base64Image, bool detailed = false, CancellationToken ct = default)
     {
-        var result = await _llm.AnalyzeImageAsync(base64Image,
-            "Describe any error messages, stack traces, or UI state visible in this screenshot relevant to a support ticket.",
-            ct);
+        var prompt = detailed
+            ? "Describe in detail any error messages, stack traces, log output, or UI state visible in this screenshot relevant to a support ticket. Include exact text where legible."
+            : "Describe any error messages, stack traces, or UI state visible in this screenshot relevant to a support ticket.";
+        var result = await _llm.AnalyzeImageAsync(base64Image, prompt, ct);
         LastTotalTokens = _llm.LastTotalTokens;
         return result;
     }
