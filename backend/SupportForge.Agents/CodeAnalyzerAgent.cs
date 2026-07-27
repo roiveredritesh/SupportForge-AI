@@ -13,12 +13,16 @@ public sealed class CodeAnalyzerAgent : IAgent
     {
         if (context.Intent is not ("code_issue" or "code_question")) return context;
 
-        var results = await _tool.SearchAsync(context.ProjectId, context.Query, ct: ct);
+        var topK = context.CodeVerification.Attempts > 0 ? 10 : 5;
+        var results = await _tool.SearchAsync(context.ProjectId, context.Query, topK, ct: ct);
+
+        context.CodeSnippets.Clear();
         foreach (var (text, file) in results)
         {
             context.CodeSnippets.Add(text);
             context.Sources.Add(($"Code: {file}", file));
         }
+        context.CodeVerification.Attempts++;
         return context;
     }
 }
