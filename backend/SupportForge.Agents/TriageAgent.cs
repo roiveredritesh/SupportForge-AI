@@ -16,6 +16,8 @@ public sealed class TriageAgent : IAgent
             - "code_question": a question about the project's source code that is not a bug report — e.g. "how does X work",
               "explain function Y", "where is Z implemented", architecture questions.
             - "screenshot_error": the query is about an attached screenshot showing an error or UI state.
+            - "unclear": you cannot confidently place the query in any of the labels above — it is too vague,
+              missing context, or plausibly fits more than one category.
             Respond with only the label, nothing else.
             """;
 
