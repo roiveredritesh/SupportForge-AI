@@ -16,7 +16,7 @@ interface Props {
   actions?: MessageBubbleActions;
 }
 
-export function MessageBubble({ role, content, confidence, sources, actions }: Props) {
+export function MessageBubble({ role, content, confidence, actions }: Props) {
   if (role === 'user') {
     return (
       <div className="flex justify-end">
@@ -35,17 +35,6 @@ export function MessageBubble({ role, content, confidence, sources, actions }: P
         <div className="prose prose-sm max-w-none dark:prose-invert">
           <ReactMarkdown>{content}</ReactMarkdown>
         </div>
-
-        {sources && sources.length > 0 && (
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            <strong>Sources:</strong>
-            <ul className="list-disc list-inside">
-              {sources.map((s) => (
-                <li key={s.url}>{s.label}</li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {actions && (
           <div className="flex gap-2 pt-2">
