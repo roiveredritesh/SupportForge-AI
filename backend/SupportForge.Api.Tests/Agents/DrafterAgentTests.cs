@@ -1,3 +1,4 @@
+using Moq;
 using SupportForge.Agents;
 using Xunit;
 
@@ -129,6 +130,53 @@ public class DrafterAgentTests
     {
         Assert.Contains("\"unclear\"", DrafterAgent.SystemPrompt);
         Assert.Contains("ask exactly one clarifying question and nothing else", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
+    public void LooksLikeLeak_DraftWithCodeFence_IsFlagged()
+    {
+        var draft = "Here's the handler:\n```csharp\nvoid Checkout() { }\n```";
+
+        Assert.True(DrafterAgent.LooksLikeLeak(draft, []));
+    }
+
+    [Fact]
+    public void LooksLikeLeak_DraftWithSourceFilePath_IsFlagged()
+    {
+        Assert.True(DrafterAgent.LooksLikeLeak("The bug is in OrderService.cs around checkout.", []));
+        Assert.True(DrafterAgent.LooksLikeLeak("See src/api/handlers/checkout.ts line 42.", []));
+    }
+
+    [Fact]
+    public void LooksLikeLeak_DraftCopyingSnippetVerbatim_IsFlagged()
+    {
+        var snippet = "if (order.Total <= 0) throw new InvalidOperationException(\"empty cart\");";
+
+        var draft = $"The rule works like this: {snippet} and that is why it fails.";
+
+        Assert.True(DrafterAgent.LooksLikeLeak(draft, [snippet]));
+    }
+
+    [Fact]
+    public void LooksLikeLeak_CleanProse_IsNotFlagged()
+    {
+        var draft = "This is expected behaviour: orders with an empty cart are rejected before payment, "
+                    + "so no charge is made. Nothing needs to be fixed on your side.";
+
+        Assert.False(DrafterAgent.LooksLikeLeak(draft, ["if (order.Total <= 0) throw new InvalidOperationException(\"empty cart\");"]));
+    }
+
+    [Fact]
+    public async Task RunAsync_LeakingDraft_IsReplacedWithFallback()
+    {
+        var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("The fix is in OrderService.cs:42.");
+
+        await new DrafterAgent(llm.Object).RunAsync(context);
+
+        Assert.Equal(DrafterAgent.LeakFallback, context.Draft);
     }
 
     [Fact]

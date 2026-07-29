@@ -1,8 +1,17 @@
+using System.Text.RegularExpressions;
+
 namespace SupportForge.Agents;
 
-public sealed class DrafterAgent : IAgent
+public sealed partial class DrafterAgent : IAgent
 {
     private const int MaxSnippetsPerSource = 5;
+    private const int VerbatimRunLength = 40;
+
+    public const string LeakFallback =
+        "I can't share code or document excerpts directly. I've looked into this, but I'll need someone from the team to walk you through the specifics - please reach out to them and they can pick it up from here.";
+
+    [GeneratedRegex(@"[\w.\\/-]+\.(cs|ts|tsx|js|jsx|py|java|go|rb|php|rs|kt|swift|scala|sql|c|h|cpp|hpp)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex SourceFileRef();
 
     public const string SystemPrompt = """
         You are a support engineer drafting a reply to a customer.
@@ -57,9 +66,22 @@ public sealed class DrafterAgent : IAgent
         return 0.2 + 0.7 * passed / applicable.Count;
     }
 
+    /// <summary>Safety net for when the LLM ignores the no-code rules in <see cref="SystemPrompt"/>.</summary>
+    public static bool LooksLikeLeak(string draft, IEnumerable<string> snippets)
+    {
+        if (string.IsNullOrEmpty(draft)) return false;
+        if (draft.Contains("```")) return true;
+        if (SourceFileRef().IsMatch(draft)) return true;
+
+        return snippets.Any(s => s.Length >= VerbatimRunLength
+            && Enumerable.Range(0, s.Length - VerbatimRunLength + 1)
+                .Any(i => draft.Contains(s.Substring(i, VerbatimRunLength), StringComparison.Ordinal)));
+    }
+
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
-        context.Draft = await _llm.CompleteAsync(SystemPrompt, BuildUserPrompt(context), ct);
+        var draft = await _llm.CompleteAsync(SystemPrompt, BuildUserPrompt(context), ct);
+        context.Draft = LooksLikeLeak(draft, context.CodeSnippets.Concat(context.KbSnippets)) ? LeakFallback : draft;
         context.Confidence = ComputeConfidence(context);
         context.TotalTokensUsed += _llm.LastTotalTokens;
         return context;
