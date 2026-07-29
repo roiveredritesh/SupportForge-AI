@@ -33,12 +33,15 @@ public class KbResearcherVerifierTests
         Assert.Equal(VerificationStatus.FailedFinal, result.KbVerification.Status);
     }
 
-    [Fact]
-    public async Task RunAsync_MultipleSnippets_PassesWithoutCallingLlm()
+    [Theory]
+    [InlineData("kb_question")]
+    [InlineData("code_issue")]
+    [InlineData("code_question")]
+    public async Task RunAsync_MultipleSnippets_PassesWithoutCallingLlm(string intent)
     {
         var llm = new Mock<ILlmClient>();
         var verifier = new KbResearcherVerifier(llm.Object);
-        var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "kb_question" };
+        var context = new AgentContext { ProjectId = "p", Query = "q", Intent = intent };
         context.KbSnippets.Add("snippet 1");
         context.KbSnippets.Add("snippet 2");
 
@@ -65,7 +68,6 @@ public class KbResearcherVerifierTests
     }
 
     [Theory]
-    [InlineData("code_question")]
     [InlineData("screenshot_error")]
     [InlineData("unclear")]
     public async Task RunAsync_UnrelatedIntent_LeavesVerificationNotRun(string intent)

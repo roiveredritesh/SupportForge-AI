@@ -9,8 +9,11 @@ namespace SupportForge.Api.Tests.Agents;
 
 public class KbResearcherAgentTests
 {
-    [Fact]
-    public async Task RunAsync_PopulatesKbSnippetsAndSources()
+    [Theory]
+    [InlineData("kb_question")]
+    [InlineData("code_issue")]
+    [InlineData("code_question")]
+    public async Task RunAsync_PopulatesKbSnippetsAndSources(string intent)
     {
         var llm = new Mock<ILlmClient>();
         llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
@@ -21,7 +24,7 @@ public class KbResearcherAgentTests
 
         var tool = new KbSearchTool(llm.Object, vectorStore.Object);
         var agent = new KbResearcherAgent(tool);
-        var context = new AgentContext { ProjectId = "proj1", Query = "how do I reset my password", Intent = "kb_question" };
+        var context = new AgentContext { ProjectId = "proj1", Query = "how do I reset my password", Intent = intent };
 
         var result = await agent.RunAsync(context);
 
@@ -53,7 +56,6 @@ public class KbResearcherAgentTests
     }
 
     [Theory]
-    [InlineData("code_question")]
     [InlineData("screenshot_error")]
     [InlineData("unclear")]
     public async Task RunAsync_UnrelatedIntent_DoesNotSearch(string intent)

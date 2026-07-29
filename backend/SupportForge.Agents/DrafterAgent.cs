@@ -42,6 +42,13 @@ public sealed partial class DrafterAgent : IAgent
         (c) Needs a code change - the behavior diverges from what the knowledge base documents as intended. Say that this
             requires a change from the engineering team and that they should be engaged, without describing the code.
 
+        If Intent is "code_question", answer from the knowledge base and documentation context only: explain the
+        concept, behavior, or architecture in your own plain language. Code context is for your own understanding
+        only - never quote, describe, summarize, or refer to it in the answer. If the question can only be answered
+        by naming a code location or implementation detail (for example "where is this implemented"), say that this
+        specific implementation detail is not something you can share, and point the customer at the documented
+        behavior you do have; if no documentation covers it, direct them to the engineering team.
+
         For other intents, answer the question in plain prose from the provided context.
         Respond in Markdown.
         """;

@@ -133,18 +133,64 @@ public class DrafterAgentTests
     }
 
     [Fact]
+    public void SystemPrompt_AnswersCodeQuestionsFromDocsWithoutDescribingCode()
+    {
+        Assert.Contains("\"code_question\"", DrafterAgent.SystemPrompt);
+        Assert.Contains("Code context is for your own understanding", DrafterAgent.SystemPrompt);
+        Assert.Contains("not something you can share", DrafterAgent.SystemPrompt);
+    }
+
+    private static AgentContext LeakContext(string query = "q", params string[] snippets)
+    {
+        var context = new AgentContext { ProjectId = "p", Query = query };
+        foreach (var s in snippets) context.CodeSnippets.Add(s);
+        return context;
+    }
+
+    [Fact]
     public void LooksLikeLeak_DraftWithCodeFence_IsFlagged()
     {
         var draft = "Here's the handler:\n```csharp\nvoid Checkout() { }\n```";
 
-        Assert.True(DrafterAgent.LooksLikeLeak(draft, []));
+        Assert.True(DrafterAgent.LooksLikeLeak(draft, LeakContext()));
     }
 
     [Fact]
     public void LooksLikeLeak_DraftWithSourceFilePath_IsFlagged()
     {
-        Assert.True(DrafterAgent.LooksLikeLeak("The bug is in OrderService.cs around checkout.", []));
-        Assert.True(DrafterAgent.LooksLikeLeak("See src/api/handlers/checkout.ts line 42.", []));
+        Assert.True(DrafterAgent.LooksLikeLeak("The bug is in OrderService.cs around checkout.", LeakContext()));
+        Assert.True(DrafterAgent.LooksLikeLeak("See src/api/handlers/checkout.ts line 42.", LeakContext()));
+    }
+
+    [Fact]
+    public void LooksLikeLeak_FileNameTheCustomerAlreadyMentioned_IsNotFlagged()
+    {
+        var context = LeakContext("why does checkout.ts fail");
+
+        Assert.False(DrafterAgent.LooksLikeLeak("The failure in checkout.ts is expected when the cart is empty.", context));
+    }
+
+    [Fact]
+    public void LooksLikeLeak_FileNameFromConversationHistory_IsNotFlagged()
+    {
+        var context = LeakContext("and now?");
+        context.History.Add(("user", "OrderService.cs keeps throwing"));
+
+        Assert.False(DrafterAgent.LooksLikeLeak("OrderService.cs behaves that way by design.", context));
+    }
+
+    [Fact]
+    public void LooksLikeLeak_FrameworkNames_AreNotFlagged()
+    {
+        Assert.False(DrafterAgent.LooksLikeLeak("This is a known Node.js and Next.js behaviour on cold start.", LeakContext()));
+    }
+
+    [Fact]
+    public void LooksLikeLeak_NewFilePathBesideOneTheCustomerMentioned_IsStillFlagged()
+    {
+        var context = LeakContext("why does checkout.ts fail");
+
+        Assert.True(DrafterAgent.LooksLikeLeak("checkout.ts is fine; the bug is in OrderService.cs.", context));
     }
 
     [Fact]
@@ -154,7 +200,7 @@ public class DrafterAgentTests
 
         var draft = $"The rule works like this: {snippet} and that is why it fails.";
 
-        Assert.True(DrafterAgent.LooksLikeLeak(draft, [snippet]));
+        Assert.True(DrafterAgent.LooksLikeLeak(draft, LeakContext("q", snippet)));
     }
 
     [Fact]
@@ -163,13 +209,14 @@ public class DrafterAgentTests
         var draft = "This is expected behaviour: orders with an empty cart are rejected before payment, "
                     + "so no charge is made. Nothing needs to be fixed on your side.";
 
-        Assert.False(DrafterAgent.LooksLikeLeak(draft, ["if (order.Total <= 0) throw new InvalidOperationException(\"empty cart\");"]));
+        Assert.False(DrafterAgent.LooksLikeLeak(draft, LeakContext("q", "if (order.Total <= 0) throw new InvalidOperationException(\"empty cart\");")));
     }
 
     [Fact]
     public async Task RunAsync_LeakingDraft_IsReplacedWithFallback()
     {
         var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        context.KbVerification.Status = VerificationStatus.Passed;
         var llm = new Mock<ILlmClient>();
         llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("The fix is in OrderService.cs:42.");
@@ -177,6 +224,24 @@ public class DrafterAgentTests
         await new DrafterAgent(llm.Object).RunAsync(context);
 
         Assert.Equal(DrafterAgent.LeakFallback, context.Draft);
+        Assert.Equal(0.0, context.Confidence);
+    }
+
+    [Fact]
+    public async Task RunAsync_CleanDraft_IsPassedThroughUnchanged()
+    {
+        const string clean = "This is expected: empty carts are rejected before payment, so nothing was charged.";
+        var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        context.KbVerification.Status = VerificationStatus.Passed;
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(clean);
+
+        await new DrafterAgent(llm.Object).RunAsync(context);
+
+        Assert.Equal(clean, context.Draft);
+        Assert.Equal(DrafterAgent.ComputeConfidence(context), context.Confidence);
+        Assert.True(context.Confidence > 0.0);
     }
 
     [Fact]
