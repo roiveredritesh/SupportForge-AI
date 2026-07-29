@@ -1,12 +1,10 @@
 import { MessageBubble, type MessageBubbleActions } from './MessageBubble';
 import type { ChatMessage } from '../hooks/useConversations';
-import type { Source } from '../hooks/useChatQuery';
 
 interface PendingTurn {
   query: string;
   draft: string;
   confidence?: number;
-  sources: Source[];
   actions?: MessageBubbleActions;
 }
 

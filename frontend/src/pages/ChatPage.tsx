@@ -114,7 +114,6 @@ export default function ChatPage() {
                   query: pendingQuery,
                   draft: chatStream.draft,
                   confidence: chatStream.confidence,
-                  sources: chatStream.sources,
                   actions: chatStream.draft
                     ? {
                         onCopy: () => navigator.clipboard.writeText(chatStream.draft),
