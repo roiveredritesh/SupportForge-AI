@@ -2,6 +2,13 @@ namespace SupportForge.Agents;
 
 public sealed class TriageAgent : IAgent
 {
+    private static readonly HashSet<string> KnownLabels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "kb_question", "code_issue", "code_question", "screenshot_error", "unclear"
+    };
+
+    private static readonly char[] Decoration = [' ', '\t', '\r', '\n', '"', '\'', '`', '*', '.', ':', '#'];
+
     private readonly ILlmClient _llm;
     public string Name => "Triage";
 
@@ -22,7 +29,10 @@ public sealed class TriageAgent : IAgent
             """;
 
         var intent = await _llm.CompleteAsync(systemPrompt, context.Query, ct);
-        context.Intent = intent.Trim();
+        var normalized = intent.Trim(Decoration).ToLowerInvariant();
+        // Anything we can't map is treated as "unclear" so the downstream gates no-op and the
+        // Drafter asks for clarification, rather than answering from empty retrieval context.
+        context.Intent = KnownLabels.Contains(normalized) ? normalized : "unclear";
         context.TotalTokensUsed += _llm.LastTotalTokens;
         return context;
     }

@@ -36,6 +36,29 @@ public class TriageAgentTests
         Assert.Equal("unclear", result.Intent);
     }
 
+    [Theory]
+    [InlineData("\"kb_question\"", "kb_question")]
+    [InlineData("`code_issue`", "code_issue")]
+    [InlineData("**code_question**", "code_question")]
+    [InlineData("code_issue.", "code_issue")]
+    [InlineData("  Screenshot_Error \n", "screenshot_error")]
+    [InlineData("bug_report", "unclear")]
+    [InlineData("This looks like a bug in the checkout flow.", "unclear")]
+    [InlineData("", "unclear")]
+    public async Task RunAsync_NormalizesAndValidatesLabel(string llmResponse, string expected)
+    {
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), default))
+           .ReturnsAsync(llmResponse);
+
+        var agent = new TriageAgent(llm.Object);
+        var context = new AgentContext { ProjectId = "proj1", Query = "something happened" };
+
+        var result = await agent.RunAsync(context);
+
+        Assert.Equal(expected, result.Intent);
+    }
+
     [Fact]
     public async Task RunAsync_SystemPrompt_OffersUnclearLabel()
     {
