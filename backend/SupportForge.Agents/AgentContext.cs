@@ -9,6 +9,7 @@ public sealed class AgentContext
     public string? ScreenshotBase64 { get; init; }
 
     public string Intent { get; set; } = string.Empty;
+    public List<(string Role, string Content)> History { get; } = new();
     public List<string> KbSnippets { get; } = new();
     public List<string> CodeSnippets { get; } = new();
     public string? VisionFindings { get; set; }

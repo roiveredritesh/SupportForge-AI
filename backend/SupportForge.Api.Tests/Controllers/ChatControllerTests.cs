@@ -27,6 +27,8 @@ public class ChatControllerTests
         var messages = new Mock<IChatMessageRepository>();
         messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
+        messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ChatMessage>());
 
         return new ChatController(
             pipeline,
@@ -129,6 +131,8 @@ public class ChatControllerTests
         conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         var messages = new Mock<IChatMessageRepository>();
         messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ChatMessage>());
         var tokenUsage = new Mock<ITokenUsageRepository>();
 
         var pipeline = new CoordinatorPipeline(

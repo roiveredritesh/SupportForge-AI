@@ -90,6 +90,14 @@ public class ChatController : ControllerBase
         return conversation;
     }
 
+    // Last 6 messages (3 turns) — ponytail: fixed-window cap, revisit with token-aware
+    // trimming if transcripts get long.
+    private async Task<List<(string Role, string Content)>> LoadRecapAsync(string conversationId, CancellationToken ct)
+    {
+        var history = await _messages.GetByConversationIdAsync(conversationId, ct);
+        return history.TakeLast(6).Select(m => (m.Role, m.Content)).ToList();
+    }
+
     private async Task RecordTurnAsync(
         Conversation conversation, string query, string answer, double confidence,
         IReadOnlyList<SourceDto> sources, CancellationToken ct)
@@ -128,6 +136,7 @@ public class ChatController : ControllerBase
             Query = request.Query,
             ScreenshotBase64 = request.ScreenshotBase64,
         };
+        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
 
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
@@ -163,6 +172,7 @@ public class ChatController : ControllerBase
             Query = request.Query,
             ScreenshotBase64 = request.ScreenshotBase64,
         };
+        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
 
         context = await _triage.RunAsync(context, ct);
         context = await RunWithVerificationAsync(_kbResearcher, _kbVerifier, context, c => c.KbVerification, ct);

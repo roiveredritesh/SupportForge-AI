@@ -19,7 +19,7 @@ public sealed class CodeAnalyzerAgent : IAgent
         context.CodeSnippets.Clear();
         foreach (var (text, file) in results)
         {
-            context.CodeSnippets.Add(text);
+            context.CodeSnippets.Add($"// {file}\n{text}");
             context.Sources.Add(($"Code: {file}", file));
         }
         context.CodeVerification.Attempts++;

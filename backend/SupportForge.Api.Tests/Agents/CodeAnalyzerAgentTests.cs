@@ -65,7 +65,7 @@ public class CodeAnalyzerAgentTests
         var result = await agent.RunAsync(context);
 
         Assert.Single(result.CodeSnippets);
-        Assert.Equal("retry result", result.CodeSnippets[0]);
+        Assert.Equal("// Retry.cs\nretry result", result.CodeSnippets[0]);
         Assert.Equal(2, result.CodeVerification.Attempts);
     }
 }
