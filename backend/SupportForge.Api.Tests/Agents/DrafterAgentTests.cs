@@ -91,6 +91,47 @@ public class DrafterAgentTests
     }
 
     [Fact]
+    public void SystemPrompt_NoLongerInstructsVerbatimQuotingOrFileCitation()
+    {
+        Assert.DoesNotContain("quote code verbatim", DrafterAgent.SystemPrompt);
+        Assert.DoesNotContain("cite the file", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
+    public void SystemPrompt_ForbidsExposingCodeKbTextAndCitations()
+    {
+        Assert.Contains("Never show source code", DrafterAgent.SystemPrompt);
+        Assert.Contains("closely paraphrase any code", DrafterAgent.SystemPrompt);
+        Assert.Contains("Never quote or closely paraphrase KB document text", DrafterAgent.SystemPrompt);
+        Assert.Contains("Never mention a file name, path, line number", DrafterAgent.SystemPrompt);
+        Assert.Contains("citation or evidence", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
+    public void SystemPrompt_DescribesThreeWayCodeIssueClassification()
+    {
+        Assert.Contains("code_issue", DrafterAgent.SystemPrompt);
+        Assert.Contains("Working as expected", DrafterAgent.SystemPrompt);
+        Assert.Contains("Advisory data or configuration fix", DrafterAgent.SystemPrompt);
+        Assert.Contains("Needs a code change", DrafterAgent.SystemPrompt);
+        Assert.Contains("engineering team", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
+    public void SystemPrompt_AdvisoryOutcomeIsNotFramedAsLiveDiagnosis()
+    {
+        Assert.Contains("never as a diagnosis", DrafterAgent.SystemPrompt);
+        Assert.Contains("no access to their live environment", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
+    public void SystemPrompt_AsksOneClarifyingQuestionWhenIntentIsUnclear()
+    {
+        Assert.Contains("\"unclear\"", DrafterAgent.SystemPrompt);
+        Assert.Contains("ask exactly one clarifying question and nothing else", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
     public void BuildUserPrompt_CarriesFileCitedCodeSnippets_FromCodeAnalyzer()
     {
         var context = new AgentContext { ProjectId = "proj1", Query = "why does checkout fail" };
