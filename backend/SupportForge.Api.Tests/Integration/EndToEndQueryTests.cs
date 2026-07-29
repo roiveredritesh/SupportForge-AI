@@ -40,10 +40,13 @@ public class EndToEndQueryTests : IClassFixture<WebApplicationFactory<Program>>
         });
 
         response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadFromJsonAsync<ChatQueryResponse>();
+        var raw = await response.Content.ReadAsStringAsync();
+        var body = System.Text.Json.JsonSerializer.Deserialize<ChatQueryResponse>(
+            raw, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
 
         Assert.NotNull(body);
         Assert.Contains("password", body!.Draft, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(body.Sources, s => s.Url.Contains("getting-started.md"));
+        Assert.DoesNotContain(".md", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(".cs", raw, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -99,8 +99,7 @@ public class ChatController : ControllerBase
     }
 
     private async Task RecordTurnAsync(
-        Conversation conversation, string query, string answer, double confidence,
-        IReadOnlyList<SourceDto> sources, CancellationToken ct)
+        Conversation conversation, string query, string answer, double confidence, CancellationToken ct)
     {
         await _messages.AddAsync(new ChatMessage
         {
@@ -117,7 +116,6 @@ public class ChatController : ControllerBase
             Role = "assistant",
             Content = answer,
             Confidence = confidence,
-            Sources = sources.Select(s => new MessageSource(s.Label, s.Url)).ToList(),
         }, ct);
 
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
@@ -141,14 +139,12 @@ public class ChatController : ControllerBase
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
 
-        var sources = result.Sources.Select(s => new SourceDto(s.Label, s.Url)).ToList();
-        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, ct);
+        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, ct);
 
         return Ok(new ChatQueryResponse
         {
             Draft = result.Draft,
             Confidence = result.Confidence,
-            Sources = sources,
             ConversationId = conversation.Id,
         });
     }
@@ -198,13 +194,11 @@ public class ChatController : ControllerBase
         var leaked = DrafterAgent.LooksLikeLeak(draft.ToString(), context);
         var finalText = leaked ? DrafterAgent.LeakFallback : draft.ToString();
         var confidence = leaked ? 0.0 : DrafterAgent.ComputeConfidence(context);
-        var sources = context.Sources.Select(s => new SourceDto(s.Label, s.Url)).ToList();
-        await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, ct);
+        await RecordTurnAsync(conversation, request.Query, finalText, confidence, ct);
 
         var done = JsonSerializer.Serialize(new
         {
             confidence,
-            sources,
             conversationId = conversation.Id,
         });
         await Response.WriteAsync($"event: done\ndata: {done}\n\n", ct);

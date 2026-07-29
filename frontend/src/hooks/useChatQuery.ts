@@ -8,12 +8,9 @@ export interface ChatQueryRequest {
   conversationId?: string;
 }
 
-export interface Source { label: string; url: string; }
-
 export interface ChatQueryResponse {
   draft: string;
   confidence: number;
-  sources: Source[];
   conversationId: string;
 }
 

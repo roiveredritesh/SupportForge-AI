@@ -7,7 +7,6 @@ public sealed record ChatMessageDto(
     string Role,
     string Content,
     double? Confidence,
-    IReadOnlyList<SourceDto>? Sources,
     DateTimeOffset CreatedAt);
 
 public sealed record ConversationDetailDto(

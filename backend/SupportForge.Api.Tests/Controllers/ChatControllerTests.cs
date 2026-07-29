@@ -72,6 +72,54 @@ public class ChatControllerTests
     }
 
     [Fact]
+    public async Task Query_DoesNotExposeSourcePaths_InResponseOrPersistedTurn()
+    {
+        var llmMock = new Mock<ILlmClient>();
+        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("an answer");
+
+        var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
+        var pipeline = new CoordinatorPipeline(
+            new TriageAgent(openAiLlm),
+            new SourceAddingAgent("KbResearcher", "KB: getting-started.md", "kb/getting-started.md"),
+            new NoOpAgent("KbResearcherVerifier"),
+            new SourceAddingAgent("CodeAnalyzer", "Code: ChatController.cs", "backend/ChatController.cs"),
+            new NoOpAgent("CodeAnalyzerVerifier"),
+            new NoOpAgent("VisionAnalyzer"),
+            new NoOpAgent("VisionAnalyzerVerifier"),
+            new DrafterAgent(openAiLlm));
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        var conversations = new Mock<IConversationRepository>();
+        conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        var persisted = new List<ChatMessage>();
+        var messages = new Mock<IChatMessageRepository>();
+        messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<ChatMessage, CancellationToken>((m, _) => persisted.Add(m))
+            .Returns(Task.CompletedTask);
+        messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ChatMessage>());
+
+        var controller = new ChatController(
+            pipeline, new TriageAgent(openAiLlm),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object)),
+            new CodeAnalyzerAgent(new CodeSearchTool(openAiLlm, vectorStore.Object)),
+            new KbResearcherVerifier(openAiLlm), new CodeAnalyzerVerifier(openAiLlm),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm)), new VisionAnalyzerVerifier(openAiLlm),
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var json = System.Text.Json.JsonSerializer.Serialize((ChatQueryResponse)ok.Value!);
+        Assert.DoesNotContain(".md", json);
+        Assert.DoesNotContain(".cs", json);
+
+        var persistedJson = System.Text.Json.JsonSerializer.Serialize(persisted);
+        Assert.DoesNotContain(".md", persistedJson);
+        Assert.DoesNotContain(".cs", persistedJson);
+    }
+
+    [Fact]
     public async Task Query_RecordsSummedTokenUsage_AcrossAllAgentsThatRan()
     {
         var llmMock = new Mock<ILlmClient>();
@@ -148,12 +196,18 @@ public class ChatControllerTests
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm)), new VisionAnalyzerVerifier(openAiLlm),
             openAiLlm, tokenUsage.Object, conversations.Object, messages.Object);
 
-        var httpContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+        var responseBody = new MemoryStream();
+        var httpContext = new DefaultHttpContext { Response = { Body = responseBody } };
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
 
         await controller.QueryStream(new ChatQueryRequest { ProjectId = "proj1", Query = "how do I reset my password" }, default);
 
         Assert.Equal(2, callCount); // first search found nothing, retry found something
+
+        // The retry populated context.Sources with kb/x.md — none of it may reach the wire.
+        var stream = System.Text.Encoding.UTF8.GetString(responseBody.ToArray());
+        Assert.DoesNotContain(".md", stream);
+        Assert.DoesNotContain("sources", stream);
     }
 
     [Fact]
@@ -218,6 +272,18 @@ public class ChatControllerTests
         public string Name { get; }
         public NoOpAgent(string name) => Name = name;
         public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default) => Task.FromResult(context);
+    }
+
+    private sealed class SourceAddingAgent : IAgent
+    {
+        private readonly (string Label, string Url) _source;
+        public SourceAddingAgent(string name, string label, string url) { Name = name; _source = (label, url); }
+        public string Name { get; }
+        public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
+        {
+            context.Sources.Add(_source);
+            return Task.FromResult(context);
+        }
     }
 
     private sealed class TestOpenAiLlmClient : OpenAiLlmClient

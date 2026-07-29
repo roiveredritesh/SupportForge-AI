@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../lib/apiClient';
-import type { Source } from './useChatQuery';
 
 export interface ConversationSummary {
   id: string;
@@ -15,7 +14,6 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   confidence?: number;
-  sources?: Source[];
   createdAt: string;
 }
 

@@ -70,6 +70,5 @@ public class ConversationsController : ControllerBase
         m.Role,
         m.Content,
         m.Confidence,
-        m.Sources?.Select(s => new SourceDto(s.Label, s.Url)).ToList(),
         m.CreatedAt);
 }
