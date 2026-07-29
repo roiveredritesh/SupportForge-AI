@@ -1,6 +1,5 @@
 import ReactMarkdown from 'react-markdown';
 import { ConfidenceBadge } from './ConfidenceBadge';
-import type { Source } from '../hooks/useChatQuery';
 
 export interface MessageBubbleActions {
   onCopy: () => void;
@@ -12,7 +11,6 @@ interface Props {
   role: 'user' | 'assistant';
   content: string;
   confidence?: number;
-  sources?: Source[];
   actions?: MessageBubbleActions;
 }
 

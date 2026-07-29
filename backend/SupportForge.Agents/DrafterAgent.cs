@@ -75,7 +75,7 @@ public sealed partial class DrafterAgent : IAgent
 
         return snippets.Any(s => s.Length >= VerbatimRunLength
             && Enumerable.Range(0, s.Length - VerbatimRunLength + 1)
-                .Any(i => draft.Contains(s.Substring(i, VerbatimRunLength), StringComparison.Ordinal)));
+                .Any(i => draft.AsSpan().Contains(s.AsSpan(i, VerbatimRunLength), StringComparison.Ordinal)));
     }
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)

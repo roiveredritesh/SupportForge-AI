@@ -29,7 +29,6 @@ export function MessageThread({ messages, pending, lastAssistantActions }: Props
           role={m.role}
           content={m.content}
           confidence={m.confidence}
-          sources={m.sources}
           actions={m.id === lastAssistantId ? lastAssistantActions : undefined}
         />
       ))}
@@ -42,7 +41,6 @@ export function MessageThread({ messages, pending, lastAssistantActions }: Props
               role="assistant"
               content={pending.draft}
               confidence={pending.confidence}
-              sources={pending.sources}
               actions={pending.actions}
             />
           )}
