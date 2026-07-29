@@ -14,6 +14,8 @@ public sealed class KbResearcherVerifier : IAgent
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
+        if (context.Intent is not ("kb_question" or "code_issue")) return context;
+
         var v = context.KbVerification;
 
         if (context.KbSnippets.Count == 0)

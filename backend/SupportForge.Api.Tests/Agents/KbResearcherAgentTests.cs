@@ -21,7 +21,7 @@ public class KbResearcherAgentTests
 
         var tool = new KbSearchTool(llm.Object, vectorStore.Object);
         var agent = new KbResearcherAgent(tool);
-        var context = new AgentContext { ProjectId = "proj1", Query = "how do I reset my password" };
+        var context = new AgentContext { ProjectId = "proj1", Query = "how do I reset my password", Intent = "kb_question" };
 
         var result = await agent.RunAsync(context);
 
@@ -41,7 +41,7 @@ public class KbResearcherAgentTests
 
         var tool = new KbSearchTool(llm.Object, vectorStore.Object);
         var agent = new KbResearcherAgent(tool);
-        var context = new AgentContext { ProjectId = "proj1", Query = "q" };
+        var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = "code_issue" };
         context.KbSnippets.Add("stale snippet from a previous attempt");
         context.KbVerification.Attempts = 1; // simulates: this is a retry
 
@@ -50,5 +50,27 @@ public class KbResearcherAgentTests
         Assert.Single(result.KbSnippets);
         Assert.Equal("retry result", result.KbSnippets[0]);
         Assert.Equal(2, result.KbVerification.Attempts);
+    }
+
+    [Theory]
+    [InlineData("code_question")]
+    [InlineData("screenshot_error")]
+    [InlineData("unclear")]
+    public async Task RunAsync_UnrelatedIntent_DoesNotSearch(string intent)
+    {
+        var llm = new Mock<ILlmClient>();
+        var vectorStore = new Mock<IVectorStoreService>();
+
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var agent = new KbResearcherAgent(tool);
+        var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = intent };
+
+        var result = await agent.RunAsync(context);
+
+        Assert.Empty(result.KbSnippets);
+        Assert.Empty(result.Sources);
+        Assert.Equal(0, result.KbVerification.Attempts);
+        llm.Verify(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        vectorStore.Verify(v => v.QueryAsync(It.IsAny<string>(), It.IsAny<float[]>(), It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

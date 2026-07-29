@@ -11,6 +11,8 @@ public sealed class KbResearcherAgent : IAgent
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
+        if (context.Intent is not ("kb_question" or "code_issue")) return context;
+
         var topK = context.KbVerification.Attempts > 0 ? 10 : 5;
         var results = await _tool.SearchAsync(context.ProjectId, context.Query, topK, ct: ct);
 
