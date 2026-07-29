@@ -156,6 +156,58 @@ public class ChatControllerTests
         Assert.Equal(2, callCount); // first search found nothing, retry found something
     }
 
+    [Fact]
+    public async Task QueryStream_LeakingDraft_PersistsFallbackAndZeroConfidence()
+    {
+        var llmMock = new Mock<ILlmClient>();
+        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("code_issue");
+        llmMock.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+        llmMock.Setup(l => l.StreamCompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(ToAsyncEnumerable(new[] { "Here you go:\n", "```cs\nvar x = 1;\n```" }));
+
+        var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.QueryAsync(It.IsAny<string>(), It.IsAny<float[]>(), It.IsAny<int>(), null, default))
+            .ReturnsAsync(new List<VectorQueryResult>());
+
+        var conversations = new Mock<IConversationRepository>();
+        conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        var persisted = new List<ChatMessage>();
+        var messages = new Mock<IChatMessageRepository>();
+        messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<ChatMessage, CancellationToken>((m, _) => persisted.Add(m))
+            .Returns(Task.CompletedTask);
+        messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ChatMessage>());
+
+        var pipeline = new CoordinatorPipeline(
+            new TriageAgent(openAiLlm), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"),
+            new NoOpAgent("CodeAnalyzer"), new NoOpAgent("CodeVerifier"),
+            new NoOpAgent("VisionAnalyzer"), new NoOpAgent("VisionVerifier"),
+            new DrafterAgent(openAiLlm));
+
+        var controller = new ChatController(
+            pipeline, new TriageAgent(openAiLlm),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object)),
+            new CodeAnalyzerAgent(new CodeSearchTool(openAiLlm, vectorStore.Object)),
+            new KbResearcherVerifier(openAiLlm), new CodeAnalyzerVerifier(openAiLlm),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm)), new VisionAnalyzerVerifier(openAiLlm),
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object);
+
+        var body = new MemoryStream();
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext { Response = { Body = body } },
+        };
+
+        await controller.QueryStream(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" }, default);
+
+        var assistant = Assert.Single(persisted, m => m.Role == "assistant");
+        Assert.Equal(DrafterAgent.LeakFallback, assistant.Content);
+        Assert.Equal(0.0, assistant.Confidence);
+        Assert.Contains("\"confidence\":0", System.Text.Encoding.UTF8.GetString(body.ToArray()));
+    }
+
     private static async IAsyncEnumerable<string> ToAsyncEnumerable(IEnumerable<string> items)
     {
         foreach (var item in items) { yield return item; await Task.Yield(); }

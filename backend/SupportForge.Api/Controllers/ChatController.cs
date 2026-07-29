@@ -193,9 +193,13 @@ public class ChatController : ControllerBase
         context.TotalTokensUsed += _llm.LastTotalTokens;
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
 
-        var confidence = DrafterAgent.ComputeConfidence(context);
+        // Tokens are already flushed, so a leak can't be un-sent over SSE; what we can keep clean is
+        // the persisted turn (and the recap it feeds) and the final confidence the client renders.
+        var leaked = DrafterAgent.LooksLikeLeak(draft.ToString(), context);
+        var finalText = leaked ? DrafterAgent.LeakFallback : draft.ToString();
+        var confidence = leaked ? 0.0 : DrafterAgent.ComputeConfidence(context);
         var sources = context.Sources.Select(s => new SourceDto(s.Label, s.Url)).ToList();
-        await RecordTurnAsync(conversation, request.Query, draft.ToString(), confidence, sources, ct);
+        await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, ct);
 
         var done = JsonSerializer.Serialize(new
         {

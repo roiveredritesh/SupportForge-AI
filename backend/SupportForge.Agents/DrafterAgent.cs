@@ -13,6 +13,12 @@ public sealed partial class DrafterAgent : IAgent
     [GeneratedRegex(@"[\w.\\/-]+\.(cs|ts|tsx|js|jsx|py|java|go|rb|php|rs|kt|swift|scala|sql|c|h|cpp|hpp)\b", RegexOptions.IgnoreCase)]
     private static partial Regex SourceFileRef();
 
+    private static readonly HashSet<string> FrameworkNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "node.js", "next.js", "nuxt.js", "vue.js", "express.js",
+        "d3.js", "three.js", "react.js", "ember.js", "backbone.js",
+    };
+
     public const string SystemPrompt = """
         You are a support engineer drafting a reply to a customer.
         Use only the provided KB/code context and conversation recap. If all context is empty, say you need more information.
@@ -67,13 +73,19 @@ public sealed partial class DrafterAgent : IAgent
     }
 
     /// <summary>Safety net for when the LLM ignores the no-code rules in <see cref="SystemPrompt"/>.</summary>
-    public static bool LooksLikeLeak(string draft, IEnumerable<string> snippets)
+    public static bool LooksLikeLeak(string draft, AgentContext context)
     {
         if (string.IsNullOrEmpty(draft)) return false;
         if (draft.Contains("```")) return true;
-        if (SourceFileRef().IsMatch(draft)) return true;
 
-        return snippets.Any(s => s.Length >= VerbatimRunLength
+        // Echoing a filename the customer themselves wrote isn't a leak, and ".js" frameworks aren't files.
+        var customerText = string.Join("\n", context.History.Select(h => h.Content).Append(context.Query));
+        if (SourceFileRef().Matches(draft).Any(m =>
+                !FrameworkNames.Contains(m.Value)
+                && !customerText.Contains(m.Value, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        return context.CodeSnippets.Concat(context.KbSnippets).Any(s => s.Length >= VerbatimRunLength
             && Enumerable.Range(0, s.Length - VerbatimRunLength + 1)
                 .Any(i => draft.AsSpan().Contains(s.AsSpan(i, VerbatimRunLength), StringComparison.Ordinal)));
     }
@@ -81,8 +93,9 @@ public sealed partial class DrafterAgent : IAgent
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
         var draft = await _llm.CompleteAsync(SystemPrompt, BuildUserPrompt(context), ct);
-        context.Draft = LooksLikeLeak(draft, context.CodeSnippets.Concat(context.KbSnippets)) ? LeakFallback : draft;
-        context.Confidence = ComputeConfidence(context);
+        var leaked = LooksLikeLeak(draft, context);
+        context.Draft = leaked ? LeakFallback : draft;
+        context.Confidence = leaked ? 0.0 : ComputeConfidence(context);
         context.TotalTokensUsed += _llm.LastTotalTokens;
         return context;
     }
