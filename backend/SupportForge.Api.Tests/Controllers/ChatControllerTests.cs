@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using SupportForge.Agents;
@@ -32,13 +33,13 @@ public class ChatControllerTests
 
         return new ChatController(
             pipeline,
-            new TriageAgent(llm),
-            new KbResearcherAgent(new KbSearchTool(llm, vectorStore.Object)),
-            new CodeAnalyzerAgent(new CodeSearchTool(llm, vectorStore.Object)),
-            new KbResearcherVerifier(llm),
-            new CodeAnalyzerVerifier(llm),
-            new VisionAnalyzerAgent(new VisionAnalysisTool(llm)),
-            new VisionAnalyzerVerifier(llm),
+            new TriageAgent(llm, NullLogger<TriageAgent>.Instance),
+            new KbResearcherAgent(new KbSearchTool(llm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            new CodeAnalyzerAgent(new CodeSearchTool(llm, vectorStore.Object), NullLogger<CodeAnalyzerAgent>.Instance),
+            new KbResearcherVerifier(llm, NullLogger<KbResearcherVerifier>.Instance),
+            new CodeAnalyzerVerifier(llm, NullLogger<CodeAnalyzerVerifier>.Instance),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(llm), NullLogger<VisionAnalyzerAgent>.Instance),
+            new VisionAnalyzerVerifier(llm, NullLogger<VisionAnalyzerVerifier>.Instance),
             llm,
             tokenUsage,
             conversations.Object,
@@ -53,14 +54,14 @@ public class ChatControllerTests
 
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm),
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
             new NoOpAgent("KbResearcher"),
             new NoOpAgent("KbResearcherVerifier"),
             new NoOpAgent("CodeAnalyzer"),
             new NoOpAgent("CodeAnalyzerVerifier"),
             new NoOpAgent("VisionAnalyzer"),
             new NoOpAgent("VisionAnalyzerVerifier"),
-            new DrafterAgent(openAiLlm));
+            new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
         var tokenUsage = new Mock<ITokenUsageRepository>();
         var controller = MakeController(pipeline, openAiLlm, tokenUsage.Object);
 
@@ -79,14 +80,14 @@ public class ChatControllerTests
 
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm),
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
             new SourceAddingAgent("KbResearcher", "KB: getting-started.md", "kb/getting-started.md"),
             new NoOpAgent("KbResearcherVerifier"),
             new SourceAddingAgent("CodeAnalyzer", "Code: ChatController.cs", "backend/ChatController.cs"),
             new NoOpAgent("CodeAnalyzerVerifier"),
             new NoOpAgent("VisionAnalyzer"),
             new NoOpAgent("VisionAnalyzerVerifier"),
-            new DrafterAgent(openAiLlm));
+            new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
 
         var vectorStore = new Mock<IVectorStoreService>();
         var conversations = new Mock<IConversationRepository>();
@@ -100,11 +101,11 @@ public class ChatControllerTests
             .ReturnsAsync(new List<ChatMessage>());
 
         var controller = new ChatController(
-            pipeline, new TriageAgent(openAiLlm),
-            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object)),
-            new CodeAnalyzerAgent(new CodeSearchTool(openAiLlm, vectorStore.Object)),
-            new KbResearcherVerifier(openAiLlm), new CodeAnalyzerVerifier(openAiLlm),
-            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm)), new VisionAnalyzerVerifier(openAiLlm),
+            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            new CodeAnalyzerAgent(new CodeSearchTool(openAiLlm, vectorStore.Object), NullLogger<CodeAnalyzerAgent>.Instance),
+            new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
             openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object);
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
@@ -130,14 +131,14 @@ public class ChatControllerTests
 
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm),
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
             new NoOpAgent("KbResearcher"),
             new NoOpAgent("KbResearcherVerifier"),
             new NoOpAgent("CodeAnalyzer"),
             new NoOpAgent("CodeAnalyzerVerifier"),
             new NoOpAgent("VisionAnalyzer"),
             new NoOpAgent("VisionAnalyzerVerifier"),
-            new DrafterAgent(openAiLlm));
+            new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
         var tokenUsage = new Mock<ITokenUsageRepository>();
         TokenUsageEntry? recorded = null;
         tokenUsage.Setup(t => t.AddAsync(It.IsAny<TokenUsageEntry>(), default))
@@ -172,8 +173,8 @@ public class ChatControllerTests
                     : new List<VectorQueryResult> { new("doc-1", "found on retry", 0.2f, new Dictionary<string, string> { ["source"] = "kb/x.md" }) };
             });
 
-        var kbResearcher = new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object));
-        var kbVerifier = new KbResearcherVerifier(openAiLlm);
+        var kbResearcher = new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance);
+        var kbVerifier = new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance);
 
         var conversations = new Mock<IConversationRepository>();
         conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
@@ -184,16 +185,16 @@ public class ChatControllerTests
         var tokenUsage = new Mock<ITokenUsageRepository>();
 
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"),
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"),
             new NoOpAgent("CodeAnalyzer"), new NoOpAgent("CodeVerifier"),
             new NoOpAgent("VisionAnalyzer"), new NoOpAgent("VisionVerifier"),
-            new DrafterAgent(openAiLlm));
+            new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
 
         var controller = new ChatController(
-            pipeline, new TriageAgent(openAiLlm), kbResearcher,
-            new CodeAnalyzerAgent(new CodeSearchTool(openAiLlm, vectorStore.Object)), kbVerifier,
-            new CodeAnalyzerVerifier(openAiLlm),
-            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm)), new VisionAnalyzerVerifier(openAiLlm),
+            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), kbResearcher,
+            new CodeAnalyzerAgent(new CodeSearchTool(openAiLlm, vectorStore.Object), NullLogger<CodeAnalyzerAgent>.Instance), kbVerifier,
+            new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
             openAiLlm, tokenUsage.Object, conversations.Object, messages.Object);
 
         var responseBody = new MemoryStream();
@@ -235,17 +236,17 @@ public class ChatControllerTests
             .ReturnsAsync(new List<ChatMessage>());
 
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"),
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"),
             new NoOpAgent("CodeAnalyzer"), new NoOpAgent("CodeVerifier"),
             new NoOpAgent("VisionAnalyzer"), new NoOpAgent("VisionVerifier"),
-            new DrafterAgent(openAiLlm));
+            new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
 
         var controller = new ChatController(
-            pipeline, new TriageAgent(openAiLlm),
-            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object)),
-            new CodeAnalyzerAgent(new CodeSearchTool(openAiLlm, vectorStore.Object)),
-            new KbResearcherVerifier(openAiLlm), new CodeAnalyzerVerifier(openAiLlm),
-            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm)), new VisionAnalyzerVerifier(openAiLlm),
+            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            new CodeAnalyzerAgent(new CodeSearchTool(openAiLlm, vectorStore.Object), NullLogger<CodeAnalyzerAgent>.Instance),
+            new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
             openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object);
 
         var body = new MemoryStream();

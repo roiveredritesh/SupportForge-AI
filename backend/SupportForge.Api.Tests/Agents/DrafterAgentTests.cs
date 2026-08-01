@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Moq;
 using SupportForge.Agents;
 using Xunit;
@@ -221,7 +222,7 @@ public class DrafterAgentTests
         llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("The fix is in OrderService.cs:42.");
 
-        await new DrafterAgent(llm.Object).RunAsync(context);
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>()).RunAsync(context);
 
         Assert.Equal(DrafterAgent.LeakFallback, context.Draft);
         Assert.Equal(0.0, context.Confidence);
@@ -237,11 +238,42 @@ public class DrafterAgentTests
         llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(clean);
 
-        await new DrafterAgent(llm.Object).RunAsync(context);
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>()).RunAsync(context);
 
         Assert.Equal(clean, context.Draft);
         Assert.Equal(DrafterAgent.ComputeConfidence(context), context.Confidence);
         Assert.True(context.Confidence > 0.0);
+    }
+
+    [Fact]
+    public async Task RunAsync_LogsStartAndCompletion()
+    {
+        var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        context.KbVerification.Status = VerificationStatus.Passed;
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("This is expected behaviour.");
+
+        var logger = new ListLogger<DrafterAgent>();
+        await new DrafterAgent(llm.Object, logger).RunAsync(context);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("starting") && e.Message.Contains("Drafter"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("completed"));
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenLlmThrows_LogsFailureAndPropagates()
+    {
+        var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("llm down"));
+
+        var logger = new ListLogger<DrafterAgent>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DrafterAgent(llm.Object, logger).RunAsync(context));
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error && e.Exception is InvalidOperationException);
     }
 
     [Fact]
