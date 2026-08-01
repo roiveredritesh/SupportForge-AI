@@ -1,12 +1,14 @@
 using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
+using SupportForge.Ingestion.Graphify;
 using SupportForge.VectorStore;
 using Xunit;
 
@@ -22,6 +24,7 @@ public class IngestionJobFactoryTests
         services.AddSingleton<IProjectRepository>(new Mock<IProjectRepository>().Object);
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton<GitRepoSyncService>();
+        services.AddSingleton(new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance));
         return services.BuildServiceProvider();
     }
 
@@ -50,7 +53,7 @@ public class IngestionJobFactoryTests
     }
 
     [Fact]
-    public void CodeIngestionJobFactory_ResolvesFreshLlmClient_OnEachCreateJobsCall()
+    public void CodeIngestionJobFactory_CreatesOneJobPerConfiguredRepo()
     {
         using var provider = BuildProvider();
         var factory = new CodeIngestionJobFactory(provider, Path.GetTempPath());
@@ -58,15 +61,16 @@ public class IngestionJobFactoryTests
         {
             Id = "proj1",
             Name = "Test",
-            Repos = new List<GitHubRepoConfig> { new("owner", "repo", "main", null) },
+            Repos = new List<GitHubRepoConfig>
+            {
+                new("owner", "repo-a", "main", null),
+                new("owner", "repo-b", "main", null),
+            },
         };
 
-        var firstJob = factory.CreateJobs(project).Single();
-        var secondJob = factory.CreateJobs(project).Single();
+        var jobs = factory.CreateJobs(project).ToList();
 
-        var firstLlm = GetLlmField(firstJob, "_llm");
-        var secondLlm = GetLlmField(secondJob, "_llm");
-
-        Assert.NotSame(firstLlm, secondLlm);
+        Assert.Equal(2, jobs.Count);
+        Assert.All(jobs, j => Assert.Equal("proj1", j.ProjectId));
     }
 }
