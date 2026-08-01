@@ -2,6 +2,9 @@ using System.ClientModel;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using OpenAI.Embeddings;
+using Polly;
+using Polly.CircuitBreaker;
+using Polly.Retry;
 
 namespace SupportForge.Agents;
 
@@ -11,6 +14,38 @@ public class OpenAiLlmClient : ILlmClient
     private readonly EmbeddingClient _embeddingClient;
     private readonly string _embeddingModel;
     private readonly string? _embeddingInputType;
+
+    // The raw OpenAI.Chat.ChatClient (and its Azure/NIM variants) is built inline by
+    // LlmServiceCollectionExtensions with no HttpClient seam to attach a Polly DelegatingHandler to
+    // (see KTD2), so the retry/circuit-breaker pipeline wraps the call site here instead. One pipeline
+    // per client instance -- each registered provider (OpenAI/NIM/Azure) gets its own circuit breaker
+    // rather than sharing failure state across unrelated endpoints.
+    private readonly ResiliencePipeline _resilience = new ResiliencePipelineBuilder()
+        .AddRetry(new RetryStrategyOptions
+        {
+            MaxRetryAttempts = 3,
+            BackoffType = DelayBackoffType.Exponential,
+            Delay = TimeSpan.FromSeconds(1),
+            UseJitter = true,
+            ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+        })
+        .AddCircuitBreaker(new CircuitBreakerStrategyOptions
+        {
+            FailureRatio = 0.5,
+            MinimumThroughput = 4,
+            SamplingDuration = TimeSpan.FromSeconds(30),
+            BreakDuration = TimeSpan.FromSeconds(15),
+            ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+        })
+        .Build();
+
+    private static bool IsTransientFailure(Exception ex) => ex switch
+    {
+        ClientResultException cre => cre.Status == 429 || cre.Status >= 500,
+        HttpRequestException => true,
+        TimeoutException => true,
+        _ => false,
+    };
 
     public virtual int LastTotalTokens { get; protected set; }
 
@@ -34,13 +69,19 @@ public class OpenAiLlmClient : ILlmClient
 
     public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
-        var response = await _chatClient.GetResponseAsync(
-            [new ChatMessage(ChatRole.System, systemPrompt), new ChatMessage(ChatRole.User, userPrompt)],
+        var response = await _resilience.ExecuteAsync(
+            callback: rct => new ValueTask<ChatResponse>(_chatClient.GetResponseAsync(
+                [new ChatMessage(ChatRole.System, systemPrompt), new ChatMessage(ChatRole.User, userPrompt)],
+                cancellationToken: rct)),
             cancellationToken: ct);
         LastTotalTokens = (int)(response.Usage?.TotalTokenCount ?? 0);
         return response.Text.Trim();
     }
 
+    // ponytail: streaming isn't retried -- once chunks start reaching the caller a retry would
+    // re-emit duplicate text, so only the non-streaming calls (CompleteAsync/AnalyzeImageAsync) go
+    // through the resilience pipeline. Add mid-stream retry (buffer-and-replace before first yield)
+    // if streaming failure rate turns out to matter in practice.
     public virtual async IAsyncEnumerable<string> StreamCompleteAsync(
         string systemPrompt, string userPrompt, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
@@ -94,7 +135,9 @@ public class OpenAiLlmClient : ILlmClient
             new TextContent(prompt),
             new DataContent(Convert.FromBase64String(base64Image), "image/png"),
         ]);
-        var response = await _chatClient.GetResponseAsync([message], cancellationToken: ct);
+        var response = await _resilience.ExecuteAsync(
+            callback: rct => new ValueTask<ChatResponse>(_chatClient.GetResponseAsync([message], cancellationToken: rct)),
+            cancellationToken: ct);
         LastTotalTokens = (int)(response.Usage?.TotalTokenCount ?? 0);
         return response.Text.Trim();
     }
