@@ -1,11 +1,14 @@
 using Amazon;
 using Amazon.BedrockRuntime;
 using System.ClientModel;
+using System.Net;
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http.Resilience;
 using OpenAI;
+using Polly;
 
 namespace SupportForge.Agents;
 
@@ -71,7 +74,8 @@ public static class LlmServiceCollectionExtensions
                 services.Configure<AnthropicOptions>(configuration.GetSection("Llm:Anthropic"));
                 // HttpClient.Timeout bounds the whole request including reading the body -- the
                 // 100s default would tear down a long-running SSE stream mid-generation.
-                services.AddHttpClient<AnthropicLlmClient>(c => c.Timeout = TimeSpan.FromMinutes(5));
+                services.AddHttpClient<AnthropicLlmClient>(c => c.Timeout = TimeSpan.FromMinutes(5))
+                    .AddResilienceHandler("llm-retry", AddLlmResilience);
                 services.AddSingleton<ILlmChatClient>(sp => sp.GetRequiredService<AnthropicLlmClient>());
                 break;
             case "Bedrock":
@@ -113,7 +117,37 @@ public static class LlmServiceCollectionExtensions
         services.AddSingleton<IAmazonBedrockRuntime>(_ =>
         {
             var region = configuration["Llm:Bedrock:Region"] ?? "us-east-1";
-            return new AmazonBedrockRuntimeClient(RegionEndpoint.GetBySystemName(region));
+            // The AWS SDK owns its own retry/backoff machinery (RetryMode.Standard = exponential
+            // backoff with jitter) -- Polly doesn't attach here since there's no HttpClient seam,
+            // see KTD2 in the mitigation plan.
+            var config = new AmazonBedrockRuntimeConfig
+            {
+                RegionEndpoint = RegionEndpoint.GetBySystemName(region),
+                RetryMode = Amazon.Runtime.RequestRetryMode.Standard,
+                MaxErrorRetry = 3,
+            };
+            return new AmazonBedrockRuntimeClient(config);
+        });
+    }
+
+    // Shared retry+circuit-breaker shape for the one LLM client with a real HttpClient seam
+    // (Anthropic). Bounded exponential backoff (~3 attempts) then a circuit breaker that opens on
+    // sustained failure so a down provider gets failed fast instead of hammered -- see U2/KTD2.
+    private static void AddLlmResilience(ResiliencePipelineBuilder<HttpResponseMessage> builder)
+    {
+        builder.AddRetry(new HttpRetryStrategyOptions
+        {
+            MaxRetryAttempts = 3,
+            BackoffType = DelayBackoffType.Exponential,
+            Delay = TimeSpan.FromSeconds(1),
+            UseJitter = true,
+        });
+        builder.AddCircuitBreaker(new HttpCircuitBreakerStrategyOptions
+        {
+            FailureRatio = 0.5,
+            MinimumThroughput = 4,
+            SamplingDuration = TimeSpan.FromSeconds(30),
+            BreakDuration = TimeSpan.FromSeconds(15),
         });
     }
 
