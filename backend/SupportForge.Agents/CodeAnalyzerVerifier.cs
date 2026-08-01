@@ -7,10 +7,10 @@ public sealed class CodeAnalyzerVerifier : IAgent
         customer's code-related support question. Respond with only "yes" or "no".
         """;
 
-    private readonly ILlmClient _llm;
+    private readonly ILlmChatClient _llm;
     public string Name => "CodeAnalyzerVerifier";
 
-    public CodeAnalyzerVerifier(ILlmClient llm) => _llm = llm;
+    public CodeAnalyzerVerifier(ILlmChatClient llm) => _llm = llm;
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {

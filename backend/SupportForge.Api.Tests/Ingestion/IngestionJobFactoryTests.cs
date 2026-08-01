@@ -1,13 +1,13 @@
-using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
-using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
-using SupportForge.VectorStore;
+using SupportForge.Ingestion.Graphify;
 using Xunit;
 
 namespace SupportForge.Api.Tests.Ingestion;
@@ -17,19 +17,17 @@ public class IngestionJobFactoryTests
     private static ServiceProvider BuildProvider()
     {
         var services = new ServiceCollection();
-        services.AddTransient<ILlmClient>(_ => new Mock<ILlmClient>().Object);
-        services.AddTransient<IVectorStoreService>(_ => new Mock<IVectorStoreService>().Object);
         services.AddSingleton<IProjectRepository>(new Mock<IProjectRepository>().Object);
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton<GitRepoSyncService>();
+        services.AddSingleton(new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance));
+        services.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
+        services.AddSingleton<IReadOnlyDictionary<string, string?>>(new Dictionary<string, string?>());
         return services.BuildServiceProvider();
     }
 
-    private static ILlmClient GetLlmField(object job, string fieldName) =>
-        (ILlmClient)job.GetType().GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(job)!;
-
     [Fact]
-    public void DocumentIngestionJobFactory_ResolvesFreshLlmClient_OnEachCreateJobsCall()
+    public void DocumentIngestionJobFactory_ResolvesRepoAssociatedSource_AgainstItsOwnRepo()
     {
         using var provider = BuildProvider();
         var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
@@ -37,20 +35,89 @@ public class IngestionJobFactoryTests
         {
             Id = "proj1",
             Name = "Test",
-            KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "docs/", null) },
+            Repos = new List<GitHubRepoConfig>
+            {
+                new("owner", "repo-a", "main", null),
+                new("owner", "repo-b", "main", null),
+            },
+            KbSources = new List<KbSourceConfig>
+            {
+                new(KbSourceType.Documents, "docs/", null, RepoOwner: "owner", RepoName: "repo-b"),
+            },
         };
 
-        var firstJob = factory.CreateJobs(project).Single();
-        var secondJob = factory.CreateJobs(project).Single();
+        var job = Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project).Single());
 
-        var firstLlm = GetLlmField(firstJob, "_llm");
-        var secondLlm = GetLlmField(secondJob, "_llm");
-
-        Assert.NotSame(firstLlm, secondLlm);
+        var folderPath = (string)job.GetType()
+            .GetField("_folderPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(job)!;
+        Assert.Equal(Path.Combine(Path.GetTempPath(), "proj1", "repo-b", "docs/"), folderPath);
     }
 
     [Fact]
-    public void CodeIngestionJobFactory_ResolvesFreshLlmClient_OnEachCreateJobsCall()
+    public void DocumentIngestionJobFactory_Throws_WhenSourceReferencesUnconfiguredRepo()
+    {
+        using var provider = BuildProvider();
+        var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
+        var project = new Project
+        {
+            Id = "proj1",
+            Name = "Test",
+            Repos = new List<GitHubRepoConfig> { new("owner", "repo-a", "main", null) },
+            KbSources = new List<KbSourceConfig>
+            {
+                new(KbSourceType.Documents, "docs/", null, RepoOwner: "owner", RepoName: "repo-b"),
+            },
+        };
+
+        Assert.Throws<InvalidOperationException>(() => factory.CreateJobs(project).ToList());
+    }
+
+    [Fact]
+    public void DocumentIngestionJobFactory_TreatsSourceWithNoRepoAssociation_AsStandaloneAbsolutePath()
+    {
+        using var provider = BuildProvider();
+        var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
+        var project = new Project
+        {
+            Id = "proj1",
+            Name = "Test",
+            Repos = new List<GitHubRepoConfig> { new("owner", "repo-a", "main", null) },
+            KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "/standalone/docs", null) },
+        };
+
+        var job = Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project).Single());
+
+        var folderPath = (string)job.GetType()
+            .GetField("_folderPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(job)!;
+        Assert.Equal("/standalone/docs", folderPath);
+    }
+
+    [Fact]
+    public void DocumentIngestionJobFactory_CreatesWebsiteAndConfluenceJobs_ForThoseSourceTypes()
+    {
+        using var provider = BuildProvider();
+        var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
+        var project = new Project
+        {
+            Id = "proj1",
+            Name = "Test",
+            KbSources = new List<KbSourceConfig>
+            {
+                new(KbSourceType.Website, "https://example.com/docs", null),
+                new(KbSourceType.Confluence, "12345", null),
+            },
+        };
+
+        var jobs = factory.CreateJobs(project).ToList();
+
+        Assert.Single(jobs.OfType<WebsiteIngestionJob>());
+        Assert.Single(jobs.OfType<ConfluenceIngestionJob>());
+    }
+
+    [Fact]
+    public void CodeIngestionJobFactory_CreatesOneJobPerConfiguredRepo()
     {
         using var provider = BuildProvider();
         var factory = new CodeIngestionJobFactory(provider, Path.GetTempPath());
@@ -58,15 +125,16 @@ public class IngestionJobFactoryTests
         {
             Id = "proj1",
             Name = "Test",
-            Repos = new List<GitHubRepoConfig> { new("owner", "repo", "main", null) },
+            Repos = new List<GitHubRepoConfig>
+            {
+                new("owner", "repo-a", "main", null),
+                new("owner", "repo-b", "main", null),
+            },
         };
 
-        var firstJob = factory.CreateJobs(project).Single();
-        var secondJob = factory.CreateJobs(project).Single();
+        var jobs = factory.CreateJobs(project).ToList();
 
-        var firstLlm = GetLlmField(firstJob, "_llm");
-        var secondLlm = GetLlmField(secondJob, "_llm");
-
-        Assert.NotSame(firstLlm, secondLlm);
+        Assert.Equal(2, jobs.Count);
+        Assert.All(jobs, j => Assert.Equal("proj1", j.ProjectId));
     }
 }

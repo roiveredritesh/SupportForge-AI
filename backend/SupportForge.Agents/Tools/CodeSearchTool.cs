@@ -4,10 +4,10 @@ namespace SupportForge.Agents.Tools;
 
 public sealed class CodeSearchTool
 {
-    private readonly ILlmClient _llm;
+    private readonly ILlmEmbeddingClient _llm;
     private readonly IVectorStoreService _vectorStore;
 
-    public CodeSearchTool(ILlmClient llm, IVectorStoreService vectorStore)
+    public CodeSearchTool(ILlmEmbeddingClient llm, IVectorStoreService vectorStore)
     {
         _llm = llm;
         _vectorStore = vectorStore;

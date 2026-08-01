@@ -1,12 +1,10 @@
-using System.ClientModel;
-using Microsoft.Extensions.AI;
-using OpenAI;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
 using SupportForge.Core;
 using SupportForge.Ingestion;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
+using SupportForge.Ingestion.Graphify;
 using SupportForge.VectorStore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,22 +35,10 @@ builder.Services.AddSingleton<IConversationRepository>(
     new JsonFileConversationRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IChatMessageRepository>(
     new JsonFileChatMessageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
-// "Llm:Provider" selects which named section below (e.g. "OpenAI", "NvidiaNim") supplies
-// BaseUrl/ChatModel/EmbeddingModel/EmbeddingInputType — switch providers by changing just this flag.
-var llmProvider = builder.Configuration["Llm:Provider"] ?? "OpenAI";
-var llmProviderSection = builder.Configuration.GetSection($"Llm:{llmProvider}");
-var llmBaseUrl = llmProviderSection["BaseUrl"] ?? "https://api.openai.com/v1/";
-var llmApiKey = llmProviderSection["ApiKey"] ?? builder.Configuration["Llm:ApiKey"] ?? builder.Configuration["OpenAI:ApiKey"];
-var llmChatModel = llmProviderSection["ChatModel"] ?? "gpt-4o-mini";
-var llmEmbeddingModel = llmProviderSection["EmbeddingModel"] ?? "text-embedding-3-small";
-var llmEmbeddingInputType = llmProviderSection["EmbeddingInputType"];
-var openAiClientOptions = new OpenAIClientOptions { Endpoint = new Uri(llmBaseUrl) };
-var openAiCredential = new ApiKeyCredential(llmApiKey ?? string.Empty);
-builder.Services.AddSingleton<ILlmClient>(_ => new OpenAiLlmClient(
-    new OpenAI.Chat.ChatClient(llmChatModel, openAiCredential, openAiClientOptions).AsIChatClient(),
-    new OpenAI.Embeddings.EmbeddingClient(llmEmbeddingModel, openAiCredential, openAiClientOptions),
-    llmEmbeddingModel,
-    llmEmbeddingInputType));
+// "Llm:Provider" selects the chat/vision provider (OpenAI | NvidiaNim | Azure | Anthropic | Bedrock);
+// "Embeddings:Provider" optionally selects a different provider for embeddings (required whenever
+// Llm:Provider is Anthropic, which has no embeddings API) and defaults to Llm:Provider otherwise.
+builder.Services.AddLlmProviders(builder.Configuration);
 builder.Services.AddScoped<TriageAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
 builder.Services.AddScoped<KbResearcherVerifier>();
@@ -75,6 +61,13 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<DrafterAgent>()));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionBackgroundService>();
+builder.Services.AddSingleton<GraphifyCliRunner>();
+// Resolved eagerly (not inside a lazy DI factory) so an incompatible Llm:Provider/Graphify:Gateway
+// combination (e.g. Bedrock/Azure with no gateway configured) fails at startup, not on first ingest.
+var graphifyEnvironment = GraphifyBackendResolver.Resolve(builder.Configuration);
+builder.Services.AddSingleton(graphifyEnvironment);
+builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
+builder.Services.AddHttpClient<ConfluencePageFetcher>();
 var repoCacheRoot = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos");
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp, repoCacheRoot));
 builder.Services.AddSingleton<GitRepoSyncService>();

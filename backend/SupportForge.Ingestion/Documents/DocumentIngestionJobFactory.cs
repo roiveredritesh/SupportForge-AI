@@ -1,8 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
-using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
-using SupportForge.VectorStore;
+using SupportForge.Ingestion.Graphify;
 
 namespace SupportForge.Ingestion.Documents;
 
@@ -19,21 +18,35 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
 
     public IEnumerable<IIngestionJob> CreateJobs(Project project)
     {
-        var llm = _services.GetRequiredService<ILlmClient>();
-        var vectorStore = _services.GetRequiredService<IVectorStoreService>();
+        var graphify = _services.GetRequiredService<GraphifyCliRunner>();
+        var confluence = _services.GetRequiredService<ConfluencePageFetcher>();
         var projects = _services.GetRequiredService<IProjectRepository>();
+        // Doc/Confluence/website extraction is semantic (LLM-backed), unlike code's AST-only
+        // --no-cluster path, so it needs the derived backend environment (KTD3).
+        var graphifyEnvironment = _services.GetRequiredService<IReadOnlyDictionary<string, string?>>();
 
-        // ponytail: docs live inside the project's already-cloned code repo rather than some
-        // separately-fetched location, so resolve against the first linked repo's local clone
-        // (same path CodeIngestionJobFactory clones into) instead of adding a GitHub API client.
-        var firstRepo = project.Repos.FirstOrDefault();
-        string ResolveFolderPath(string location) => firstRepo is null
-            ? location
-            : Path.Combine(_repoCacheRoot, project.Id, firstRepo.Repo, location);
+        // A Documents source declares which repo it belongs to via RepoOwner/RepoName -- no more
+        // silently resolving against project.Repos.FirstOrDefault(), which was wrong the moment a
+        // project had peer repos. Null RepoOwner/RepoName means Location is a standalone path.
+        string ResolveDocumentFolderPath(KbSourceConfig source)
+        {
+            if (source.RepoOwner is null && source.RepoName is null)
+                return source.Location;
 
-        return project.KbSources
-            .Where(s => s.Type == KbSourceType.Documents)
-            .Select(s => new DocumentIngestionJob(project.Id, ResolveFolderPath(s.Location), s.Location, llm, vectorStore, projects))
-            .ToList();
+            var repo = project.Repos.FirstOrDefault(r => r.Owner == source.RepoOwner && r.Repo == source.RepoName);
+            if (repo is null)
+                throw new InvalidOperationException(
+                    $"KB source '{source.Location}' on project '{project.Id}' references repo '{source.RepoOwner}/{source.RepoName}', which is not configured on this project.");
+
+            return Path.Combine(_repoCacheRoot, project.Id, repo.Repo, source.Location);
+        }
+
+        return project.KbSources.Select(s => (IIngestionJob)(s.Type switch
+        {
+            KbSourceType.Documents => new DocumentIngestionJob(project.Id, ResolveDocumentFolderPath(s), s.Location, graphify, graphifyEnvironment, projects),
+            KbSourceType.Website => new WebsiteIngestionJob(project.Id, Path.Combine(_repoCacheRoot, project.Id, "kb-web"), s.Location, graphify, graphifyEnvironment, projects),
+            KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, Path.Combine(_repoCacheRoot, project.Id, "kb-confluence"), confluence, graphify, graphifyEnvironment, projects),
+            _ => throw new NotSupportedException($"KB source type '{s.Type}' is not supported."),
+        })).ToList();
     }
 }

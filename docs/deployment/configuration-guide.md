@@ -12,6 +12,34 @@
 
 As environment variables, replace `:` with `__` (double underscore) — e.g. `OpenAI:ApiKey` becomes `OpenAI__ApiKey`. This is .NET's configuration provider convention; setting `OpenAI:ApiKey` as a literal env var name will not bind.
 
+> **Note**: this file has other uncommitted local modifications describing a newer `Llm:*` config scheme superseding the `OpenAI:ApiKey`-only table above; that predates this section and is out of scope here — reconcile the two before treating either as canonical.
+
+## LLM provider configuration (`Llm:Provider` / `Embeddings:Provider`)
+
+`Llm:Provider` selects the chat/vision provider; `Embeddings:Provider` optionally selects a *different* provider for embeddings and defaults to `Llm:Provider` when unset. Every provider populates `LastTotalTokens` consistently, since cost observability depends on it.
+
+| `Llm:Provider` value | Chat | Vision | Embeddings | Config section |
+|---|---|---|---|---|
+| `OpenAI` | yes | yes | yes | `Llm:OpenAI` (`BaseUrl`, `ChatModel`, `EmbeddingModel`, `ApiKey`) |
+| `NvidiaNim` | yes | yes | yes | `Llm:NvidiaNim` (adds `EmbeddingInputType` for asymmetric embedding models) |
+| `Azure` | yes | yes | yes | `Llm:Azure` (`BaseUrl` = resource endpoint, `ChatModel`/`EmbeddingModel` = **deployment names**, `ApiKey`) — reuses the OpenAI client under the hood, since Azure.AI.OpenAI returns the same SDK types |
+| `Anthropic` | yes | yes | **no** | `Llm:Anthropic` (`BaseUrl`, `ChatModel`, `ApiKey`) — Anthropic ships no embeddings API, so `Embeddings:Provider` **must** be set to a different provider or startup fails with a clear error |
+| `Bedrock` | yes | yes | yes | `Llm:Bedrock` (`Region`, `ChatModel`, `EmbeddingModel`) — no `ApiKey`; uses the AWS SDK's standard credential chain (IAM role, env vars, `~/.aws/credentials`) |
+
+Example: Anthropic for chat/vision with NVIDIA NIM for embeddings —
+```json
+"Llm": { "Provider": "Anthropic", "Anthropic": { "ApiKey": "sk-ant-..." } },
+"Embeddings": { "Provider": "NvidiaNim" }
+```
+
+### graphify's own backend (`Graphify:Gateway`)
+
+Separately from the app's `Llm:*` config, graphify's own semantic-extraction step (used for docs/Confluence/website ingestion, not code) selects its LLM backend via environment variables the app derives automatically from `Llm:Provider`:
+
+- `OpenAI` / `NvidiaNim` → graphify's `OPENAI_BASE_URL`/`OPENAI_MODEL`/`OPENAI_API_KEY`, so `--backend openai` reaches it directly.
+- `Anthropic` → graphify's `ANTHROPIC_BASE_URL`/`ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`, so `--backend claude` reaches it directly.
+- `Azure` / `Bedrock` → **graphify has no native Bedrock or Azure backend.** Front it with an OpenAI-compatible gateway (e.g. [LiteLLM](https://github.com/BerriAI/litellm)) and set `Graphify:Gateway:BaseUrl` (must be HTTPS) and `Graphify:Gateway:ApiKey`. The app derives `OPENAI_BASE_URL`/`OPENAI_API_KEY` from the gateway. **Startup fails immediately** with a specific error if `Llm:Provider` is `Azure`/`Bedrock` and no gateway is configured — this is caught at deploy time, not on first ingestion.
+
 ## Onboarding a new project
 1. Open the Admin page (`/admin`).
 2. Enter a unique Project ID (lowercase, no spaces — used directly as a vector collection prefix) and a display Name.

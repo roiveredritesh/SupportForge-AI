@@ -14,16 +14,22 @@ public class OpenAiLlmClient : ILlmClient
 
     public virtual int LastTotalTokens { get; protected set; }
 
+    // OpenAI/NIM/custom-hosted chat models are vision-capable by default; set false in config
+    // for a text-only model so CoordinatorPipeline can skip VisionAnalyzerAgent instead of erroring.
+    public virtual bool SupportsVision { get; protected set; } = true;
+
     public OpenAiLlmClient(
         IChatClient chatClient,
         EmbeddingClient embeddingClient,
         string embeddingModel,
-        string? embeddingInputType = null)
+        string? embeddingInputType = null,
+        bool supportsVision = true)
     {
         _chatClient = chatClient;
         _embeddingClient = embeddingClient;
         _embeddingModel = embeddingModel;
         _embeddingInputType = embeddingInputType;
+        SupportsVision = supportsVision;
     }
 
     public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)

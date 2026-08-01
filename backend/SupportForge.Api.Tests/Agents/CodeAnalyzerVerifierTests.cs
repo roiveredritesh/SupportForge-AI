@@ -51,7 +51,7 @@ public class CodeAnalyzerVerifierTests
     {
         var llm = new Mock<ILlmClient>();
         llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("yes");
-        llm.SetupGet(l => l.LastTotalTokens).Returns(100);
+        llm.As<ILlmChatClient>().SetupGet(l => l.LastTotalTokens).Returns(100);
         var verifier = new CodeAnalyzerVerifier(llm.Object);
         var context = new AgentContext { ProjectId = "p", Query = "how to optimize", Intent = "code_question" };
         context.CodeSnippets.Add("public class OptimizedCode { ... }");

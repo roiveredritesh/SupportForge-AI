@@ -4,10 +4,10 @@ namespace SupportForge.Agents.Tools;
 
 public sealed class KbSearchTool
 {
-    private readonly ILlmClient _llm;
+    private readonly ILlmEmbeddingClient _llm;
     private readonly IVectorStoreService _vectorStore;
 
-    public KbSearchTool(ILlmClient llm, IVectorStoreService vectorStore)
+    public KbSearchTool(ILlmEmbeddingClient llm, IVectorStoreService vectorStore)
     {
         _llm = llm;
         _vectorStore = vectorStore;

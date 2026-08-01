@@ -11,6 +11,7 @@ public class VisionAnalyzerAgentTests
     public async Task RunAsync_SetsVisionFindings_WhenScreenshotPresent()
     {
         var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.SupportsVision).Returns(true);
         llm.Setup(l => l.AnalyzeImageAsync(It.IsAny<string>(), It.IsAny<string>(), default))
            .ReturnsAsync("NullReferenceException at CheckoutController.cs:42");
 
@@ -39,6 +40,7 @@ public class VisionAnalyzerAgentTests
     public async Task RunAsync_OnRetry_RequestsDetailedAnalysis()
     {
         var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.SupportsVision).Returns(true);
         llm.Setup(l => l.AnalyzeImageAsync(It.IsAny<string>(), It.Is<string>(p => p.Contains("in detail")), It.IsAny<CancellationToken>()))
             .ReturnsAsync("detailed findings");
 
@@ -51,5 +53,20 @@ public class VisionAnalyzerAgentTests
 
         Assert.Equal("detailed findings", result.VisionFindings);
         Assert.Equal(2, result.VisionVerification.Attempts);
+    }
+
+    [Fact]
+    public async Task RunAsync_SkipsAnalysisWithReason_WhenModelDoesNotSupportVision()
+    {
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.SupportsVision).Returns(false);
+
+        var agent = new VisionAnalyzerAgent(new VisionAnalysisTool(llm.Object));
+        var context = new AgentContext { ProjectId = "proj1", Query = "why does checkout fail", ScreenshotBase64 = "base64data" };
+
+        var result = await agent.RunAsync(context);
+
+        Assert.Equal("Vision analysis unavailable: the configured chat model does not support vision.", result.VisionFindings);
+        llm.Verify(l => l.AnalyzeImageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

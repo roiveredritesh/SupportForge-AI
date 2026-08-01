@@ -7,10 +7,10 @@ public sealed class KbResearcherVerifier : IAgent
         customer's support question. Respond with only "yes" or "no".
         """;
 
-    private readonly ILlmClient _llm;
+    private readonly ILlmChatClient _llm;
     public string Name => "KbResearcherVerifier";
 
-    public KbResearcherVerifier(ILlmClient llm) => _llm = llm;
+    public KbResearcherVerifier(ILlmChatClient llm) => _llm = llm;
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
