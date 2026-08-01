@@ -53,6 +53,10 @@ builder.Services.AddSingleton<ILlmClient>(_ => new OpenAiLlmClient(
     new OpenAI.Embeddings.EmbeddingClient(llmEmbeddingModel, openAiCredential, openAiClientOptions),
     llmEmbeddingModel,
     llmEmbeddingInputType));
+// Narrower capability seams resolve to the same singleton today (one OpenAI-compatible provider
+// satisfies both); this is the seam a future Anthropic-chat + separate-embeddings deployment splits.
+builder.Services.AddSingleton<ILlmChatClient>(sp => sp.GetRequiredService<ILlmClient>());
+builder.Services.AddSingleton<ILlmEmbeddingClient>(sp => sp.GetRequiredService<ILlmClient>());
 builder.Services.AddScoped<TriageAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
 builder.Services.AddScoped<KbResearcherVerifier>();

@@ -2,11 +2,13 @@ namespace SupportForge.Agents.Tools;
 
 public sealed class VisionAnalysisTool
 {
-    private readonly ILlmClient _llm;
+    private readonly ILlmChatClient _llm;
 
-    public VisionAnalysisTool(ILlmClient llm) => _llm = llm;
+    public VisionAnalysisTool(ILlmChatClient llm) => _llm = llm;
 
     public int LastTotalTokens { get; private set; }
+
+    public bool SupportsVision => _llm.SupportsVision;
 
     public async Task<string> AnalyzeAsync(string base64Image, bool detailed = false, CancellationToken ct = default)
     {

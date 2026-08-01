@@ -13,6 +13,12 @@ public sealed class VisionAnalyzerAgent : IAgent
     {
         if (string.IsNullOrEmpty(context.ScreenshotBase64)) return context;
 
+        if (!_tool.SupportsVision)
+        {
+            context.VisionFindings = "Vision analysis unavailable: the configured chat model does not support vision.";
+            return context;
+        }
+
         context.VisionFindings = await _tool.AnalyzeAsync(context.ScreenshotBase64, context.VisionVerification.Attempts > 0, ct);
         context.TotalTokensUsed += _tool.LastTotalTokens;
         context.VisionVerification.Attempts++;
