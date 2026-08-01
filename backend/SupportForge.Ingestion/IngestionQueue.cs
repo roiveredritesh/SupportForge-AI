@@ -7,6 +7,7 @@ public sealed class IngestionQueue
 {
     private readonly Channel<IIngestionJob> _channel = Channel.CreateUnbounded<IIngestionJob>();
     private readonly ConcurrentDictionary<string, int> _pendingByProjectId = new();
+    private readonly ConcurrentDictionary<string, int> _markCompleteCallCounts = new();
 
     public void Enqueue(IIngestionJob job)
     {
@@ -16,8 +17,15 @@ public sealed class IngestionQueue
 
     public ValueTask<IIngestionJob> DequeueAsync(CancellationToken ct) => _channel.Reader.ReadAsync(ct);
 
-    public void MarkComplete(string projectId) =>
+    public void MarkComplete(string projectId)
+    {
         _pendingByProjectId.AddOrUpdate(projectId, 0, (_, count) => Math.Max(0, count - 1));
+        _markCompleteCallCounts.AddOrUpdate(projectId, 1, (_, count) => count + 1);
+    }
+
+    // ponytail: test-only counter, internal + InternalsVisibleTo rather than a mocking seam.
+    internal int MarkCompleteCallCount(string projectId) =>
+        _markCompleteCallCounts.GetValueOrDefault(projectId);
 
     public bool IsBusy(string projectId) =>
         _pendingByProjectId.TryGetValue(projectId, out var count) && count > 0;
