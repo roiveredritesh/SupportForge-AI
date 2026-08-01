@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -13,6 +14,12 @@ namespace SupportForge.Ingestion.Documents;
 /// </summary>
 public sealed class ConfluencePageFetcher
 {
+    // Strips <script>/<style> elements (tags AND their content) before the generic tag-strip
+    // below, which only removes tag delimiters and would otherwise leave JS/CSS text -- including
+    // any prompt-injection text an editor hid in a script/style block -- as plain "content" that
+    // flows into graphify's semantic extraction and, eventually, ticket answers.
+    private static readonly Regex ScriptOrStylePattern = new(
+        @"<(script|style)\b[^>]*>.*?</\1>", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
     private static readonly Regex HtmlTagPattern = new("<[^>]+>", RegexOptions.Compiled);
 
     private readonly HttpClient _http;
@@ -41,7 +48,10 @@ public sealed class ConfluencePageFetcher
                 ? valueEl.GetString() ?? string.Empty
                 : string.Empty;
 
-        var markdown = $"# {title}\n\n{HtmlTagPattern.Replace(html, string.Empty).Trim()}\n";
+        var withoutScriptsOrStyles = ScriptOrStylePattern.Replace(html, string.Empty);
+        var text = HtmlTagPattern.Replace(withoutScriptsOrStyles, string.Empty);
+        var decoded = WebUtility.HtmlDecode(text);
+        var markdown = $"# {title}\n\n{decoded.Trim()}\n";
         return (title, markdown);
     }
 }

@@ -82,10 +82,15 @@ public sealed class GraphifyCliRunner
         {
             await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
+            // Kill regardless of which token fired: leaving the child running on caller
+            // cancellation (not just on our own timeout) orphans a graphify process that keeps
+            // consuming CPU/LLM budget after the caller has already moved on.
             TryKill(process);
-            throw new TimeoutException($"graphify {string.Join(' ', args)} exceeded the configured timeout of {_timeout}.");
+            if (!ct.IsCancellationRequested)
+                throw new TimeoutException($"graphify {string.Join(' ', args)} exceeded the configured timeout of {_timeout}.");
+            throw;
         }
 
         var stdout = await stdoutTask.ConfigureAwait(false);

@@ -61,6 +61,34 @@ public class GraphifyCliRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_ThrowsTimeoutException_WhenExceedingConfiguredTimeout()
+    {
+        // A near-zero timeout guarantees the process (Python interpreter startup alone takes
+        // longer than this) is still running when the timeout fires, exercising the kill path.
+        var runner = CreateRunner(TimeSpan.FromMilliseconds(1));
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            runner.RunAsync(Directory.GetCurrentDirectory(), environment: null, CancellationToken.None, "--version"));
+    }
+
+    [Fact]
+    public async Task RunAsync_ThrowsOperationCanceledException_NotTimeoutException_WhenCallerCancelsDuringExecution()
+    {
+        // Regression test: the kill-on-cancel branch previously only fired when the internal
+        // timeout (not the caller's own token) triggered cancellation, leaving the child process
+        // running whenever the caller cancelled instead. Cancelling almost immediately after start
+        // (well within the default 10-minute timeout) exercises the caller-cancellation branch.
+        var runner = CreateRunner();
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(1));
+
+        var ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            runner.RunAsync(Directory.GetCurrentDirectory(), environment: null, cts.Token, "--version"));
+
+        Assert.IsNotType<TimeoutException>(ex);
+    }
+
+    [Fact]
     public async Task RunAsync_AllowsConcurrentCallsWithinTheGate_WithoutDeadlock()
     {
         var runner = CreateRunner();
