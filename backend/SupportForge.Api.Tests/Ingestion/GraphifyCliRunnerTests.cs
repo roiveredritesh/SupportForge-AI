@@ -102,6 +102,30 @@ public class GraphifyCliRunnerTests
     }
 
     [Fact]
+    public void Redact_ScrubsSecretShapedEnvironmentValues_FromText()
+    {
+        var env = new Dictionary<string, string?>
+        {
+            ["OPENAI_API_KEY"] = "sk-super-secret",
+            ["ANTHROPIC_API_KEY"] = "anthropic-secret",
+            ["OPENAI_MODEL"] = "gpt-4o-mini", // not secret-shaped -- must survive untouched
+        };
+        var text = "auth failed for key sk-super-secret and anthropic-secret using model gpt-4o-mini";
+
+        var redacted = GraphifyCliRunner.Redact(text, env);
+
+        Assert.DoesNotContain("sk-super-secret", redacted);
+        Assert.DoesNotContain("anthropic-secret", redacted);
+        Assert.Contains("gpt-4o-mini", redacted);
+    }
+
+    [Fact]
+    public void Redact_ReturnsTextUnchanged_WhenEnvironmentIsNull()
+    {
+        Assert.Equal("plain stderr", GraphifyCliRunner.Redact("plain stderr", null));
+    }
+
+    [Fact]
     public async Task RunAsync_PassesArgumentsLiterally_EvenWithShellMetacharacters()
     {
         // Argument-array invocation means a value like this is never shell-interpreted; graphify

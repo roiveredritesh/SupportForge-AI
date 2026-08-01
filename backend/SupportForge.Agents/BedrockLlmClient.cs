@@ -98,38 +98,60 @@ public class BedrockLlmClient : ILlmClient
 
         void OnChunk(object? sender, EventStreamEventReceivedArgs<PayloadPart> e)
         {
-            using var chunkDoc = JsonDocument.Parse(e.EventStreamEvent.Bytes);
-            var chunkRoot = chunkDoc.RootElement;
-            var type = chunkRoot.GetProperty("type").GetString();
-            switch (type)
+            try
             {
-                case "message_start":
-                    if (chunkRoot.TryGetProperty("message", out var msg)
-                        && msg.TryGetProperty("usage", out var startUsage)
-                        && startUsage.TryGetProperty("input_tokens", out var inputEl))
-                        inputTokens = inputEl.GetInt32();
-                    break;
-                case "content_block_delta":
-                    if (chunkRoot.TryGetProperty("delta", out var deltaEl)
-                        && deltaEl.TryGetProperty("text", out var textEl))
-                        channel.Writer.TryWrite(textEl.GetString() ?? string.Empty);
-                    break;
-                case "message_delta":
-                    if (chunkRoot.TryGetProperty("usage", out var deltaUsage)
-                        && deltaUsage.TryGetProperty("output_tokens", out var outputEl))
-                        outputTokens = outputEl.GetInt32();
-                    break;
+                using var chunkDoc = JsonDocument.Parse(e.EventStreamEvent.Bytes);
+                var chunkRoot = chunkDoc.RootElement;
+                if (!chunkRoot.TryGetProperty("type", out var typeEl)) return;
+                switch (typeEl.GetString())
+                {
+                    case "message_start":
+                        if (chunkRoot.TryGetProperty("message", out var msg)
+                            && msg.TryGetProperty("usage", out var startUsage)
+                            && startUsage.TryGetProperty("input_tokens", out var inputEl))
+                            inputTokens = inputEl.GetInt32();
+                        break;
+                    case "content_block_delta":
+                        if (chunkRoot.TryGetProperty("delta", out var deltaEl)
+                            && deltaEl.TryGetProperty("text", out var textEl))
+                            channel.Writer.TryWrite(textEl.GetString() ?? string.Empty);
+                        break;
+                    case "message_delta":
+                        if (chunkRoot.TryGetProperty("usage", out var deltaUsage)
+                            && deltaUsage.TryGetProperty("output_tokens", out var outputEl))
+                            outputTokens = outputEl.GetInt32();
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                // The AWS SDK may not surface a handler exception back through StartProcessing(),
+                // so fault the channel directly here as well as letting it propagate below --
+                // otherwise a malformed chunk would silently truncate the stream instead of erroring.
+                channel.Writer.TryComplete(ex);
             }
         }
 
         response.Body.ChunkReceived += OnChunk;
+        // Forward the pump's fault (if any) into the channel instead of the parameterless
+        // TryComplete(), which always marks the channel as successfully finished -- without this,
+        // a mid-stream parse/SDK error looked identical to a clean stream end, silently truncating
+        // the reply and under-reporting token usage.
         var pump = Task.Run(() => response.Body.StartProcessing(), ct)
-            .ContinueWith(_ => channel.Writer.TryComplete(), CancellationToken.None);
+            .ContinueWith(t => channel.Writer.TryComplete(t.IsFaulted ? t.Exception!.GetBaseException() : null), CancellationToken.None);
 
-        await foreach (var chunk in channel.Reader.ReadAllAsync(ct))
-            yield return chunk;
+        try
+        {
+            await foreach (var chunk in channel.Reader.ReadAllAsync(ct))
+                yield return chunk;
+        }
+        finally
+        {
+            // Always observe the pump so its exception (if any) isn't left unobserved, and so a
+            // caller cancellation that unwinds the foreach above doesn't leak the background pump.
+            try { await pump; } catch (OperationCanceledException) { }
+        }
 
-        await pump;
         LastTotalTokens = inputTokens + outputTokens;
     }
 

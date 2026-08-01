@@ -101,9 +101,31 @@ public sealed class GraphifyCliRunner
             string.Join(' ', args), process.ExitCode, stdout.Length, stderr.Length);
 
         if (process.ExitCode != 0)
-            throw new GraphifyCliException(args, process.ExitCode, stderr);
+            throw new GraphifyCliException(args, process.ExitCode, Redact(stderr, environment));
 
         return stdout;
+    }
+
+    /// <summary>
+    /// Scrubs secret-shaped environment values (keys containing KEY/TOKEN/SECRET) out of captured
+    /// stderr before it lands in an exception message -- and from there, in application logs via
+    /// the standard `_logger.LogError(exception, ...)` pattern callers use. graphify's subprocess
+    /// environment can carry live provider API keys (see GraphifyBackendResolver), and a
+    /// misconfigured or failing provider can echo them back on stderr.
+    /// </summary>
+    internal static string Redact(string text, IReadOnlyDictionary<string, string?>? environment)
+    {
+        if (environment is null) return text;
+        foreach (var (key, value) in environment)
+        {
+            if (string.IsNullOrEmpty(value)) continue;
+            if (!key.Contains("KEY", StringComparison.OrdinalIgnoreCase)
+                && !key.Contains("TOKEN", StringComparison.OrdinalIgnoreCase)
+                && !key.Contains("SECRET", StringComparison.OrdinalIgnoreCase))
+                continue;
+            text = text.Replace(value, "***REDACTED***");
+        }
+        return text;
     }
 
     private static void TryKill(Process process)

@@ -97,4 +97,19 @@ public class LlmServiceCollectionExtensionsTests
 
         Assert.Throws<InvalidOperationException>(() => services.AddLlmProviders(config));
     }
+
+    [Fact]
+    public void AddLlmProviders_Throws_ForUnrecognizedEmbeddingsProvider()
+    {
+        var services = new ServiceCollection();
+        var config = BuildConfig(new()
+        {
+            ["Llm:Provider"] = "Anthropic",
+            ["Llm:Anthropic:ApiKey"] = "test",
+            ["Embeddings:Provider"] = "NotAProvider",
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => services.AddLlmProviders(config));
+        Assert.Contains("NotAProvider", ex.Message);
+    }
 }

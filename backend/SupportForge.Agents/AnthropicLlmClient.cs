@@ -98,9 +98,9 @@ public class AnthropicLlmClient : ILlmChatClient
 
             using var eventDoc = JsonDocument.Parse(json);
             var eventRoot = eventDoc.RootElement;
-            var eventType = eventRoot.GetProperty("type").GetString();
+            if (!eventRoot.TryGetProperty("type", out var eventTypeEl)) continue;
 
-            switch (eventType)
+            switch (eventTypeEl.GetString())
             {
                 case "message_start":
                     if (eventRoot.TryGetProperty("message", out var messageEl)
@@ -164,6 +164,10 @@ public class AnthropicLlmClient : ILlmChatClient
     {
         if (response.IsSuccessStatusCode) return;
         var body = await response.Content.ReadAsStringAsync(ct);
-        throw new HttpRequestException($"Anthropic API returned {(int)response.StatusCode} {response.ReasonPhrase}: {body}", null, response.StatusCode);
+        // Capped rather than embedded verbatim: the body can echo back request-derived context
+        // (e.g. a validation error quoting part of the offending prompt), and this message can
+        // reach application logs via generic exception logging.
+        var truncated = body.Length > 500 ? body[..500] + "... (truncated)" : body;
+        throw new HttpRequestException($"Anthropic API returned {(int)response.StatusCode} {response.ReasonPhrase}: {truncated}", null, response.StatusCode);
     }
 }

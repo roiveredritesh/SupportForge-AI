@@ -69,7 +69,9 @@ public static class LlmServiceCollectionExtensions
                 break;
             case "Anthropic":
                 services.Configure<AnthropicOptions>(configuration.GetSection("Llm:Anthropic"));
-                services.AddHttpClient<AnthropicLlmClient>();
+                // HttpClient.Timeout bounds the whole request including reading the body -- the
+                // 100s default would tear down a long-running SSE stream mid-generation.
+                services.AddHttpClient<AnthropicLlmClient>(c => c.Timeout = TimeSpan.FromMinutes(5));
                 services.AddSingleton<ILlmChatClient>(sp => sp.GetRequiredService<AnthropicLlmClient>());
                 break;
             case "Bedrock":
