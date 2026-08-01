@@ -81,6 +81,8 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionBackgroundService>();
 builder.Services.AddSingleton<GraphifyCliRunner>();
+builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
+builder.Services.AddHttpClient<ConfluencePageFetcher>();
 var repoCacheRoot = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos");
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp, repoCacheRoot));
 builder.Services.AddSingleton<GitRepoSyncService>();
