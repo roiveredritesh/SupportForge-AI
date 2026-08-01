@@ -22,6 +22,7 @@ public class IngestionJobFactoryTests
         services.AddSingleton<GitRepoSyncService>();
         services.AddSingleton(new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance));
         services.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
+        services.AddSingleton<IReadOnlyDictionary<string, string?>>(new Dictionary<string, string?>());
         return services.BuildServiceProvider();
     }
 

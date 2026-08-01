@@ -53,10 +53,10 @@ public sealed partial class DrafterAgent : IAgent
         Respond in Markdown.
         """;
 
-    private readonly ILlmClient _llm;
+    private readonly ILlmChatClient _llm;
     public string Name => "Drafter";
 
-    public DrafterAgent(ILlmClient llm) => _llm = llm;
+    public DrafterAgent(ILlmChatClient llm) => _llm = llm;
 
     public static string BuildUserPrompt(AgentContext context) => $"""
         Conversation so far: {(context.History.Count == 0 ? "(none)" : string.Join("\n", context.History.Select(h => $"{h.Role}: {h.Content}")))}

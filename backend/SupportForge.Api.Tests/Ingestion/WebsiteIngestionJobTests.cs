@@ -12,7 +12,7 @@ public class WebsiteIngestionJobTests
     private static WebsiteIngestionJob CreateJob(string url) =>
         new("proj1", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), url,
             new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance),
-            new Mock<IProjectRepository>().Object);
+            new Dictionary<string, string?>(), new Mock<IProjectRepository>().Object);
 
     [Theory]
     [InlineData("not a url")]
@@ -35,7 +35,7 @@ public class WebsiteIngestionJobTests
     {
         var corpusPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var job = new WebsiteIngestionJob("proj1", corpusPath, "http://localhost/x",
-            new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance), new Mock<IProjectRepository>().Object);
+            new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance), new Dictionary<string, string?>(), new Mock<IProjectRepository>().Object);
 
         await Assert.ThrowsAsync<ArgumentException>(() => job.RunAsync(CancellationToken.None));
 

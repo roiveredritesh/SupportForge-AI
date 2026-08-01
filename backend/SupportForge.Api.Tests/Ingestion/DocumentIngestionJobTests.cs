@@ -14,7 +14,9 @@ public class DocumentIngestionJobTests
     public async Task RunAsync_Throws_WhenFolderDoesNotExist()
     {
         var graphify = new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance);
-        var job = new DocumentIngestionJob("proj1", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), "docs/", graphify, new Mock<IProjectRepository>().Object);
+        var job = new DocumentIngestionJob(
+            "proj1", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), "docs/", graphify,
+            new Dictionary<string, string?>(), new Mock<IProjectRepository>().Object);
 
         await Assert.ThrowsAsync<DirectoryNotFoundException>(() => job.RunAsync(CancellationToken.None));
     }
@@ -50,7 +52,7 @@ public class DocumentIngestionJobTests
                 .Callback<Project, CancellationToken>((p, _) => upserted = p)
                 .Returns(Task.CompletedTask);
 
-            var job = new DocumentIngestionJob("proj1", folder, "docs/", graphify, projects.Object);
+            var job = new DocumentIngestionJob("proj1", folder, "docs/", graphify, new Dictionary<string, string?>(), projects.Object);
 
             await job.RunAsync(CancellationToken.None);
 

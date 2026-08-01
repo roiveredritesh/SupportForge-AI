@@ -9,10 +9,10 @@ public sealed class TriageAgent : IAgent
 
     private static readonly char[] Decoration = [' ', '\t', '\r', '\n', '"', '\'', '`', '*', '.', ':', '#'];
 
-    private readonly ILlmClient _llm;
+    private readonly ILlmChatClient _llm;
     public string Name => "Triage";
 
-    public TriageAgent(ILlmClient llm) => _llm = llm;
+    public TriageAgent(ILlmChatClient llm) => _llm = llm;
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {

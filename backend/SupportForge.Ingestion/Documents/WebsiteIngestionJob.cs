@@ -13,16 +13,20 @@ public sealed class WebsiteIngestionJob : IIngestionJob
     private readonly string _corpusPath;
     private readonly string _url;
     private readonly GraphifyCliRunner _graphify;
+    private readonly IReadOnlyDictionary<string, string?> _graphifyEnvironment;
     private readonly IProjectRepository _projects;
 
     public string ProjectId { get; }
 
-    public WebsiteIngestionJob(string projectId, string corpusPath, string url, GraphifyCliRunner graphify, IProjectRepository projects)
+    public WebsiteIngestionJob(
+        string projectId, string corpusPath, string url, GraphifyCliRunner graphify,
+        IReadOnlyDictionary<string, string?> graphifyEnvironment, IProjectRepository projects)
     {
         ProjectId = projectId;
         _corpusPath = corpusPath;
         _url = url;
         _graphify = graphify;
+        _graphifyEnvironment = graphifyEnvironment;
         _projects = projects;
     }
 
@@ -31,7 +35,7 @@ public sealed class WebsiteIngestionJob : IIngestionJob
         EnsurePublicHttpUrl(_url);
 
         Directory.CreateDirectory(_corpusPath);
-        await _graphify.RunAsync(_corpusPath, environment: null, ct, "add", _url);
+        await _graphify.RunAsync(_corpusPath, _graphifyEnvironment, ct, "add", _url);
 
         var project = await _projects.GetByIdAsync(ProjectId, ct);
         if (project != null)

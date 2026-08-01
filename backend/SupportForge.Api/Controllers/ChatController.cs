@@ -20,7 +20,7 @@ public class ChatController : ControllerBase
     private readonly CodeAnalyzerVerifier _codeVerifier;
     private readonly VisionAnalyzerAgent _visionAnalyzer;
     private readonly VisionAnalyzerVerifier _visionVerifier;
-    private readonly ILlmClient _llm;
+    private readonly ILlmChatClient _llm;
     private readonly ITokenUsageRepository _tokenUsage;
     private readonly IConversationRepository _conversations;
     private readonly IChatMessageRepository _messages;
@@ -34,7 +34,7 @@ public class ChatController : ControllerBase
         CodeAnalyzerVerifier codeVerifier,
         VisionAnalyzerAgent visionAnalyzer,
         VisionAnalyzerVerifier visionVerifier,
-        ILlmClient llm,
+        ILlmChatClient llm,
         ITokenUsageRepository tokenUsage,
         IConversationRepository conversations,
         IChatMessageRepository messages)

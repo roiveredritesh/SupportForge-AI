@@ -20,7 +20,4 @@ public interface ILlmEmbeddingClient
 // remains the union for the common case (OpenAI/NIM/custom-hosted) where one provider does both.
 public interface ILlmClient : ILlmChatClient, ILlmEmbeddingClient
 {
-    // Redeclared to disambiguate the diamond: both parents declare LastTotalTokens, and a single
-    // implementation (e.g. OpenAiLlmClient) satisfies all three with one backing property.
-    new int LastTotalTokens { get; }
 }

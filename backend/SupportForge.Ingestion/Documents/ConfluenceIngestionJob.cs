@@ -9,19 +9,21 @@ public sealed class ConfluenceIngestionJob : IIngestionJob
     private readonly string _stagingFolder;
     private readonly ConfluencePageFetcher _fetcher;
     private readonly GraphifyCliRunner _graphify;
+    private readonly IReadOnlyDictionary<string, string?> _graphifyEnvironment;
     private readonly IProjectRepository _projects;
 
     public string ProjectId { get; }
 
     public ConfluenceIngestionJob(
-        string projectId, string pageId, string stagingFolder,
-        ConfluencePageFetcher fetcher, GraphifyCliRunner graphify, IProjectRepository projects)
+        string projectId, string pageId, string stagingFolder, ConfluencePageFetcher fetcher,
+        GraphifyCliRunner graphify, IReadOnlyDictionary<string, string?> graphifyEnvironment, IProjectRepository projects)
     {
         ProjectId = projectId;
         _pageId = pageId;
         _stagingFolder = stagingFolder;
         _fetcher = fetcher;
         _graphify = graphify;
+        _graphifyEnvironment = graphifyEnvironment;
         _projects = projects;
     }
 
@@ -31,7 +33,7 @@ public sealed class ConfluenceIngestionJob : IIngestionJob
         var (_, markdown) = await _fetcher.FetchPageAsMarkdownAsync(_pageId, ct);
         await File.WriteAllTextAsync(Path.Combine(_stagingFolder, $"{_pageId}.md"), markdown, ct);
 
-        await _graphify.RunAsync(_stagingFolder, environment: null, ct, "extract", ".");
+        await _graphify.RunAsync(_stagingFolder, _graphifyEnvironment, ct, "extract", ".");
 
         var project = await _projects.GetByIdAsync(ProjectId, ct);
         if (project != null)

@@ -123,7 +123,7 @@ public class ChatControllerTests
     public async Task Query_RecordsSummedTokenUsage_AcrossAllAgentsThatRan()
     {
         var llmMock = new Mock<ILlmClient>();
-        llmMock.SetupSequence(l => l.LastTotalTokens)
+        llmMock.As<ILlmChatClient>().SetupSequence(l => l.LastTotalTokens)
             .Returns(10)  // Triage's call
             .Returns(25); // Drafter's call
         llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("code_issue");
@@ -295,7 +295,7 @@ public class ChatControllerTests
             _inner = inner;
         }
 
-        public override int LastTotalTokens => _inner.LastTotalTokens;
+        public override int LastTotalTokens => ((ILlmChatClient)_inner).LastTotalTokens;
 
         public override async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
         {

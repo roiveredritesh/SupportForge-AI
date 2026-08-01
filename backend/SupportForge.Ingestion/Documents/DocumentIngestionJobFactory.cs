@@ -21,6 +21,9 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
         var graphify = _services.GetRequiredService<GraphifyCliRunner>();
         var confluence = _services.GetRequiredService<ConfluencePageFetcher>();
         var projects = _services.GetRequiredService<IProjectRepository>();
+        // Doc/Confluence/website extraction is semantic (LLM-backed), unlike code's AST-only
+        // --no-cluster path, so it needs the derived backend environment (KTD3).
+        var graphifyEnvironment = _services.GetRequiredService<IReadOnlyDictionary<string, string?>>();
 
         // A Documents source declares which repo it belongs to via RepoOwner/RepoName -- no more
         // silently resolving against project.Repos.FirstOrDefault(), which was wrong the moment a
@@ -40,9 +43,9 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
 
         return project.KbSources.Select(s => (IIngestionJob)(s.Type switch
         {
-            KbSourceType.Documents => new DocumentIngestionJob(project.Id, ResolveDocumentFolderPath(s), s.Location, graphify, projects),
-            KbSourceType.Website => new WebsiteIngestionJob(project.Id, Path.Combine(_repoCacheRoot, project.Id, "kb-web"), s.Location, graphify, projects),
-            KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, Path.Combine(_repoCacheRoot, project.Id, "kb-confluence"), confluence, graphify, projects),
+            KbSourceType.Documents => new DocumentIngestionJob(project.Id, ResolveDocumentFolderPath(s), s.Location, graphify, graphifyEnvironment, projects),
+            KbSourceType.Website => new WebsiteIngestionJob(project.Id, Path.Combine(_repoCacheRoot, project.Id, "kb-web"), s.Location, graphify, graphifyEnvironment, projects),
+            KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, Path.Combine(_repoCacheRoot, project.Id, "kb-confluence"), confluence, graphify, graphifyEnvironment, projects),
             _ => throw new NotSupportedException($"KB source type '{s.Type}' is not supported."),
         })).ToList();
     }

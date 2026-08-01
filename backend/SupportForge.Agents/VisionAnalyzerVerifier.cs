@@ -7,10 +7,10 @@ public sealed class VisionAnalyzerVerifier : IAgent
         or relevant UI state, as opposed to a vague non-answer. Respond with only "yes" or "no".
         """;
 
-    private readonly ILlmClient _llm;
+    private readonly ILlmChatClient _llm;
     public string Name => "VisionAnalyzerVerifier";
 
-    public VisionAnalyzerVerifier(ILlmClient llm) => _llm = llm;
+    public VisionAnalyzerVerifier(ILlmChatClient llm) => _llm = llm;
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
