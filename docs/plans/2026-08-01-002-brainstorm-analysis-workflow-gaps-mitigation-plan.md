@@ -36,7 +36,10 @@ The source document is **substantially stale**. Corrections, by section:
 | No tracing/OpenTelemetry | CONFIRMED | No OTel packages found |
 | `/health` returns bare 200 | CONFIRMED | `Program.cs:86`, no dependency checks |
 | No Polly/circuit-breaker anywhere | CONFIRMED | Repo-wide, zero matches |
-| Secrets "hard-coded in config" | REFUTED | `appsettings*.json` has blank `ApiKey` placeholders, read via `IConfiguration`/env — not hardcoded |
+| Secrets "hard-coded in config" | REFUTED | `appsettings.json` has blank `ApiKey` placeholders (field names only, no values), read via `IConfiguration`/env. Repo-wide scan for key-shaped strings (`sk-`, `AKIA`, `Bearer `) across all `*.json` found no real secrets, only the field names and an unrelated npm-registry match in `package-lock.json` |
+| No Polly/circuit-breaker | CONFIRMED (re-verified) | Checked every `.csproj` under `backend/` for `Polly`/`OpenTelemetry`/`Resilience` package references — zero matches, not just a source grep |
+| "No integration tests" | REFUTED (detail added) | `EndToEndQueryTests.cs` is a real `WebApplicationFactory<Program>`-based integration test hitting `/api/projects`, `/api/ingestion/trigger`, `/api/chat/query` end-to-end — but it's `[SkippableFact]`, gated on `OpenAI__ApiKey` + a live Chroma instance, so it doesn't run in a default CI-less environment. It exists and is genuine, but currently only runs when someone has live credentials locally |
+| `docs/agentic-pipeline.md` staleness (source doc §8) | CONFIRMED | Read the file directly: it documents the same outdated 5-agent-only flow (`Triage -> KbResearcher -> CodeAnalyzer -> VisionAnalyzer -> Drafter`) with no mention of `Verifier`/retry components anywhere in it — the canonical pipeline doc is stale in the same way the audit doc is |
 
 **Missed by the source document entirely (real gaps it never saw):**
 - A **Verifier/retry layer** (`KbResearcherVerifier`, `CodeAnalyzerVerifier`, `VisionAnalyzerVerifier`) sits alongside the 5 specialist agents. Any mitigation plan that still says "5 sequential agents" is planning against the wrong architecture — it's actually 8 components (5 specialists + 3 verifiers + coordinator).
@@ -59,6 +62,9 @@ Corrective mitigation workstreams, each independently deliverable, derived only 
 7. **Tracing** — introduce OpenTelemetry spans across the agent pipeline (currently none).
 8. **Containerization/CI** — add a `Dockerfile` and a CI workflow (build, test, package); currently absent.
 9. **Orchestration consolidation** — `ChatController.QueryStream` re-runs agents via `RunWithVerificationAsync` rather than delegating to `CoordinatorPipeline`; evaluate consolidating to one orchestration path.
+10. **Pipeline doc correction** — `docs/agentic-pipeline.md` documents only the 5-agent flow with no mention of the Verifier layer; update it to reflect the actual 8-component architecture (5 specialists + 3 verifiers + coordinator).
+
+Note: item 8 (containerization/CI) also unblocks `EndToEndQueryTests.cs` — it's a genuine integration test but is `[SkippableFact]`-gated on live `OpenAI__ApiKey` + a running Chroma instance, so it never runs today outside a manually-configured local environment. A CI workflow with test-stub credentials would let it actually execute on every change.
 
 ### Out of Scope
 - Anything the source document flagged that verification refuted: rebuilding Graphify integration (already exists), adding component/integration tests (already exist — gap is only e2e/load testing, which stays a real but separate, lower-priority item), fixing "hardcoded secrets" (not hardcoded).
@@ -71,8 +77,10 @@ Corrective mitigation workstreams, each independently deliverable, derived only 
 - Each of the 9 in-scope items is an independently deliverable workstream; no single "resilience layer" PR needs to bundle all of them.
 
 ### Assumptions
-- Verification was read-only source inspection (~16 targeted reads across the repo), not exhaustive — items marked PARTIALLY TRUE above may have more nuance than captured here.
-- E2E/load testing and documentation-automation remain real gaps per the source document but are deliberately out of scope for this mitigation plan; they can be their own follow-up plan if prioritized.
+- E2E/load testing (browser-level, via Cypress/Playwright) and documentation-automation tooling (docfx/Sailfish) remain real gaps per the source document but are deliberately out of scope for this mitigation plan; they can be their own follow-up plan if prioritized. This is a scoping choice, not an unverified claim.
+- Remaining PARTIALLY TRUE items (API surface description, agent-order duplication, request validation) reflect genuine nuance captured in the verification table above, not unresolved uncertainty — no further checking is pending on them.
+
+All other items originally listed as assumptions (secret-management scope, Polly/OTel package-level check, integration test's actual run conditions, `docs/agentic-pipeline.md` staleness) have been independently re-verified and folded into the Verification Summary table above as confirmed facts.
 
 ## Outstanding Questions
 - Which of the 9 workstreams should `ce-plan` take first? No priority ordering was requested or set in this pass — this plan is intentionally unordered so the next planning step can sequence by risk/cost.
