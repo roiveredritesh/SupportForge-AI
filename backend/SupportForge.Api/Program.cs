@@ -7,6 +7,7 @@ using SupportForge.Core;
 using SupportForge.Ingestion;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
+using SupportForge.Ingestion.Graphify;
 using SupportForge.VectorStore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -79,6 +80,7 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<DrafterAgent>()));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddHostedService<IngestionBackgroundService>();
+builder.Services.AddSingleton<GraphifyCliRunner>();
 var repoCacheRoot = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos");
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp, repoCacheRoot));
 builder.Services.AddSingleton<GitRepoSyncService>();
