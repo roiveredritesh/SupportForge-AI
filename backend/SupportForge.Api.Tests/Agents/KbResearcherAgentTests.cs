@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Moq;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
@@ -23,7 +24,7 @@ public class KbResearcherAgentTests
             .ReturnsAsync(new List<VectorQueryResult> { new("doc-1", "reset password steps", 0.1f, new Dictionary<string, string> { ["source"] = "kb/reset.md" }) });
 
         var tool = new KbSearchTool(llm.Object, vectorStore.Object);
-        var agent = new KbResearcherAgent(tool);
+        var agent = new KbResearcherAgent(tool, new ListLogger<KbResearcherAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "how do I reset my password", Intent = intent };
 
         var result = await agent.RunAsync(context);
@@ -43,7 +44,7 @@ public class KbResearcherAgentTests
             .ReturnsAsync(new List<VectorQueryResult> { new("doc-2", "retry result", 0.2f, new Dictionary<string, string> { ["source"] = "kb/retry.md" }) });
 
         var tool = new KbSearchTool(llm.Object, vectorStore.Object);
-        var agent = new KbResearcherAgent(tool);
+        var agent = new KbResearcherAgent(tool, new ListLogger<KbResearcherAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = "code_issue" };
         context.KbSnippets.Add("stale snippet from a previous attempt");
         context.KbVerification.Attempts = 1; // simulates: this is a retry
@@ -64,7 +65,7 @@ public class KbResearcherAgentTests
         var vectorStore = new Mock<IVectorStoreService>();
 
         var tool = new KbSearchTool(llm.Object, vectorStore.Object);
-        var agent = new KbResearcherAgent(tool);
+        var agent = new KbResearcherAgent(tool, new ListLogger<KbResearcherAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = intent };
 
         var result = await agent.RunAsync(context);
@@ -74,5 +75,43 @@ public class KbResearcherAgentTests
         Assert.Equal(0, result.KbVerification.Attempts);
         llm.Verify(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         vectorStore.Verify(v => v.QueryAsync(It.IsAny<string>(), It.IsAny<float[]>(), It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunAsync_LogsStartAndCompletion()
+    {
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.QueryAsync("proj1-kb", It.IsAny<float[]>(), 5, null, default))
+            .ReturnsAsync(new List<VectorQueryResult> { new("doc-1", "reset password steps", 0.1f, new Dictionary<string, string> { ["source"] = "kb/reset.md" }) });
+
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var logger = new ListLogger<KbResearcherAgent>();
+        var agent = new KbResearcherAgent(tool, logger);
+        var context = new AgentContext { ProjectId = "proj1", Query = "how do I reset my password", Intent = "kb_question" };
+
+        await agent.RunAsync(context);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("starting") && e.Message.Contains("KbResearcher"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("completed"));
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenSearchThrows_LogsFailureAndPropagates()
+    {
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ThrowsAsync(new InvalidOperationException("embed failed"));
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var logger = new ListLogger<KbResearcherAgent>();
+        var agent = new KbResearcherAgent(tool, logger);
+        var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = "kb_question" };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => agent.RunAsync(context));
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error && e.Exception is InvalidOperationException);
     }
 }

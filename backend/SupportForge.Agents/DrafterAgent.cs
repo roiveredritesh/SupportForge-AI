@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 
 namespace SupportForge.Agents;
 
@@ -54,9 +56,14 @@ public sealed partial class DrafterAgent : IAgent
         """;
 
     private readonly ILlmChatClient _llm;
+    private readonly ILogger<DrafterAgent> _logger;
     public string Name => "Drafter";
 
-    public DrafterAgent(ILlmChatClient llm) => _llm = llm;
+    public DrafterAgent(ILlmChatClient llm, ILogger<DrafterAgent> logger)
+    {
+        _llm = llm;
+        _logger = logger;
+    }
 
     public static string BuildUserPrompt(AgentContext context) => $"""
         Conversation so far: {(context.History.Count == 0 ? "(none)" : string.Join("\n", context.History.Select(h => $"{h.Role}: {h.Content}")))}
@@ -99,11 +106,22 @@ public sealed partial class DrafterAgent : IAgent
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
-        var draft = await _llm.CompleteAsync(SystemPrompt, BuildUserPrompt(context), ct);
-        var leaked = LooksLikeLeak(draft, context);
-        context.Draft = leaked ? LeakFallback : draft;
-        context.Confidence = leaked ? 0.0 : ComputeConfidence(context);
-        context.TotalTokensUsed += _llm.LastTotalTokens;
-        return context;
+        var sw = Stopwatch.StartNew();
+        _logger.LogInformation("{Agent} starting: project={ProjectId} intent={Intent}", Name, context.ProjectId, context.Intent);
+        try
+        {
+            var draft = await _llm.CompleteAsync(SystemPrompt, BuildUserPrompt(context), ct);
+            var leaked = LooksLikeLeak(draft, context);
+            context.Draft = leaked ? LeakFallback : draft;
+            context.Confidence = leaked ? 0.0 : ComputeConfidence(context);
+            context.TotalTokensUsed += _llm.LastTotalTokens;
+            _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: leaked={Leaked} confidence={Confidence}", Name, sw.ElapsedMilliseconds, leaked, context.Confidence);
+            return context;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{Agent} failed after {ElapsedMs}ms", Name, sw.ElapsedMilliseconds);
+            throw;
+        }
     }
 }
