@@ -9,6 +9,9 @@ import { useAppStore } from '../store/useAppStore';
 function FreshnessBadge({ projectId }: { projectId: string }) {
   const { data } = useFreshness(projectId);
   if (!data) return null;
+  const sourceLines = data.sources
+    .map((s) => `${s.name}: ${s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString() : 'never synced'}`)
+    .join('\n');
   return (
     <span
       className={
@@ -16,7 +19,7 @@ function FreshnessBadge({ projectId }: { projectId: string }) {
           ? 'rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900 dark:text-green-300'
           : 'rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300'
       }
-      title={data.isFresh ? 'All sources synced within 7 days' : `Stale: ${data.staleSources.join(', ')}`}
+      title={sourceLines || 'No sources configured'}
     >
       {data.isFresh ? 'Fresh' : `Stale (${data.staleSources.length})`}
     </span>
