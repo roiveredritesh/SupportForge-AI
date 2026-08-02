@@ -1,0 +1,13 @@
+.git
+.claude
+bin/
+obj/
+node_modules/
+dist/
+.vs/
+*.user
+frontend
+doc
+docs
+App_Data/
+publish/

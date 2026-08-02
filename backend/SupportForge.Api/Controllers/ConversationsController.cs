@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Api.Contracts;
 using SupportForge.Core;
@@ -7,6 +8,7 @@ namespace SupportForge.Api.Controllers;
 
 [ApiController]
 [Route("api/conversations")]
+[Authorize]
 public class ConversationsController : ControllerBase
 {
     private readonly IConversationRepository _conversations;

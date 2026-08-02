@@ -1,6 +1,19 @@
+using System.Security.Claims;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
+using SupportForge.Api.HealthChecks;
+using SupportForge.Api.Identity;
 using SupportForge.Core;
+using SupportForge.Core.Entities;
 using SupportForge.Ingestion;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
@@ -35,6 +48,62 @@ builder.Services.AddSingleton<IConversationRepository>(
     new JsonFileConversationRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IChatMessageRepository>(
     new JsonFileChatMessageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IUserRepository>(
+    new JsonFileUserRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+
+// KTD1: Identity's storage abstractions against a JSON-file-backed store (CustomUserStore),
+// not EF Core -- this repo has no database anywhere else. PasswordHasher<AppUser> (registered
+// by AddIdentityCore) handles hashing; no custom hashing code needed.
+builder.Services.AddIdentityCore<AppUser>()
+    .AddUserStore<CustomUserStore>();
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = JwtTokenFactory.ResolveIssuer(builder.Configuration),
+            ValidateAudience = true,
+            ValidAudience = JwtTokenFactory.ResolveAudience(builder.Configuration),
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = JwtTokenFactory.ResolveSigningKey(builder.Configuration),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30),
+        };
+    });
+builder.Services.AddAuthorization();
+
+// KTD4: built-in RateLimiter middleware (no new package), partitioned by authenticated user ID
+// once a request carries a valid JWT, falling back to client IP for anonymous requests
+// (e.g. /health, /api/auth/token, or any request that hasn't authenticated yet).
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        var partitionKey = httpContext.User.Identity?.IsAuthenticated == true
+            ? httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "authenticated"
+            : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        // Read config lazily via RequestServices, not a local captured before builder.Build().
+        // WebApplicationFactory<Program>'s test-time ConfigureAppConfiguration overrides only
+        // land on builder.Configuration by the time Build() completes -- a value read into a
+        // local earlier (during this top-level Program.cs execution) captures the pre-override
+        // default and silently ignores the test's override.
+        var configuration = httpContext.RequestServices.GetRequiredService<IConfiguration>();
+        var permitLimit = configuration.GetValue("RateLimiting:PermitLimit", 100);
+        var windowSeconds = configuration.GetValue("RateLimiting:WindowSeconds", 60);
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = permitLimit,
+            Window = TimeSpan.FromSeconds(windowSeconds),
+            QueueLimit = 0,
+        });
+    });
+});
+
 // "Llm:Provider" selects the chat/vision provider (OpenAI | NvidiaNim | Azure | Anthropic | Bedrock);
 // "Embeddings:Provider" optionally selects a different provider for embeddings (required whenever
 // Llm:Provider is Anthropic, which has no embeddings API) and defaults to Llm:Provider otherwise.
@@ -73,6 +142,35 @@ builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJ
 builder.Services.AddSingleton<GitRepoSyncService>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFactory(sp, repoCacheRoot));
 
+// KTD5: replaces the bare "200 OK" /health endpoint with real per-dependency status.
+builder.Services.AddHealthChecks()
+    .AddCheck<VectorStoreHealthCheck>("vector_store")
+    .AddCheck<LlmConnectivityHealthCheck>("llm")
+    .AddCheck<GraphifyHealthCheck>("graphify");
+
+// U7: traces the agent pipeline (one span per agent that ran, via PipelineTelemetry.ActivitySource
+// in CoordinatorPipeline) plus inbound ASP.NET Core requests and outbound HttpClient calls.
+// Exporter target is environment-driven (standard OTEL_EXPORTER_OTLP_ENDPOINT env var); falls back
+// to the console exporter in Development so tracing is visible with zero collector setup.
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r.AddService("SupportForge.Api"))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(PipelineTelemetry.ActivitySourceName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation();
+
+        if (builder.Environment.IsDevelopment())
+        {
+            tracing.AddConsoleExporter();
+        }
+        else
+        {
+            tracing.AddOtlpExporter();
+        }
+    });
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -82,8 +180,23 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("Frontend");
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var payload = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new { name = e.Key, status = e.Value.Status.ToString(), description = e.Value.Description }),
+        };
+        await context.Response.WriteAsJsonAsync(payload);
+    },
+}).AllowAnonymous();
 
 app.Run();
 

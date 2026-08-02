@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Moq;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
@@ -14,7 +15,7 @@ public class CodeAnalyzerAgentTests
     {
         var llm = new Mock<ILlmClient>();
         var vectorStore = new Mock<IVectorStoreService>(MockBehavior.Strict);
-        var agent = new CodeAnalyzerAgent(new CodeSearchTool(llm.Object, vectorStore.Object));
+        var agent = new CodeAnalyzerAgent(new CodeSearchTool(llm.Object, vectorStore.Object), new ListLogger<CodeAnalyzerAgent>());
 
         var context = new AgentContext { ProjectId = "proj1", Query = "what is my account balance", Intent = "kb_question" };
         var result = await agent.RunAsync(context);
@@ -37,7 +38,7 @@ public class CodeAnalyzerAgentTests
                 new("id1", "public class CodeAnalyzerAgent { ... }", 0.9f, new Dictionary<string, string> { ["file"] = "CodeAnalyzerAgent.cs" }),
             });
 
-        var agent = new CodeAnalyzerAgent(new CodeSearchTool(llm.Object, vectorStore.Object));
+        var agent = new CodeAnalyzerAgent(new CodeSearchTool(llm.Object, vectorStore.Object), new ListLogger<CodeAnalyzerAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "how does CodeAnalyzerAgent work?", Intent = "code_question" };
 
         var result = await agent.RunAsync(context);
@@ -57,7 +58,7 @@ public class CodeAnalyzerAgentTests
             .ReturnsAsync(new List<VectorQueryResult> { new("doc-2", "retry result", 0.2f, new Dictionary<string, string> { ["file"] = "Retry.cs" }) });
 
         var tool = new CodeSearchTool(llm.Object, vectorStore.Object);
-        var agent = new CodeAnalyzerAgent(tool);
+        var agent = new CodeAnalyzerAgent(tool, new ListLogger<CodeAnalyzerAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = "code_issue" };
         context.CodeSnippets.Add("stale snippet");
         context.CodeVerification.Attempts = 1;
@@ -67,6 +68,46 @@ public class CodeAnalyzerAgentTests
         Assert.Single(result.CodeSnippets);
         Assert.Equal("// Retry.cs\nretry result", result.CodeSnippets[0]);
         Assert.Equal(2, result.CodeVerification.Attempts);
+    }
+
+    [Fact]
+    public async Task RunAsync_LogsStartAndCompletion()
+    {
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore
+            .Setup(v => v.QueryAsync("proj1-code", It.IsAny<float[]>(), It.IsAny<int>(), null, default))
+            .ReturnsAsync(new List<VectorQueryResult>
+            {
+                new("id1", "public class CodeAnalyzerAgent { ... }", 0.9f, new Dictionary<string, string> { ["file"] = "CodeAnalyzerAgent.cs" }),
+            });
+
+        var logger = new ListLogger<CodeAnalyzerAgent>();
+        var agent = new CodeAnalyzerAgent(new CodeSearchTool(llm.Object, vectorStore.Object), logger);
+        var context = new AgentContext { ProjectId = "proj1", Query = "how does CodeAnalyzerAgent work?", Intent = "code_question" };
+
+        await agent.RunAsync(context);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("starting") && e.Message.Contains("CodeAnalyzer"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("completed"));
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenSearchThrows_LogsFailureAndPropagates()
+    {
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ThrowsAsync(new InvalidOperationException("embed failed"));
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        var logger = new ListLogger<CodeAnalyzerAgent>();
+        var agent = new CodeAnalyzerAgent(new CodeSearchTool(llm.Object, vectorStore.Object), logger);
+        var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = "code_issue" };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => agent.RunAsync(context));
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error && e.Exception is InvalidOperationException);
     }
 }
 

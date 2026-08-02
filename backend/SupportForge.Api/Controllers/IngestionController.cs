@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Core;
 using SupportForge.Ingestion;
@@ -6,6 +7,7 @@ namespace SupportForge.Api.Controllers;
 
 [ApiController]
 [Route("api/ingestion")]
+[Authorize]
 public class IngestionController : ControllerBase
 {
     private readonly IngestionQueue _queue;

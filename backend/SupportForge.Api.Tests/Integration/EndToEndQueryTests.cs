@@ -1,6 +1,10 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using SupportForge.Api.Contracts;
+using SupportForge.Api.Identity;
 using SupportForge.Core.Entities;
 using Xunit;
 
@@ -21,6 +25,19 @@ public class EndToEndQueryTests : IClassFixture<WebApplicationFactory<Program>>
 
         var client = _factory.CreateClient();
         var kbPath = Path.Combine(AppContext.BaseDirectory, "Integration", "TestData", "sample-kb");
+
+        // U4 gates every controller here behind [Authorize] -- seed a user and attach its token.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
+            var existing = await userManager.FindByNameAsync("e2e-tester");
+            if (existing is null)
+                await userManager.CreateAsync(new AppUser { Id = "e2e-tester", UserName = "e2e-tester" }, "Test-Password-123!");
+        }
+        var tokenResponse = await client.PostAsJsonAsync("/api/auth/token", new { UserName = "e2e-tester", Password = "Test-Password-123!" });
+        tokenResponse.EnsureSuccessStatusCode();
+        var accessToken = (await tokenResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("accessToken").GetString();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         var project = new Project
         {

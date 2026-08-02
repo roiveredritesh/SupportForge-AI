@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -8,6 +9,7 @@ namespace SupportForge.Api.Controllers;
 
 [ApiController]
 [Route("api/projects")]
+[Authorize]
 public class ProjectsController : ControllerBase
 {
     private readonly IProjectRepository _repo;

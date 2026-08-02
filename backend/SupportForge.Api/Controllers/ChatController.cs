@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Agents;
 using SupportForge.Api.Contracts;
@@ -10,6 +11,7 @@ namespace SupportForge.Api.Controllers;
 
 [ApiController]
 [Route("api/chat")]
+[Authorize]
 public class ChatController : ControllerBase
 {
     private readonly CoordinatorPipeline _pipeline;
@@ -65,6 +67,54 @@ public class ChatController : ControllerBase
             context = await specialist.RunAsync(context, ct);
             context = await verifier.RunAsync(context, ct);
         }
+        return context;
+    }
+
+    private const int MaxQueryLength = 4000;
+    private const int MaxScreenshotBytes = 5 * 1024 * 1024;
+
+    // U5: reject oversized requests before any agent runs, rather than letting the LLM/vision
+    // calls fail downstream or silently truncate. Returns null when the request is valid.
+    private static string? ValidateRequest(ChatQueryRequest request)
+    {
+        if (request.Query.Length > MaxQueryLength)
+        {
+            return $"Query exceeds the maximum length of {MaxQueryLength} characters.";
+        }
+
+        if (!string.IsNullOrEmpty(request.ScreenshotBase64))
+        {
+            byte[] decoded;
+            try
+            {
+                decoded = Convert.FromBase64String(request.ScreenshotBase64);
+            }
+            catch (FormatException)
+            {
+                return "ScreenshotBase64 is not valid base64.";
+            }
+
+            if (decoded.Length > MaxScreenshotBytes)
+            {
+                return $"Screenshot exceeds the maximum size of {MaxScreenshotBytes} bytes.";
+            }
+        }
+
+        return null;
+    }
+
+    // U9: shared step-construction both Query (via CoordinatorPipeline) and QueryStream (manual,
+    // for SSE) build identically before diverging on execution strategy -- see KTD3 for why the
+    // two paths stay separate (QueryStream needs per-token output the Workflow API doesn't expose).
+    private async Task<AgentContext> BuildInitialContextAsync(ChatQueryRequest request, string conversationId, CancellationToken ct)
+    {
+        var context = new AgentContext
+        {
+            ProjectId = request.ProjectId,
+            Query = request.Query,
+            ScreenshotBase64 = request.ScreenshotBase64,
+        };
+        context.History.AddRange(await LoadRecapAsync(conversationId, ct));
         return context;
     }
 
@@ -125,16 +175,13 @@ public class ChatController : ControllerBase
     [HttpPost("query")]
     public async Task<ActionResult<ChatQueryResponse>> Query([FromBody] ChatQueryRequest request, CancellationToken ct = default)
     {
+        var validationError = ValidateRequest(request);
+        if (validationError is not null) return BadRequest(validationError);
+
         var conversation = await ResolveConversationAsync(request, ct);
         if (conversation is null) return BadRequest("ConversationId does not belong to the given ProjectId.");
 
-        var context = new AgentContext
-        {
-            ProjectId = request.ProjectId,
-            Query = request.Query,
-            ScreenshotBase64 = request.ScreenshotBase64,
-        };
-        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
+        var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
@@ -154,6 +201,14 @@ public class ChatController : ControllerBase
     [HttpPost("query/stream")]
     public async Task QueryStream([FromBody] ChatQueryRequest request, CancellationToken ct)
     {
+        var validationError = ValidateRequest(request);
+        if (validationError is not null)
+        {
+            Response.StatusCode = StatusCodes.Status400BadRequest;
+            await Response.WriteAsync(validationError, ct);
+            return;
+        }
+
         var conversation = await ResolveConversationAsync(request, ct);
         if (conversation is null)
         {
@@ -162,13 +217,7 @@ public class ChatController : ControllerBase
             return;
         }
 
-        var context = new AgentContext
-        {
-            ProjectId = request.ProjectId,
-            Query = request.Query,
-            ScreenshotBase64 = request.ScreenshotBase64,
-        };
-        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
+        var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
         context = await _triage.RunAsync(context, ct);
         context = await RunWithVerificationAsync(_kbResearcher, _kbVerifier, context, c => c.KbVerification, ct);

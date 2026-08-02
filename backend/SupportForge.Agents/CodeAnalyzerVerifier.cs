@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+
 namespace SupportForge.Agents;
 
 public sealed class CodeAnalyzerVerifier : IAgent
@@ -8,32 +11,55 @@ public sealed class CodeAnalyzerVerifier : IAgent
         """;
 
     private readonly ILlmChatClient _llm;
+    private readonly ILogger<CodeAnalyzerVerifier> _logger;
     public string Name => "CodeAnalyzerVerifier";
 
-    public CodeAnalyzerVerifier(ILlmChatClient llm) => _llm = llm;
+    public CodeAnalyzerVerifier(ILlmChatClient llm, ILogger<CodeAnalyzerVerifier> logger)
+    {
+        _llm = llm;
+        _logger = logger;
+    }
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
-        if (context.Intent is not ("code_issue" or "code_question")) return context;
-
-        var v = context.CodeVerification;
-
-        if (context.CodeSnippets.Count == 0)
+        var sw = Stopwatch.StartNew();
+        _logger.LogInformation("{Agent} starting: project={ProjectId} intent={Intent}", Name, context.ProjectId, context.Intent);
+        try
         {
-            Fail(v, "No code snippets were retrieved for a code-related query.");
-        }
-        else if (context.CodeSnippets.Count == 1)
-        {
-            var relevant = await JudgeAsync(context, ct);
-            if (relevant) v.Status = VerificationStatus.Passed;
-            else Fail(v, "LLM judge found the single retrieved code snippet not relevant to the query.");
-        }
-        else
-        {
-            v.Status = VerificationStatus.Passed;
-        }
+            if (context.Intent is not ("code_issue" or "code_question"))
+            {
+                _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: skipped, intent={Intent} not applicable", Name, sw.ElapsedMilliseconds, context.Intent);
+                return context;
+            }
 
-        return context;
+            var v = context.CodeVerification;
+
+            if (context.CodeSnippets.Count == 0)
+            {
+                Fail(v, "No code snippets were retrieved for a code-related query.");
+            }
+            else if (context.CodeSnippets.Count == 1)
+            {
+                var relevant = await JudgeAsync(context, ct);
+                if (relevant) v.Status = VerificationStatus.Passed;
+                else Fail(v, "LLM judge found the single retrieved code snippet not relevant to the query.");
+            }
+            else
+            {
+                v.Status = VerificationStatus.Passed;
+            }
+
+            if (v.Status == VerificationStatus.FailedRetrying)
+                _logger.LogWarning("{Agent} retrying: attempt={Attempt} reason={Reason}", Name, v.Attempts, v.Reason);
+
+            _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: status={Status} reason={Reason}", Name, sw.ElapsedMilliseconds, v.Status, v.Reason);
+            return context;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{Agent} failed after {ElapsedMs}ms", Name, sw.ElapsedMilliseconds);
+            throw;
+        }
     }
 
     private static void Fail(VerificationResult v, string reason)
