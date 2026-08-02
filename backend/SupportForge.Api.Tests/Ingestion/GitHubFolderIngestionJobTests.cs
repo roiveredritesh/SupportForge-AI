@@ -1,12 +1,13 @@
 using LibGit2Sharp;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
-using SupportForge.Ingestion.Graphify;
+using SupportForge.VectorStore;
+using SupportForge.VectorStore.Models;
 using Xunit;
 
 namespace SupportForge.Api.Tests.Ingestion;
@@ -37,6 +38,13 @@ public class GitHubFolderIngestionJobTests
         return remoteDir;
     }
 
+    private static KbVectorIndexer MakeIndexer(IVectorStoreService? vectorStore = null)
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new float[] { 0.1f });
+        return new KbVectorIndexer(llm.Object, vectorStore ?? new Mock<IVectorStoreService>().Object);
+    }
+
     [Fact]
     public async Task RunAsync_ClonesRepo_ThenThrows_WhenSubPathDoesNotExistAfterClone()
     {
@@ -47,8 +55,7 @@ public class GitHubFolderIngestionJobTests
             var job = new GitHubFolderIngestionJob(
                 "proj1", remoteDir, "master", localDir, "docs/that-does-not-exist", "https://github.com/acme/widgets/tree/master/docs/that-does-not-exist",
                 new GitRepoSyncService(new ConfigurationBuilder().Build()),
-                new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance),
-                new Dictionary<string, string?>(),
+                MakeIndexer(),
                 new Mock<IProjectRepository>().Object);
 
             await Assert.ThrowsAsync<DirectoryNotFoundException>(() => job.RunAsync(CancellationToken.None));
@@ -63,19 +70,19 @@ public class GitHubFolderIngestionJobTests
         }
     }
 
-    [SkippableFact]
-    [Trait("Category", "Integration")]
-    public async Task RunAsync_ClonesAndExtracts_ThenUpdatesLastSyncedAt()
+    [Fact]
+    public async Task RunAsync_ClonesAndIndexes_ThenUpdatesLastSyncedAt()
     {
-        Skip.If(
-            new[] { "GEMINI_API_KEY", "GOOGLE_API_KEY", "MOONSHOT_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY" }
-                .All(v => string.IsNullOrEmpty(Environment.GetEnvironmentVariable(v))),
-            "requires a graphify-supported LLM API key for semantic extraction of doc content");
-
         var remoteDir = SeedBareRepo("docs/doc.md");
         var localDir = Path.Combine(Path.GetTempPath(), "local-" + Guid.NewGuid());
         try
         {
+            var vectorStore = new Mock<IVectorStoreService>();
+            IReadOnlyList<VectorDocument>? upserted = null;
+            vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+                .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
+                .Returns(Task.CompletedTask);
+
             var projects = new Mock<IProjectRepository>();
             var location = "https://github.com/acme/widgets/tree/master/docs";
             var project = new Project
@@ -85,23 +92,23 @@ public class GitHubFolderIngestionJobTests
                 KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, location, null) },
             };
             projects.Setup(p => p.GetByIdAsync("proj1", It.IsAny<CancellationToken>())).ReturnsAsync(project);
-            Project? upserted = null;
+            Project? saved = null;
             projects.Setup(p => p.UpsertAsync(It.IsAny<Project>(), It.IsAny<CancellationToken>()))
-                .Callback<Project, CancellationToken>((p, _) => upserted = p)
+                .Callback<Project, CancellationToken>((p, _) => saved = p)
                 .Returns(Task.CompletedTask);
 
             var job = new GitHubFolderIngestionJob(
                 "proj1", remoteDir, "master", localDir, "docs", location,
                 new GitRepoSyncService(new ConfigurationBuilder().Build()),
-                new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance),
-                new Dictionary<string, string?>(),
+                MakeIndexer(vectorStore.Object),
                 projects.Object);
 
             await job.RunAsync(CancellationToken.None);
 
-            Assert.True(Directory.Exists(Path.Combine(localDir, "docs", "graphify-out")));
             Assert.NotNull(upserted);
-            Assert.NotNull(upserted!.KbSources[0].LastSyncedAt);
+            Assert.Contains(upserted!, d => d.Text.Contains("content"));
+            Assert.NotNull(saved);
+            Assert.NotNull(saved!.KbSources[0].LastSyncedAt);
         }
         finally
         {

@@ -133,7 +133,6 @@ builder.Services.AddScoped<VisionAnalyzerAgent>();
 builder.Services.AddScoped<VisionAnalyzerVerifier>();
 builder.Services.AddScoped<DrafterAgent>();
 builder.Services.AddScoped<KbSearchTool>();
-builder.Services.AddScoped<CodeSearchTool>();
 builder.Services.AddScoped<VisionAnalysisTool>();
 builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<TriageAgent>(),
@@ -154,9 +153,15 @@ builder.Services.AddSingleton(graphifyEnvironment);
 builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
 builder.Services.AddHttpClient<ConfluencePageFetcher>();
 var repoCacheRoot = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos");
+builder.Services.AddSingleton<KbVectorIndexer>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp, repoCacheRoot));
 builder.Services.AddSingleton<GitRepoSyncService>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFactory(sp, repoCacheRoot));
+// Registered immediately after CodeIngestionJobFactory: IngestionController.Trigger enqueues jobs by
+// iterating IIngestionJobFactory in registration order, and the queue drains strictly FIFO, so every
+// per-repo CodeIngestionJob for a project is guaranteed to run before that project's merge job.
+builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeGraphMergeJobFactory(sp, repoCacheRoot));
+builder.Services.AddScoped<IGraphifyQueryTool>(sp => new GraphifyQueryTool(sp.GetRequiredService<GraphifyCliRunner>(), repoCacheRoot));
 
 // KTD5: replaces the bare "200 OK" /health endpoint with real per-dependency status.
 builder.Services.AddHealthChecks()

@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Code;
-using SupportForge.Ingestion.Graphify;
 
 namespace SupportForge.Ingestion.Documents;
 
@@ -19,13 +18,11 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
 
     public IEnumerable<IIngestionJob> CreateJobs(Project project)
     {
-        var graphify = _services.GetRequiredService<GraphifyCliRunner>();
         var confluence = _services.GetRequiredService<ConfluencePageFetcher>();
         var projects = _services.GetRequiredService<IProjectRepository>();
         var gitSync = _services.GetRequiredService<GitRepoSyncService>();
-        // Doc/Confluence/website extraction is semantic (LLM-backed), unlike code's AST-only
-        // --no-cluster path, so it needs the derived backend environment (KTD3).
-        var graphifyEnvironment = _services.GetRequiredService<IReadOnlyDictionary<string, string?>>();
+        var indexer = _services.GetRequiredService<KbVectorIndexer>();
+        var httpClientFactory = _services.GetRequiredService<IHttpClientFactory>();
 
         // A Documents source declares which repo it belongs to via RepoOwner/RepoName -- no more
         // silently resolving against project.Repos.FirstOrDefault(), which was wrong the moment a
@@ -52,17 +49,17 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
                 var localRepoPath = Path.Combine(_repoCacheRoot, project.Id, "kb-github", ghUrl!.Owner, ghUrl.Repo);
                 return new GitHubFolderIngestionJob(
                     project.Id, $"https://github.com/{ghUrl.Owner}/{ghUrl.Repo}.git", ghUrl.Branch,
-                    localRepoPath, ghUrl.SubPath, s.Location, gitSync, graphify, graphifyEnvironment, projects);
+                    localRepoPath, ghUrl.SubPath, s.Location, gitSync, indexer, projects);
             }
 
-            return new DocumentIngestionJob(project.Id, ResolveDocumentFolderPath(s), s.Location, graphify, graphifyEnvironment, projects);
+            return new DocumentIngestionJob(project.Id, ResolveDocumentFolderPath(s), s.Location, indexer, projects);
         }
 
         return project.KbSources.Select(s => (IIngestionJob)(s.Type switch
         {
             KbSourceType.Documents => BuildDocumentsJob(s),
-            KbSourceType.Website => new WebsiteIngestionJob(project.Id, Path.Combine(_repoCacheRoot, project.Id, "kb-web"), s.Location, graphify, graphifyEnvironment, projects),
-            KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, Path.Combine(_repoCacheRoot, project.Id, "kb-confluence"), confluence, graphify, graphifyEnvironment, projects),
+            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects),
+            KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, confluence, indexer, projects),
             _ => throw new NotSupportedException($"KB source type '{s.Type}' is not supported."),
         })).ToList();
     }

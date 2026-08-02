@@ -1,32 +1,31 @@
 using SupportForge.Core;
 using SupportForge.Ingestion.Code;
-using SupportForge.Ingestion.Graphify;
 
 namespace SupportForge.Ingestion.Documents;
 
 /// <summary>
 /// A <see cref="KbSourceType.Documents"/> source whose Location is a raw github.com URL: clones (or
 /// pulls) the repo standalone -- independent of <see cref="Core.Entities.Project.Repos"/>, since the
-/// URL is self-contained -- then extracts the resolved subfolder same as a local <see cref="DocumentIngestionJob"/>.
+/// URL is self-contained -- then indexes the resolved subfolder same as a local <see cref="DocumentIngestionJob"/>.
 /// </summary>
 public sealed class GitHubFolderIngestionJob : IIngestionJob
 {
+    private static readonly string[] SupportedExtensions = [".md", ".txt"];
+
     private readonly string _repoUrl;
     private readonly string _branch;
     private readonly string _localRepoPath;
     private readonly string _subPath;
     private readonly string _sourceLocation;
     private readonly GitRepoSyncService _gitSync;
-    private readonly GraphifyCliRunner _graphify;
-    private readonly IReadOnlyDictionary<string, string?> _graphifyEnvironment;
+    private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
 
     public string ProjectId { get; }
 
     public GitHubFolderIngestionJob(
         string projectId, string repoUrl, string branch, string localRepoPath, string subPath, string sourceLocation,
-        GitRepoSyncService gitSync, GraphifyCliRunner graphify, IReadOnlyDictionary<string, string?> graphifyEnvironment,
-        IProjectRepository projects)
+        GitRepoSyncService gitSync, KbVectorIndexer indexer, IProjectRepository projects)
     {
         ProjectId = projectId;
         _repoUrl = repoUrl;
@@ -35,8 +34,7 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
         _subPath = subPath;
         _sourceLocation = sourceLocation;
         _gitSync = gitSync;
-        _graphify = graphify;
-        _graphifyEnvironment = graphifyEnvironment;
+        _indexer = indexer;
         _projects = projects;
     }
 
@@ -50,17 +48,14 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
             throw new DirectoryNotFoundException(
                 $"KB source '{_sourceLocation}' resolved to '{folderPath}' after cloning, but that path doesn't exist in the repo.");
 
-        await _graphify.RunAsync(folderPath, _graphifyEnvironment, ct, "extract", ".");
+        var files = Directory.EnumerateFiles(folderPath, "*.*", SearchOption.AllDirectories)
+            .Where(f => SupportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
 
-        var project = await _projects.GetByIdAsync(ProjectId, ct);
-        if (project != null)
-        {
-            var sourceIndex = project.KbSources.FindIndex(s => s.Location == _sourceLocation);
-            if (sourceIndex >= 0)
-            {
-                project.KbSources[sourceIndex] = project.KbSources[sourceIndex] with { LastSyncedAt = DateTimeOffset.UtcNow };
-                await _projects.UpsertAsync(project, ct);
-            }
-        }
+        var documents = new List<(string SourceRef, string Text)>();
+        foreach (var file in files)
+            documents.Add((file, await File.ReadAllTextAsync(file, ct)));
+
+        await _indexer.IndexAsync(ProjectId, documents, ct);
+        await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _sourceLocation, ct);
     }
 }

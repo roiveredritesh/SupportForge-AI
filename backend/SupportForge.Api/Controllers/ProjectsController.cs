@@ -58,7 +58,6 @@ public class ProjectsController : ControllerBase
         // Cleanup runs before the project row is removed so a failure here leaves the project
         // (and this endpoint) retryable instead of orphaning its data with no way to find it again.
         await _vectorStore.DeleteCollectionAsync($"{id}-kb", ct);
-        await _vectorStore.DeleteCollectionAsync($"{id}-code", ct);
 
         // A code-sync (POST /api/ingestion/trigger, or an automatic re-sync) may still be
         // cloning/reading this project's repo on the background ingestion worker; deleting

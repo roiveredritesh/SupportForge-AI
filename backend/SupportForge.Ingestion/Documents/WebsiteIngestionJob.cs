@@ -1,32 +1,28 @@
 using System.Net;
+using HtmlAgilityPack;
 using SupportForge.Core;
-using SupportForge.Ingestion.Graphify;
 
 namespace SupportForge.Ingestion.Documents;
 
 /// <summary>
-/// Folds a website/URL KB source into the project's graph via `graphify add &lt;url&gt;`, which
-/// fetches the page into `./raw` and updates the graph in place -- no bespoke crawler needed.
+/// Fetches a website/URL KB source directly (no graphify dependency) and indexes its visible text
+/// into the vector store via <see cref="KbVectorIndexer"/>.
 /// </summary>
 public sealed class WebsiteIngestionJob : IIngestionJob
 {
-    private readonly string _corpusPath;
     private readonly string _url;
-    private readonly GraphifyCliRunner _graphify;
-    private readonly IReadOnlyDictionary<string, string?> _graphifyEnvironment;
+    private readonly HttpClient _httpClient;
+    private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
 
     public string ProjectId { get; }
 
-    public WebsiteIngestionJob(
-        string projectId, string corpusPath, string url, GraphifyCliRunner graphify,
-        IReadOnlyDictionary<string, string?> graphifyEnvironment, IProjectRepository projects)
+    public WebsiteIngestionJob(string projectId, string url, HttpClient httpClient, KbVectorIndexer indexer, IProjectRepository projects)
     {
         ProjectId = projectId;
-        _corpusPath = corpusPath;
         _url = url;
-        _graphify = graphify;
-        _graphifyEnvironment = graphifyEnvironment;
+        _httpClient = httpClient;
+        _indexer = indexer;
         _projects = projects;
     }
 
@@ -34,25 +30,29 @@ public sealed class WebsiteIngestionJob : IIngestionJob
     {
         EnsurePublicHttpUrl(_url);
 
-        Directory.CreateDirectory(_corpusPath);
-        await _graphify.RunAsync(_corpusPath, _graphifyEnvironment, ct, "add", _url);
+        var html = await _httpClient.GetStringAsync(_url, ct);
+        var text = ExtractVisibleText(html);
 
-        var project = await _projects.GetByIdAsync(ProjectId, ct);
-        if (project != null)
-        {
-            var sourceIndex = project.KbSources.FindIndex(s => s.Location == _url);
-            if (sourceIndex >= 0)
-            {
-                project.KbSources[sourceIndex] = project.KbSources[sourceIndex] with { LastSyncedAt = DateTimeOffset.UtcNow };
-                await _projects.UpsertAsync(project, ct);
-            }
-        }
+        await _indexer.IndexAsync(ProjectId, [(_url, text)], ct);
+        await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _url, ct);
     }
 
-    // SSRF guard: this URL comes from persisted project config and is handed straight to
-    // graphify's own outbound fetcher, so it must not be allowed to reach loopback, link-local,
-    // private, or cloud-metadata addresses (e.g. 169.254.169.254) that graphify running
-    // server-side could otherwise be tricked into fetching.
+    private static string ExtractVisibleText(string html)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        foreach (var node in doc.DocumentNode.SelectNodes("//script|//style")?.ToList() ?? [])
+            node.Remove();
+
+        var body = doc.DocumentNode.SelectSingleNode("//body") ?? doc.DocumentNode;
+        return WebUtility.HtmlDecode(body.InnerText).Trim();
+    }
+
+    // SSRF guard: this URL comes from persisted project config and is handed straight to our own
+    // outbound fetcher, so it must not be allowed to reach loopback, link-local, private, or
+    // cloud-metadata addresses (e.g. 169.254.169.254) that a server-side fetch could otherwise be
+    // tricked into reaching.
     private static void EnsurePublicHttpUrl(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||

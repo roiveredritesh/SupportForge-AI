@@ -6,11 +6,11 @@ namespace SupportForge.Agents;
 
 public sealed class CodeAnalyzerAgent : IAgent
 {
-    private readonly CodeSearchTool _tool;
+    private readonly IGraphifyQueryTool _tool;
     private readonly ILogger<CodeAnalyzerAgent> _logger;
     public string Name => "CodeAnalyzer";
 
-    public CodeAnalyzerAgent(CodeSearchTool tool, ILogger<CodeAnalyzerAgent> logger)
+    public CodeAnalyzerAgent(IGraphifyQueryTool tool, ILogger<CodeAnalyzerAgent> logger)
     {
         _tool = tool;
         _logger = logger;
@@ -28,14 +28,14 @@ public sealed class CodeAnalyzerAgent : IAgent
                 return context;
             }
 
-            var topK = context.CodeVerification.Attempts > 0 ? 10 : 5;
-            var results = await _tool.SearchAsync(context.ProjectId, context.Query, topK, ct: ct);
+            var retrying = context.CodeVerification.Attempts > 0;
+            var output = await _tool.QueryAsync(context.ProjectId, context.Query, retrying, ct);
 
             context.CodeSnippets.Clear();
-            foreach (var (text, file) in results)
+            if (!string.IsNullOrEmpty(output))
             {
-                context.CodeSnippets.Add($"// {file}\n{text}");
-                context.Sources.Add(($"Code: {file}", file));
+                context.CodeSnippets.Add(output);
+                context.Sources.Add(("Code: project graph", context.ProjectId));
             }
             context.CodeVerification.Attempts++;
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: retrieved {SnippetCount} snippets, attempt={Attempt}", Name, sw.ElapsedMilliseconds, context.CodeSnippets.Count, context.CodeVerification.Attempts);
