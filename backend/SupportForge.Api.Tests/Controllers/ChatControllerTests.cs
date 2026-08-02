@@ -72,6 +72,95 @@ public class ChatControllerTests
         Assert.Equal("code_issue", body.Draft); // DrafterAgent stubs LLM to return same fixed string in this test
     }
 
+    private static (CoordinatorPipeline pipeline, TestOpenAiLlmClient llm) MakeNoOpPipeline()
+    {
+        var llmMock = new Mock<ILlmClient>();
+        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("ok");
+        var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
+        var pipeline = new CoordinatorPipeline(
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new NoOpAgent("KbResearcher"),
+            new NoOpAgent("KbResearcherVerifier"),
+            new NoOpAgent("CodeAnalyzer"),
+            new NoOpAgent("CodeAnalyzerVerifier"),
+            new NoOpAgent("VisionAnalyzer"),
+            new NoOpAgent("VisionAnalyzerVerifier"),
+            new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
+        return (pipeline, openAiLlm);
+    }
+
+    [Fact]
+    public async Task Query_WithQueryWithinLimit_Proceeds()
+    {
+        var (pipeline, llm) = MakeNoOpPipeline();
+        var controller = MakeController(pipeline, llm, new Mock<ITokenUsageRepository>().Object);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = new string('a', 4000) });
+
+        Assert.IsType<OkObjectResult>(response.Result);
+    }
+
+    [Fact]
+    public async Task Query_WithQueryOverLimit_ReturnsBadRequest()
+    {
+        var (pipeline, llm) = MakeNoOpPipeline();
+        var controller = MakeController(pipeline, llm, new Mock<ITokenUsageRepository>().Object);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = new string('a', 4001) });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(response.Result);
+        Assert.Contains("4000", badRequest.Value!.ToString());
+    }
+
+    [Fact]
+    public async Task Query_WithScreenshotWithinSizeLimit_Proceeds()
+    {
+        var (pipeline, llm) = MakeNoOpPipeline();
+        var controller = MakeController(pipeline, llm, new Mock<ITokenUsageRepository>().Object);
+        var screenshot = Convert.ToBase64String(new byte[5 * 1024 * 1024]);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "q", ScreenshotBase64 = screenshot });
+
+        Assert.IsType<OkObjectResult>(response.Result);
+    }
+
+    [Fact]
+    public async Task Query_WithScreenshotOverSizeLimit_ReturnsBadRequest()
+    {
+        var (pipeline, llm) = MakeNoOpPipeline();
+        var controller = MakeController(pipeline, llm, new Mock<ITokenUsageRepository>().Object);
+        var screenshot = Convert.ToBase64String(new byte[5 * 1024 * 1024 + 1]);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "q", ScreenshotBase64 = screenshot });
+
+        Assert.IsType<BadRequestObjectResult>(response.Result);
+    }
+
+    [Fact]
+    public async Task Query_WithMalformedBase64Screenshot_ReturnsBadRequest_NotUnhandledException()
+    {
+        var (pipeline, llm) = MakeNoOpPipeline();
+        var controller = MakeController(pipeline, llm, new Mock<ITokenUsageRepository>().Object);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "q", ScreenshotBase64 = "not-valid-base64!!" });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(response.Result);
+        Assert.Contains("base64", badRequest.Value!.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task QueryStream_WithQueryOverLimit_Writes400_NotUnhandledException()
+    {
+        var (pipeline, llm) = MakeNoOpPipeline();
+        var controller = MakeController(pipeline, llm, new Mock<ITokenUsageRepository>().Object);
+        var httpContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        await controller.QueryStream(new ChatQueryRequest { ProjectId = "proj1", Query = new string('a', 4001) }, default);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, httpContext.Response.StatusCode);
+    }
+
     [Fact]
     public async Task Query_DoesNotExposeSourcePaths_InResponseOrPersistedTurn()
     {

@@ -70,6 +70,39 @@ public class ChatController : ControllerBase
         return context;
     }
 
+    private const int MaxQueryLength = 4000;
+    private const int MaxScreenshotBytes = 5 * 1024 * 1024;
+
+    // U5: reject oversized requests before any agent runs, rather than letting the LLM/vision
+    // calls fail downstream or silently truncate. Returns null when the request is valid.
+    private static string? ValidateRequest(ChatQueryRequest request)
+    {
+        if (request.Query.Length > MaxQueryLength)
+        {
+            return $"Query exceeds the maximum length of {MaxQueryLength} characters.";
+        }
+
+        if (!string.IsNullOrEmpty(request.ScreenshotBase64))
+        {
+            byte[] decoded;
+            try
+            {
+                decoded = Convert.FromBase64String(request.ScreenshotBase64);
+            }
+            catch (FormatException)
+            {
+                return "ScreenshotBase64 is not valid base64.";
+            }
+
+            if (decoded.Length > MaxScreenshotBytes)
+            {
+                return $"Screenshot exceeds the maximum size of {MaxScreenshotBytes} bytes.";
+            }
+        }
+
+        return null;
+    }
+
     // Resolves the request's ConversationId to an existing conversation (must belong to the
     // request's ProjectId — a stale frontend conversation surviving a project switch is a bug,
     // not a valid cross-project request) or creates a new one when none was supplied.
@@ -127,6 +160,9 @@ public class ChatController : ControllerBase
     [HttpPost("query")]
     public async Task<ActionResult<ChatQueryResponse>> Query([FromBody] ChatQueryRequest request, CancellationToken ct = default)
     {
+        var validationError = ValidateRequest(request);
+        if (validationError is not null) return BadRequest(validationError);
+
         var conversation = await ResolveConversationAsync(request, ct);
         if (conversation is null) return BadRequest("ConversationId does not belong to the given ProjectId.");
 
@@ -156,6 +192,14 @@ public class ChatController : ControllerBase
     [HttpPost("query/stream")]
     public async Task QueryStream([FromBody] ChatQueryRequest request, CancellationToken ct)
     {
+        var validationError = ValidateRequest(request);
+        if (validationError is not null)
+        {
+            Response.StatusCode = StatusCodes.Status400BadRequest;
+            await Response.WriteAsync(validationError, ct);
+            return;
+        }
+
         var conversation = await ResolveConversationAsync(request, ct);
         if (conversation is null)
         {
