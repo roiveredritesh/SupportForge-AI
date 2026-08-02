@@ -3,7 +3,25 @@ import { useProjects, type Project, type ProjectKbSource, type ProjectRepo, type
 import { useCreateProject } from '../hooks/useCreateProject';
 import { useTriggerIngestion } from '../hooks/useTriggerIngestion';
 import { useDeleteProject } from '../hooks/useDeleteProject';
+import { useFreshness } from '../hooks/useFreshness';
 import { useAppStore } from '../store/useAppStore';
+
+function FreshnessBadge({ projectId }: { projectId: string }) {
+  const { data } = useFreshness(projectId);
+  if (!data) return null;
+  return (
+    <span
+      className={
+        data.isFresh
+          ? 'rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900 dark:text-green-300'
+          : 'rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+      }
+      title={data.isFresh ? 'All sources synced within 7 days' : `Stale: ${data.staleSources.join(', ')}`}
+    >
+      {data.isFresh ? 'Fresh' : `Stale (${data.staleSources.length})`}
+    </span>
+  );
+}
 
 const emptyRepo: ProjectRepo = { owner: '', repo: '', defaultBranch: 'main', accessTokenSecretName: '' };
 const emptyKbSource: ProjectKbSource = { type: 'Documents', location: '' };
@@ -193,7 +211,10 @@ export default function AdminPage() {
           {projects?.map((p) => (
             <li key={p.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
               <div className="flex items-center justify-between">
-                <span>{p.name} ({p.id})</span>
+                <span className="flex items-center gap-2">
+                  {p.name} ({p.id})
+                  <FreshnessBadge projectId={p.id} />
+                </span>
                 <div className="flex gap-2">
                   <button
                     className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
