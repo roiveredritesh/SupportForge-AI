@@ -31,4 +31,21 @@ public class AuthController : ControllerBase
         var (accessToken, expiresAt) = JwtTokenFactory.Create(user, _configuration);
         return Ok(new TokenResponse(accessToken, expiresAt));
     }
+
+    // No default/seeded user ships with this repo -- this is how you create the first one.
+    // Deliberately unauthenticated: there's nothing to authenticate with until a user exists.
+    [HttpPost("register")]
+    public async Task<ActionResult<TokenResponse>> Register([FromBody] TokenRequest request)
+    {
+        if (await _userManager.FindByNameAsync(request.UserName) is not null)
+            return Conflict("Username is already taken.");
+
+        var user = new AppUser { Id = Guid.NewGuid().ToString("n"), UserName = request.UserName };
+        var result = await _userManager.CreateAsync(user, request.Password);
+        if (!result.Succeeded)
+            return BadRequest(result.Errors.Select(e => e.Description));
+
+        var (accessToken, expiresAt) = JwtTokenFactory.Create(user, _configuration);
+        return Ok(new TokenResponse(accessToken, expiresAt));
+    }
 }
