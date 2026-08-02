@@ -1,11 +1,14 @@
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
+using SupportForge.Api.HealthChecks;
 using SupportForge.Api.Identity;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -137,6 +140,12 @@ builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJ
 builder.Services.AddSingleton<GitRepoSyncService>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFactory(sp, repoCacheRoot));
 
+// KTD5: replaces the bare "200 OK" /health endpoint with real per-dependency status.
+builder.Services.AddHealthChecks()
+    .AddCheck<VectorStoreHealthCheck>("vector_store")
+    .AddCheck<LlmConnectivityHealthCheck>("llm")
+    .AddCheck<GraphifyHealthCheck>("graphify");
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -150,7 +159,19 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 app.MapControllers();
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var payload = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new { name = e.Key, status = e.Value.Status.ToString(), description = e.Value.Description }),
+        };
+        await context.Response.WriteAsJsonAsync(payload);
+    },
+}).AllowAnonymous();
 
 app.Run();
 

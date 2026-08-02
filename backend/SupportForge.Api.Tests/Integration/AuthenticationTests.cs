@@ -188,8 +188,11 @@ public class AuthenticationTests : IDisposable
         using var factory = MakeFactory();
         var client = factory.CreateClient();
 
+        // /health is reachable without a token (not 401) -- its actual status (200/503) depends on
+        // whether the test host's VectorStore/LLM/graphify dependencies are live, which they are not
+        // in this in-memory test environment (U6 added real per-dependency checks).
         var health = await client.GetAsync("/health");
-        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, health.StatusCode);
 
         // Wrong credentials still reach the endpoint (401 from the handler, not a 401 from auth
         // middleware blocking the anonymous route itself).
@@ -216,10 +219,13 @@ public class AuthenticationTests : IDisposable
         });
         var client = lowLimitFactory.CreateClient();
 
+        // Hits /api/auth/token (anonymous, no external I/O -- just a fast password-hash mismatch)
+        // rather than /health: since U6, /health does real bounded-but-nonzero dependency I/O per
+        // request, which made this tight 1-second window flaky regardless of timeout tuning.
         var statuses = new List<HttpStatusCode>();
         for (var i = 0; i < 3; i++)
         {
-            var response = await client.GetAsync("/health");
+            var response = await client.PostAsJsonAsync("/api/auth/token", new { UserName = "nobody", Password = "x" });
             statuses.Add(response.StatusCode);
         }
 
@@ -227,8 +233,8 @@ public class AuthenticationTests : IDisposable
 
         await Task.Delay(TimeSpan.FromSeconds(1.5));
 
-        var afterWindow = await client.GetAsync("/health");
-        Assert.Equal(HttpStatusCode.OK, afterWindow.StatusCode);
+        var afterWindow = await client.PostAsJsonAsync("/api/auth/token", new { UserName = "nobody", Password = "x" });
+        Assert.Equal(HttpStatusCode.Unauthorized, afterWindow.StatusCode); // reachable again, not 429
     }
 
     private sealed class FakeLlmClient : ILlmClient
