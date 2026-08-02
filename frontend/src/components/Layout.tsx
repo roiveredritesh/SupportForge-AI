@@ -1,5 +1,6 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
+import { useAuthStore } from '../store/useAuthStore';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', end: true, icon: DashboardIcon },
@@ -8,6 +9,14 @@ const NAV_ITEMS = [
 ];
 
 export default function Layout() {
+  const logout = useAuthStore((s) => s.logout);
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
+
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-gray-900 dark:text-gray-100">
       <aside className="w-60 shrink-0 border-r border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-800 flex flex-col">
@@ -45,8 +54,14 @@ export default function Layout() {
       </aside>
 
       <div className="flex flex-1 flex-col">
-        <header className="flex h-14 items-center justify-end border-b border-slate-200 px-6 dark:border-gray-700">
+        <header className="flex h-14 items-center justify-end gap-3 border-b border-slate-200 px-6 dark:border-gray-700">
           <ThemeToggle />
+          <button
+            onClick={handleLogout}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            Log out
+          </button>
         </header>
         <main className="flex-1">
           <Outlet />

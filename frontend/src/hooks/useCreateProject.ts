@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../lib/apiClient';
+import type { ProjectKbSource, ProjectRepo } from './useProjects';
 
 export interface CreateProjectRequest {
   id: string;
   name: string;
-  repos: { owner: string; repo: string; defaultBranch: string }[];
-  kbSources: { type: 'Documents'; location: string }[];
+  repos: ProjectRepo[];
+  kbSources: ProjectKbSource[];
 }
 
 export function useCreateProject() {
