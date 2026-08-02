@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
 using SupportForge.Api.HealthChecks;
@@ -145,6 +147,29 @@ builder.Services.AddHealthChecks()
     .AddCheck<VectorStoreHealthCheck>("vector_store")
     .AddCheck<LlmConnectivityHealthCheck>("llm")
     .AddCheck<GraphifyHealthCheck>("graphify");
+
+// U7: traces the agent pipeline (one span per agent that ran, via PipelineTelemetry.ActivitySource
+// in CoordinatorPipeline) plus inbound ASP.NET Core requests and outbound HttpClient calls.
+// Exporter target is environment-driven (standard OTEL_EXPORTER_OTLP_ENDPOINT env var); falls back
+// to the console exporter in Development so tracing is visible with zero collector setup.
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r.AddService("SupportForge.Api"))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(PipelineTelemetry.ActivitySourceName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation();
+
+        if (builder.Environment.IsDevelopment())
+        {
+            tracing.AddConsoleExporter();
+        }
+        else
+        {
+            tracing.AddOtlpExporter();
+        }
+    });
 
 var app = builder.Build();
 

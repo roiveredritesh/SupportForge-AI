@@ -1,6 +1,17 @@
+using System.Diagnostics;
 using Microsoft.Agents.AI.Workflows;
 
 namespace SupportForge.Agents;
+
+/// <summary>
+/// U7: single ActivitySource for the whole pipeline, so one request's spans (one per agent that
+/// actually ran) share a trace regardless of which OpenTelemetry exporter the host registers.
+/// </summary>
+public static class PipelineTelemetry
+{
+    public const string ActivitySourceName = "SupportForge.Agents.CoordinatorPipeline";
+    public static readonly ActivitySource ActivitySource = new(ActivitySourceName);
+}
 
 /// <summary>Adapts an <see cref="IAgent"/> into a Microsoft Agent Framework workflow node.</summary>
 internal sealed class AgentExecutor : Executor<AgentContext, AgentContext>
@@ -17,10 +28,20 @@ internal sealed class AgentExecutor : Executor<AgentContext, AgentContext>
     public override async ValueTask<AgentContext> HandleAsync(
         AgentContext message, IWorkflowContext context, CancellationToken cancellationToken = default)
     {
-        var result = await _agent.RunAsync(message, cancellationToken);
-        if (_isTerminal)
-            await context.YieldOutputAsync(result, cancellationToken);
-        return result;
+        using var activity = PipelineTelemetry.ActivitySource.StartActivity(_agent.Name, ActivityKind.Internal);
+        try
+        {
+            var result = await _agent.RunAsync(message, cancellationToken);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            if (_isTerminal)
+                await context.YieldOutputAsync(result, cancellationToken);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
     }
 }
 
