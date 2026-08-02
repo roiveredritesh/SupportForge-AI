@@ -72,8 +72,6 @@ builder.Services.AddAuthorization();
 // KTD4: built-in RateLimiter middleware (no new package), partitioned by authenticated user ID
 // once a request carries a valid JWT, falling back to client IP for anonymous requests
 // (e.g. /health, /api/auth/token, or any request that hasn't authenticated yet).
-var rateLimitPermits = builder.Configuration.GetValue("RateLimiting:PermitLimit", 100);
-var rateLimitWindowSeconds = builder.Configuration.GetValue("RateLimiting:WindowSeconds", 60);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -83,10 +81,19 @@ builder.Services.AddRateLimiter(options =>
             ? httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "authenticated"
             : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
+        // Read config lazily via RequestServices, not a local captured before builder.Build().
+        // WebApplicationFactory<Program>'s test-time ConfigureAppConfiguration overrides only
+        // land on builder.Configuration by the time Build() completes -- a value read into a
+        // local earlier (during this top-level Program.cs execution) captures the pre-override
+        // default and silently ignores the test's override.
+        var configuration = httpContext.RequestServices.GetRequiredService<IConfiguration>();
+        var permitLimit = configuration.GetValue("RateLimiting:PermitLimit", 100);
+        var windowSeconds = configuration.GetValue("RateLimiting:WindowSeconds", 60);
+
         return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = rateLimitPermits,
-            Window = TimeSpan.FromSeconds(rateLimitWindowSeconds),
+            PermitLimit = permitLimit,
+            Window = TimeSpan.FromSeconds(windowSeconds),
             QueueLimit = 0,
         });
     });
