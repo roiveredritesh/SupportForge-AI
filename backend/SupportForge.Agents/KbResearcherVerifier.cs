@@ -38,15 +38,14 @@ public sealed class KbResearcherVerifier : IAgent
             {
                 Fail(v, "No KB snippets were retrieved.");
             }
-            else if (context.KbSnippets.Count == 1)
-            {
-                var relevant = await JudgeAsync(context, ct);
-                if (relevant) v.Status = VerificationStatus.Passed;
-                else Fail(v, "LLM judge found the single retrieved snippet not relevant to the query.");
-            }
             else
             {
-                v.Status = VerificationStatus.Passed;
+                // Vector search always returns topK nearest neighbors with no relevance floor, so a
+                // non-empty result set doesn't mean the content is on-topic. Judge the top match: if
+                // even the closest snippet isn't relevant, the rest (farther away) won't be either.
+                var relevant = await JudgeAsync(context, ct);
+                if (relevant) v.Status = VerificationStatus.Passed;
+                else Fail(v, "LLM judge found the top retrieved snippet not relevant to the query.");
             }
 
             if (v.Status == VerificationStatus.FailedRetrying)

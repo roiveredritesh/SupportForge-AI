@@ -38,15 +38,14 @@ public sealed class CodeAnalyzerVerifier : IAgent
             {
                 Fail(v, "No code snippets were retrieved for a code-related query.");
             }
-            else if (context.CodeSnippets.Count == 1)
-            {
-                var relevant = await JudgeAsync(context, ct);
-                if (relevant) v.Status = VerificationStatus.Passed;
-                else Fail(v, "LLM judge found the single retrieved code snippet not relevant to the query.");
-            }
             else
             {
-                v.Status = VerificationStatus.Passed;
+                // Vector search always returns topK nearest neighbors with no relevance floor, so a
+                // non-empty result set doesn't mean the content is on-topic. Judge the top match: if
+                // even the closest snippet isn't relevant, the rest (farther away) won't be either.
+                var relevant = await JudgeAsync(context, ct);
+                if (relevant) v.Status = VerificationStatus.Passed;
+                else Fail(v, "LLM judge found the top retrieved code snippet not relevant to the query.");
             }
 
             if (v.Status == VerificationStatus.FailedRetrying)

@@ -33,9 +33,10 @@ public class CodeAnalyzerVerifierTests
     }
 
     [Fact]
-    public async Task RunAsync_MultipleSnippets_PassesWithoutCallingLlm()
+    public async Task RunAsync_MultipleSnippets_EscalatesToLlmJudgeOnTopSnippet()
     {
         var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("yes");
         var verifier = new CodeAnalyzerVerifier(llm.Object, new ListLogger<CodeAnalyzerVerifier>());
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_question" };
         context.CodeSnippets.Add("snippet 1");
@@ -44,7 +45,26 @@ public class CodeAnalyzerVerifierTests
         var result = await verifier.RunAsync(context);
 
         Assert.Equal(VerificationStatus.Passed, result.CodeVerification.Status);
-        llm.Verify(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        llm.Verify(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunAsync_MultipleSnippets_AllIrrelevant_FailsInsteadOfAutoPassing()
+    {
+        // Regression test: nearest-neighbor vector search always returns topK results even when
+        // nothing in the codebase is actually relevant. Multiple irrelevant snippets must not auto-pass.
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("no");
+        var verifier = new CodeAnalyzerVerifier(llm.Object, new ListLogger<CodeAnalyzerVerifier>());
+        var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_question" };
+        context.CodeSnippets.Add("unrelated snippet 1");
+        context.CodeSnippets.Add("unrelated snippet 2");
+        context.CodeVerification.Attempts = 2; // at limit, so a judged "no" should be FailedFinal
+
+        var result = await verifier.RunAsync(context);
+
+        Assert.Equal(VerificationStatus.FailedFinal, result.CodeVerification.Status);
+        llm.Verify(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -84,6 +104,7 @@ public class CodeAnalyzerVerifierTests
     public async Task RunAsync_LogsStartAndCompletion()
     {
         var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("yes");
         var logger = new ListLogger<CodeAnalyzerVerifier>();
         var verifier = new CodeAnalyzerVerifier(llm.Object, logger);
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_question" };
