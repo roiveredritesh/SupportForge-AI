@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Core;
 
@@ -5,6 +6,7 @@ namespace SupportForge.Api.Controllers;
 
 [ApiController]
 [Route("api/projects/{projectId}/freshness")]
+[Authorize]
 public class FreshnessController : ControllerBase
 {
     private readonly IProjectRepository _repo;
