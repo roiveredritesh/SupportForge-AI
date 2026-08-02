@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Agents;
 using SupportForge.Api.Contracts;
@@ -10,6 +11,7 @@ namespace SupportForge.Api.Controllers;
 
 [ApiController]
 [Route("api/chat")]
+[Authorize]
 public class ChatController : ControllerBase
 {
     private readonly CoordinatorPipeline _pipeline;

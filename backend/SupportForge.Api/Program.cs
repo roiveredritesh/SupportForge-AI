@@ -1,6 +1,14 @@
+using System.Security.Claims;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.IdentityModel.Tokens;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
+using SupportForge.Api.Identity;
 using SupportForge.Core;
+using SupportForge.Core.Entities;
 using SupportForge.Ingestion;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
@@ -35,6 +43,55 @@ builder.Services.AddSingleton<IConversationRepository>(
     new JsonFileConversationRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IChatMessageRepository>(
     new JsonFileChatMessageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IUserRepository>(
+    new JsonFileUserRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+
+// KTD1: Identity's storage abstractions against a JSON-file-backed store (CustomUserStore),
+// not EF Core -- this repo has no database anywhere else. PasswordHasher<AppUser> (registered
+// by AddIdentityCore) handles hashing; no custom hashing code needed.
+builder.Services.AddIdentityCore<AppUser>()
+    .AddUserStore<CustomUserStore>();
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = JwtTokenFactory.ResolveIssuer(builder.Configuration),
+            ValidateAudience = true,
+            ValidAudience = JwtTokenFactory.ResolveAudience(builder.Configuration),
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = JwtTokenFactory.ResolveSigningKey(builder.Configuration),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30),
+        };
+    });
+builder.Services.AddAuthorization();
+
+// KTD4: built-in RateLimiter middleware (no new package), partitioned by authenticated user ID
+// once a request carries a valid JWT, falling back to client IP for anonymous requests
+// (e.g. /health, /api/auth/token, or any request that hasn't authenticated yet).
+var rateLimitPermits = builder.Configuration.GetValue("RateLimiting:PermitLimit", 100);
+var rateLimitWindowSeconds = builder.Configuration.GetValue("RateLimiting:WindowSeconds", 60);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        var partitionKey = httpContext.User.Identity?.IsAuthenticated == true
+            ? httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "authenticated"
+            : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = rateLimitPermits,
+            Window = TimeSpan.FromSeconds(rateLimitWindowSeconds),
+            QueueLimit = 0,
+        });
+    });
+});
+
 // "Llm:Provider" selects the chat/vision provider (OpenAI | NvidiaNim | Azure | Anthropic | Bedrock);
 // "Embeddings:Provider" optionally selects a different provider for embeddings (required whenever
 // Llm:Provider is Anthropic, which has no embeddings API) and defaults to Llm:Provider otherwise.
@@ -82,6 +139,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("Frontend");
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 

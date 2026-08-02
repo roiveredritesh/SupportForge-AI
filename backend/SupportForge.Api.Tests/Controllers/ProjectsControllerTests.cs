@@ -1,10 +1,14 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using SupportForge.Api.Controllers;
+using SupportForge.Api.Identity;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion;
@@ -140,17 +144,43 @@ public class ProjectsControllerTests
     [Fact]
     public async Task PostProjects_WithStringKbSourceTypeEnum_ReturnsOk()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            // ProjectsController now requires [Authorize] (U4) -- isolate the user store from the
+            // real App_Data and seed a test user rather than touch it.
+            builder.ConfigureServices(services =>
+                services.AddSingleton<IUserRepository>(new JsonFileUserRepository(tempDir)));
+        });
         var client = factory.CreateClient();
 
-        var response = await client.PostAsync("/api/projects", JsonContent.Create(new
+        using (var scope = factory.Services.CreateScope())
         {
-            Id = "proj-with-kb",
-            Name = "Project With KB",
-            KbSources = new[] { new { Type = "Documents", Location = "docs/", LastSyncedAt = (DateTimeOffset?)null } },
-        }));
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
+            var user = new AppUser { Id = "test-user", UserName = "tester" };
+            var created = await userManager.CreateAsync(user, "Test-Password-123!");
+            Assert.True(created.Succeeded, string.Join(", ", created.Errors.Select(e => e.Description)));
+        }
+
+        var tokenResponse = await client.PostAsJsonAsync("/api/auth/token", new { UserName = "tester", Password = "Test-Password-123!" });
+        tokenResponse.EnsureSuccessStatusCode();
+        var token = (await tokenResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("accessToken").GetString();
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/projects")
+        {
+            Content = JsonContent.Create(new
+            {
+                Id = "proj-with-kb",
+                Name = "Project With KB",
+                KbSources = new[] { new { Type = "Documents", Location = "docs/", LastSyncedAt = (DateTimeOffset?)null } },
+            }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await client.SendAsync(request);
 
         var body = await response.Content.ReadAsStringAsync();
         Assert.True(response.StatusCode == HttpStatusCode.OK, $"Expected 200 but got {(int)response.StatusCode}: {body}");
+
+        if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
     }
 }

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -6,6 +7,7 @@ namespace SupportForge.Api.Controllers;
 
 [ApiController]
 [Route("api/feedback")]
+[Authorize]
 public class FeedbackController : ControllerBase
 {
     private readonly IFeedbackRepository _repo;
