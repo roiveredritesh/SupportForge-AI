@@ -170,7 +170,13 @@ export default function AdminPage() {
               </select>
               <input
                 className={inputClass}
-                placeholder={k.type === 'Documents' ? 'Folder path' : k.type === 'Confluence' ? 'Confluence page ID' : 'Website URL'}
+                placeholder={
+                  k.type === 'Documents'
+                    ? 'Folder path, or a github.com/owner/repo(/tree/branch/path) URL'
+                    : k.type === 'Confluence'
+                      ? 'Confluence page ID'
+                      : 'Website URL'
+                }
                 value={k.location}
                 onChange={(e) => updateKbSource(i, { location: e.target.value })}
               />

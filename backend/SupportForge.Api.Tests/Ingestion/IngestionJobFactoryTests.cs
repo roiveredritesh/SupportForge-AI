@@ -95,6 +95,46 @@ public class IngestionJobFactoryTests
     }
 
     [Fact]
+    public void DocumentIngestionJobFactory_GitHubUrlLocation_CreatesGitHubFolderIngestionJob()
+    {
+        using var provider = BuildProvider();
+        var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
+        var project = new Project
+        {
+            Id = "proj1",
+            Name = "Test",
+            KbSources = new List<KbSourceConfig>
+            {
+                new(KbSourceType.Documents, "https://github.com/acme/widgets/tree/main/docs", null),
+            },
+        };
+
+        var job = Assert.IsType<GitHubFolderIngestionJob>(factory.CreateJobs(project).Single());
+        Assert.Equal("proj1", job.ProjectId);
+    }
+
+    [Fact]
+    public void DocumentIngestionJobFactory_GitHubUrlLocation_IgnoredWhenRepoAssociationIsSet()
+    {
+        // A URL-shaped Location tied to a configured repo (RepoOwner/RepoName set) still means
+        // "subpath inside that repo's own clone" -- only a standalone Location gets URL-parsed.
+        using var provider = BuildProvider();
+        var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
+        var project = new Project
+        {
+            Id = "proj1",
+            Name = "Test",
+            Repos = new List<GitHubRepoConfig> { new("owner", "repo-a", "main", null) },
+            KbSources = new List<KbSourceConfig>
+            {
+                new(KbSourceType.Documents, "https://github.com/acme/widgets/tree/main/docs", null, RepoOwner: "owner", RepoName: "repo-a"),
+            },
+        };
+
+        Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project).Single());
+    }
+
+    [Fact]
     public void DocumentIngestionJobFactory_CreatesWebsiteAndConfluenceJobs_ForThoseSourceTypes()
     {
         using var provider = BuildProvider();
