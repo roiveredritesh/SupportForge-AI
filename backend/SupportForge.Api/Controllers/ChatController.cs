@@ -103,6 +103,21 @@ public class ChatController : ControllerBase
         return null;
     }
 
+    // U9: shared step-construction both Query (via CoordinatorPipeline) and QueryStream (manual,
+    // for SSE) build identically before diverging on execution strategy -- see KTD3 for why the
+    // two paths stay separate (QueryStream needs per-token output the Workflow API doesn't expose).
+    private async Task<AgentContext> BuildInitialContextAsync(ChatQueryRequest request, string conversationId, CancellationToken ct)
+    {
+        var context = new AgentContext
+        {
+            ProjectId = request.ProjectId,
+            Query = request.Query,
+            ScreenshotBase64 = request.ScreenshotBase64,
+        };
+        context.History.AddRange(await LoadRecapAsync(conversationId, ct));
+        return context;
+    }
+
     // Resolves the request's ConversationId to an existing conversation (must belong to the
     // request's ProjectId — a stale frontend conversation surviving a project switch is a bug,
     // not a valid cross-project request) or creates a new one when none was supplied.
@@ -166,13 +181,7 @@ public class ChatController : ControllerBase
         var conversation = await ResolveConversationAsync(request, ct);
         if (conversation is null) return BadRequest("ConversationId does not belong to the given ProjectId.");
 
-        var context = new AgentContext
-        {
-            ProjectId = request.ProjectId,
-            Query = request.Query,
-            ScreenshotBase64 = request.ScreenshotBase64,
-        };
-        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
+        var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
@@ -208,13 +217,7 @@ public class ChatController : ControllerBase
             return;
         }
 
-        var context = new AgentContext
-        {
-            ProjectId = request.ProjectId,
-            Query = request.Query,
-            ScreenshotBase64 = request.ScreenshotBase64,
-        };
-        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
+        var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
         context = await _triage.RunAsync(context, ct);
         context = await RunWithVerificationAsync(_kbResearcher, _kbVerifier, context, c => c.KbVerification, ct);
