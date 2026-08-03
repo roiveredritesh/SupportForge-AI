@@ -150,7 +150,12 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddSingleton<SupportForge.Agents.Tools.IIngestionActivity>(sp => sp.GetRequiredService<IngestionQueue>());
 builder.Services.AddHostedService<IngestionBackgroundService>();
-builder.Services.AddSingleton<GraphifyCliRunner>();
+// Graphify:CliConcurrency: max concurrent `graphify` subprocesses (default 2, matching the tool's
+// prior hardcoded value). Raise this once ingestion throughput, not CPU/LLM rate limits, is the
+// bottleneck -- the subprocess gate is independent of GraphDbQueryTool's Neo4j connection pool, which
+// serves query traffic and isn't affected by this setting.
+var graphifyCliConcurrency = builder.Configuration.GetValue("Graphify:CliConcurrency", 2);
+builder.Services.AddSingleton(sp => new GraphifyCliRunner(sp.GetRequiredService<ILogger<GraphifyCliRunner>>(), concurrency: graphifyCliConcurrency));
 // Resolved eagerly (not inside a lazy DI factory) so an incompatible Llm:Provider/Graphify:Gateway
 // combination (e.g. Bedrock/Azure with no gateway configured) fails at startup, not on first ingest.
 var graphifyEnvironment = GraphifyBackendResolver.Resolve(builder.Configuration);
@@ -166,11 +171,13 @@ builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFa
 // iterating IIngestionJobFactory in registration order, and the queue drains strictly FIFO, so every
 // per-repo CodeIngestionJob for a project is guaranteed to run before that project's merge job.
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeGraphMergeJobFactory(sp, repoCacheRoot));
-builder.Services.AddScoped<IGraphifyQueryTool>(sp => new GraphifyQueryTool(sp.GetRequiredService<GraphifyCliRunner>(), repoCacheRoot));
 
-// WS1 (retrieval-pipeline remediation plan): Neo4j/Memgraph graph-DB path, built and importing
-// alongside the CLI-based path above, but NOT yet the active IGraphifyQueryTool registration -- swap
-// only after the parity spike (GraphifyQueryTool vs GraphDbQueryTool, same questions) passes.
+// WS1 (retrieval-pipeline remediation plan): cut over ahead of the parity spike per explicit product
+// direction -- GraphifyQueryTool's hand-rolled SemaphoreSlim(2,2) subprocess gate doesn't scale with
+// concurrent query traffic; GraphDbQueryTool goes through Neo4j.Driver's connection pool instead.
+// GraphifyCliRunner (and the `graphify` CLI itself) stays: it's still the only thing that extracts a
+// code graph from source in the first place -- GraphImportJob feeds its output into Neo4j. Only the
+// query-time path changes.
 var neo4jOptions = builder.Configuration.GetSection("Graphify:Neo4j").Get<Neo4jOptions>() ?? new Neo4jOptions();
 builder.Services.AddSingleton(neo4jOptions);
 builder.Services.AddSingleton<Neo4j.Driver.IDriver>(_ =>
@@ -185,7 +192,7 @@ builder.Services.AddSingleton<Neo4j.Driver.IDriver>(_ =>
     });
 });
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new GraphImportJobFactory(sp, repoCacheRoot));
-builder.Services.AddScoped<GraphDbQueryTool>(sp =>
+builder.Services.AddScoped<IGraphifyQueryTool>(sp =>
     new GraphDbQueryTool(sp.GetRequiredService<Neo4j.Driver.IDriver>(), neo4jOptions.Database));
 
 // KTD5: replaces the bare "200 OK" /health endpoint with real per-dependency status.

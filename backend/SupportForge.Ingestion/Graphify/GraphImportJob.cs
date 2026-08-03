@@ -37,11 +37,15 @@ public sealed class GraphImportJob : IIngestionJob
             ?? throw new InvalidOperationException($"'{_graphJsonPath}' did not deserialize to a graphify graph.");
 
         await using var session = _driver.AsyncSession(o => o.WithDatabase(_database));
+
+        // Neo4j rejects a data write in the same transaction as a schema modification ("Tried to
+        // execute Write query after executing Schema modification"), so the index create needs its
+        // own transaction before the node/edge MERGEs below.
+        await session.ExecuteWriteAsync(tx => tx.RunAsync(
+            "CREATE FULLTEXT INDEX graphNodeLabel IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label]"));
+
         await session.ExecuteWriteAsync(async tx =>
         {
-            await tx.RunAsync(
-                "CREATE FULLTEXT INDEX graphNodeLabel IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label]");
-
             // UNWIND-batched MERGE, not one query per node/edge: a repo's graph can be thousands of
             // nodes, and per-node round-trips would dominate import time.
             await tx.RunAsync(

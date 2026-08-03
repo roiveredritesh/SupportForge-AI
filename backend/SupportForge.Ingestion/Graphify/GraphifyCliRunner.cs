@@ -10,18 +10,15 @@ namespace SupportForge.Ingestion.Graphify;
 /// </summary>
 public sealed class GraphifyCliRunner
 {
-    // ponytail: fixed concurrency budget shared process-wide; raise (or make configurable) if
-    // parallel extract/update runs are cheaper than assumed once measured against real CPU/LLM
-    // rate-limit pressure.
-    private static readonly SemaphoreSlim ConcurrencyGate = new(2, 2);
-
+    private readonly SemaphoreSlim _concurrencyGate;
     private readonly ILogger<GraphifyCliRunner> _logger;
     private readonly TimeSpan _timeout;
 
-    public GraphifyCliRunner(ILogger<GraphifyCliRunner> logger, TimeSpan? timeout = null)
+    public GraphifyCliRunner(ILogger<GraphifyCliRunner> logger, TimeSpan? timeout = null, int concurrency = 2)
     {
         _logger = logger;
         _timeout = timeout ?? TimeSpan.FromMinutes(10);
+        _concurrencyGate = new SemaphoreSlim(concurrency, concurrency);
     }
 
     /// <summary>
@@ -40,14 +37,14 @@ public sealed class GraphifyCliRunner
         foreach (var arg in args)
             ValidateArgument(arg);
 
-        await ConcurrencyGate.WaitAsync(ct).ConfigureAwait(false);
+        await _concurrencyGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             return await RunProcessAsync(workingDirectory, environment, args, ct).ConfigureAwait(false);
         }
         finally
         {
-            ConcurrencyGate.Release();
+            _concurrencyGate.Release();
         }
     }
 
