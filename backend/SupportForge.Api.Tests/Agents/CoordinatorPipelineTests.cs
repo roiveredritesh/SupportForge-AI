@@ -18,7 +18,9 @@ public class CoordinatorPipelineTests
 
         var pipeline = new CoordinatorPipeline(
             triage,
+            new NoOpAgent("FreshnessGate"),
             kb, new PassingVerifier("KbResearcherVerifier"),
+            new NoOpAgent("CrossReference"),
             code, new PassingVerifier("CodeAnalyzerVerifier"),
             vision, new PassingVerifier("VisionAnalyzerVerifier"),
             drafter);
@@ -45,7 +47,9 @@ public class CoordinatorPipelineTests
 
         var pipeline = new CoordinatorPipeline(
             triage,
+            new NoOpAgent("FreshnessGate"),
             kb, new PassingVerifier("KbResearcherVerifier"),
+            new NoOpAgent("CrossReference"),
             code, new PassingVerifier("CodeAnalyzerVerifier"),
             vision, new PassingVerifier("VisionAnalyzerVerifier"),
             drafter);
@@ -72,12 +76,55 @@ public class CoordinatorPipelineTests
         var codeVerifier = new PassingVerifier("CodeAnalyzerVerifier");
         var visionVerifier = new PassingVerifier("VisionAnalyzerVerifier");
 
-        var pipeline = new CoordinatorPipeline(triage, kb, kbVerifier, code, codeVerifier, vision, visionVerifier, drafter);
+        var pipeline = new CoordinatorPipeline(triage, new NoOpAgent("FreshnessGate"), kb, kbVerifier, new NoOpAgent("CrossReference"), code, codeVerifier, vision, visionVerifier, drafter);
         var result = await pipeline.RunAsync(new AgentContext { ProjectId = "proj1", Query = "test" });
 
         Assert.Equal(2, kbRunCount); // ran once, failed verification, ran again
         Assert.Equal(VerificationStatus.Passed, result.KbVerification.Status);
         Assert.True(drafterRan);
+    }
+
+    [Fact]
+    public async Task RunAsync_CodeRunsOnlyAfterKbVerifierAndCrossReference_NotInParallelWithKb()
+    {
+        // WS4 (retrieval-pipeline remediation plan) regression test: Code is no longer part of the
+        // Triage/FreshnessGate fan-out -- it must not start until KbResearcherVerifier and
+        // CrossReference have both completed.
+        var order = new ConcurrentQueue<string>();
+        var triage = new RecordingAgent("Triage", order);
+        var kb = new RecordingAgent("KbResearcher", order);
+        var kbVerifier = new RecordingAgent("KbResearcherVerifier", order);
+        var crossReference = new RecordingAgent("CrossReference", order);
+        var code = new RecordingAgent("CodeAnalyzer", order);
+        var vision = new RecordingAgent("VisionAnalyzer", order);
+        var drafter = new RecordingAgent("Drafter", order);
+
+        var pipeline = new CoordinatorPipeline(
+            triage,
+            new NoOpAgent("FreshnessGate"),
+            kb, kbVerifier,
+            crossReference,
+            code, new PassingVerifier("CodeAnalyzerVerifier"),
+            vision, new PassingVerifier("VisionAnalyzerVerifier"),
+            drafter);
+        await pipeline.RunAsync(new AgentContext { ProjectId = "proj1", Query = "test" });
+
+        var recorded = order.ToList();
+        var kbIndex = recorded.IndexOf("KbResearcher");
+        var kbVerifierIndex = recorded.IndexOf("KbResearcherVerifier");
+        var crossReferenceIndex = recorded.IndexOf("CrossReference");
+        var codeIndex = recorded.IndexOf("CodeAnalyzer");
+
+        Assert.True(kbIndex < kbVerifierIndex);
+        Assert.True(kbVerifierIndex < crossReferenceIndex);
+        Assert.True(crossReferenceIndex < codeIndex);
+    }
+
+    private sealed class NoOpAgent : IAgent
+    {
+        public string Name { get; }
+        public NoOpAgent(string name) => Name = name;
+        public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default) => Task.FromResult(context);
     }
 
     private sealed class RecordingAgent : IAgent

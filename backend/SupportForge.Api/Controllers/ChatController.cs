@@ -16,7 +16,9 @@ public class ChatController : ControllerBase
 {
     private readonly CoordinatorPipeline _pipeline;
     private readonly TriageAgent _triage;
+    private readonly FreshnessGateAgent _freshnessGate;
     private readonly KbResearcherAgent _kbResearcher;
+    private readonly CrossReferenceAgent _crossReference;
     private readonly CodeAnalyzerAgent _codeAnalyzer;
     private readonly KbResearcherVerifier _kbVerifier;
     private readonly CodeAnalyzerVerifier _codeVerifier;
@@ -30,7 +32,9 @@ public class ChatController : ControllerBase
     public ChatController(
         CoordinatorPipeline pipeline,
         TriageAgent triage,
+        FreshnessGateAgent freshnessGate,
         KbResearcherAgent kbResearcher,
+        CrossReferenceAgent crossReference,
         CodeAnalyzerAgent codeAnalyzer,
         KbResearcherVerifier kbVerifier,
         CodeAnalyzerVerifier codeVerifier,
@@ -43,7 +47,9 @@ public class ChatController : ControllerBase
     {
         _pipeline = pipeline;
         _triage = triage;
+        _freshnessGate = freshnessGate;
         _kbResearcher = kbResearcher;
+        _crossReference = crossReference;
         _codeAnalyzer = codeAnalyzer;
         _kbVerifier = kbVerifier;
         _codeVerifier = codeVerifier;
@@ -220,7 +226,12 @@ public class ChatController : ControllerBase
         var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
         context = await _triage.RunAsync(context, ct);
+        context = await _freshnessGate.RunAsync(context, ct);
+        // WS4 (retrieval-pipeline remediation plan): Code no longer runs independently of KB here --
+        // mirrors CoordinatorPipeline's KB -> CrossReference -> Code topology, not the old parallel
+        // RunWithVerificationAsync(kb)/RunWithVerificationAsync(code) pair.
         context = await RunWithVerificationAsync(_kbResearcher, _kbVerifier, context, c => c.KbVerification, ct);
+        context = await _crossReference.RunAsync(context, ct);
         context = await RunWithVerificationAsync(_codeAnalyzer, _codeVerifier, context, c => c.CodeVerification, ct);
         context = await RunWithVerificationAsync(_visionAnalyzer, _visionVerifier, context, c => c.VisionVerification, ct);
 

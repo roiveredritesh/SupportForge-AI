@@ -32,6 +32,10 @@ public sealed partial class DrafterAgent : IAgent
         - Never mention a file name, path, line number, repository, document title, or any other citation or evidence
           pointer. The customer must not learn which code or documents were consulted.
 
+        If Freshness indicates a sync is currently in progress or the data is stale, briefly note in plain
+        language that the information may not reflect the very latest state, without naming any internal
+        sync mechanism or timestamp.
+
         If Intent is "unclear", the question is ambiguous: ask exactly one clarifying question and nothing else.
         Do not attempt an answer, do not list possibilities, do not add caveats.
 
@@ -69,10 +73,26 @@ public sealed partial class DrafterAgent : IAgent
         Conversation so far: {(context.History.Count == 0 ? "(none)" : string.Join("\n", context.History.Select(h => $"{h.Role}: {h.Content}")))}
         Customer question: {context.Query}
         Intent: {context.Intent}
+        Freshness: {DescribeFreshness(context.Freshness)}
         KB context: {string.Join("\n---\n", context.KbSnippets.Take(MaxSnippetsPerSource))}
         Code context: {string.Join("\n---\n", context.CodeSnippets.Take(MaxSnippetsPerSource))}
         Vision findings: {context.VisionFindings}
         """;
+
+    // WS3 (retrieval-pipeline remediation plan): plain-language summary of the freshness gate's
+    // signal for the prompt -- never exposes source names/timestamps, matching the no-citation rule.
+    private static string DescribeFreshness(FreshnessContext? freshness)
+    {
+        if (freshness is null) return "unknown";
+        if (freshness.SyncInProgress) return "a data sync is currently in progress";
+        if (!freshness.Score.IsFresh) return "some underlying data has not been refreshed recently";
+        return "up to date";
+    }
+
+    // WS3 (retrieval-pipeline remediation plan): stale/mid-sync data caps confidence regardless of how
+    // well verification otherwise went -- a verifier can only judge relevance of what it retrieved, not
+    // whether that data is current.
+    private const double StaleConfidenceCap = 0.5;
 
     public static double ComputeConfidence(AgentContext context)
     {
@@ -80,10 +100,15 @@ public sealed partial class DrafterAgent : IAgent
             .Where(v => v.Status != VerificationStatus.NotRun)
             .ToList();
 
-        if (applicable.Count == 0) return 0.3;
+        var confidence = applicable.Count == 0
+            ? 0.3
+            : 0.2 + 0.7 * applicable.Count(v => v.Status == VerificationStatus.Passed) / applicable.Count;
 
-        var passed = applicable.Count(v => v.Status == VerificationStatus.Passed);
-        return 0.2 + 0.7 * passed / applicable.Count;
+        var freshness = context.Freshness;
+        if (freshness is not null && (freshness.SyncInProgress || !freshness.Score.IsFresh))
+            confidence = Math.Min(confidence, StaleConfidenceCap);
+
+        return confidence;
     }
 
     /// <summary>Safety net for when the LLM ignores the no-code rules in <see cref="SystemPrompt"/>.</summary>

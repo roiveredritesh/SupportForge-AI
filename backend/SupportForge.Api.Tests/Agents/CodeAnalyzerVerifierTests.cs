@@ -36,7 +36,7 @@ public class CodeAnalyzerVerifierTests
     public async Task RunAsync_MultipleSnippets_EscalatesToLlmJudgeOnTopSnippet()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("yes");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("1");
         var verifier = new CodeAnalyzerVerifier(llm.Object, new ListLogger<CodeAnalyzerVerifier>());
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_question" };
         context.CodeSnippets.Add("snippet 1");
@@ -49,17 +49,36 @@ public class CodeAnalyzerVerifierTests
     }
 
     [Fact]
+    public async Task RunAsync_TopSnippetIrrelevant_SecondSnippetRelevant_PassesAndPromotesIt()
+    {
+        // Regression test for the "top-1 trap": the judge now reviews every retrieved snippet in one
+        // call, so a good match at rank #2 is no longer discarded just because #1 wasn't relevant.
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("2");
+        var verifier = new CodeAnalyzerVerifier(llm.Object, new ListLogger<CodeAnalyzerVerifier>());
+        var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_question" };
+        context.CodeSnippets.Add("off-topic snippet");
+        context.CodeSnippets.Add("the actually relevant snippet");
+
+        var result = await verifier.RunAsync(context);
+
+        Assert.Equal(VerificationStatus.Passed, result.CodeVerification.Status);
+        Assert.Equal("the actually relevant snippet", context.CodeSnippets[0]);
+        llm.Verify(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task RunAsync_MultipleSnippets_AllIrrelevant_FailsInsteadOfAutoPassing()
     {
         // Regression test: nearest-neighbor vector search always returns topK results even when
         // nothing in the codebase is actually relevant. Multiple irrelevant snippets must not auto-pass.
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("no");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("none");
         var verifier = new CodeAnalyzerVerifier(llm.Object, new ListLogger<CodeAnalyzerVerifier>());
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_question" };
         context.CodeSnippets.Add("unrelated snippet 1");
         context.CodeSnippets.Add("unrelated snippet 2");
-        context.CodeVerification.Attempts = 2; // at limit, so a judged "no" should be FailedFinal
+        context.CodeVerification.Attempts = 2; // at limit, so a judged "none" should be FailedFinal
 
         var result = await verifier.RunAsync(context);
 
@@ -71,7 +90,7 @@ public class CodeAnalyzerVerifierTests
     public async Task RunAsync_SingleSnippet_JudgeYes_Passes()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("yes");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("1");
         llm.As<ILlmChatClient>().SetupGet(l => l.LastTotalTokens).Returns(100);
         var verifier = new CodeAnalyzerVerifier(llm.Object, new ListLogger<CodeAnalyzerVerifier>());
         var context = new AgentContext { ProjectId = "p", Query = "how to optimize", Intent = "code_question" };
@@ -88,11 +107,11 @@ public class CodeAnalyzerVerifierTests
     public async Task RunAsync_SingleSnippet_JudgeNo_FailsFinal()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("no");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("none");
         var verifier = new CodeAnalyzerVerifier(llm.Object, new ListLogger<CodeAnalyzerVerifier>());
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_issue" };
         context.CodeSnippets.Add("unrelated snippet");
-        context.CodeVerification.Attempts = 2; // at limit, so judged "no" should be FailedFinal
+        context.CodeVerification.Attempts = 2; // at limit, so judged "none" should be FailedFinal
 
         var result = await verifier.RunAsync(context);
 
@@ -104,7 +123,7 @@ public class CodeAnalyzerVerifierTests
     public async Task RunAsync_LogsStartAndCompletion()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("yes");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("1");
         var logger = new ListLogger<CodeAnalyzerVerifier>();
         var verifier = new CodeAnalyzerVerifier(llm.Object, logger);
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_question" };

@@ -29,7 +29,13 @@ public sealed class CodeAnalyzerAgent : IAgent
             }
 
             var retrying = context.CodeVerification.Attempts > 0;
-            var output = await _tool.QueryAsync(context.ProjectId, context.Query, retrying, ct);
+            // WS4 (retrieval-pipeline remediation plan): CrossReferenceAgent may have extracted
+            // code-searchable terms from KB findings (e.g. an API route) -- fold them into the question
+            // graphify searches on, instead of Code retrieving from the raw customer question alone.
+            var question = string.IsNullOrEmpty(context.CodeQueryAugmentation)
+                ? context.Query
+                : $"{context.Query} (related terms from documentation: {context.CodeQueryAugmentation})";
+            var output = await _tool.QueryAsync(context.ProjectId, question, retrying, ct);
 
             context.CodeSnippets.Clear();
             if (!string.IsNullOrEmpty(output))

@@ -6,8 +6,9 @@ namespace SupportForge.Agents;
 public sealed class CodeAnalyzerVerifier : IAgent
 {
     private const string JudgeSystemPrompt = """
-        You judge whether a single retrieved source-code snippet is actually relevant to a
-        customer's code-related support question. Respond with only "yes" or "no".
+        You judge which of several retrieved source-code snippets, if any, is actually relevant to a
+        customer's code-related support question. Respond with only the number of the single most
+        relevant snippet, or "none" if none of them are relevant. Respond with nothing else.
         """;
 
     private readonly ILlmChatClient _llm;
@@ -41,11 +42,20 @@ public sealed class CodeAnalyzerVerifier : IAgent
             else
             {
                 // Vector search always returns topK nearest neighbors with no relevance floor, so a
-                // non-empty result set doesn't mean the content is on-topic. Judge the top match: if
-                // even the closest snippet isn't relevant, the rest (farther away) won't be either.
-                var relevant = await JudgeAsync(context, ct);
-                if (relevant) v.Status = VerificationStatus.Passed;
-                else Fail(v, "LLM judge found the top retrieved code snippet not relevant to the query.");
+                // non-empty result set doesn't mean the content is on-topic, and the closest (#1) match
+                // isn't guaranteed to be the most relevant one either -- judge every retrieved snippet
+                // together in one call and promote whichever one the judge picks, instead of discarding
+                // the whole branch when only #1 happens to miss.
+                var matchIndex = await JudgeAsync(context, ct);
+                if (matchIndex is int idx)
+                {
+                    Promote(context.CodeSnippets, idx);
+                    v.Status = VerificationStatus.Passed;
+                }
+                else
+                {
+                    Fail(v, "LLM judge found no retrieved code snippet relevant to the query.");
+                }
             }
 
             if (v.Status == VerificationStatus.FailedRetrying)
@@ -67,14 +77,29 @@ public sealed class CodeAnalyzerVerifier : IAgent
         v.Reason = reason;
     }
 
-    private async Task<bool> JudgeAsync(AgentContext context, CancellationToken ct)
+    // Returns the 0-based index of the snippet the judge picked, or null when none are relevant.
+    private async Task<int?> JudgeAsync(AgentContext context, CancellationToken ct)
     {
+        var numbered = string.Join("\n", context.CodeSnippets.Select((s, i) => $"{i + 1}. {s}"));
         var userPrompt = $"""
             Customer question: {context.Query}
-            Retrieved code snippet: {context.CodeSnippets[0]}
+            Retrieved code snippets:
+            {numbered}
             """;
         var verdict = await _llm.CompleteAsync(JudgeSystemPrompt, userPrompt, ct);
         context.TotalTokensUsed += _llm.LastTotalTokens;
-        return verdict.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase);
+
+        var trimmed = verdict.Trim();
+        if (int.TryParse(trimmed, out var oneBased) && oneBased >= 1 && oneBased <= context.CodeSnippets.Count)
+            return oneBased - 1;
+        return null;
+    }
+
+    private static void Promote(List<string> snippets, int index)
+    {
+        if (index == 0) return;
+        var picked = snippets[index];
+        snippets.RemoveAt(index);
+        snippets.Insert(0, picked);
     }
 }

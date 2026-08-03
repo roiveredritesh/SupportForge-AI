@@ -125,8 +125,10 @@ builder.Services.AddRateLimiter(options =>
 // Llm:Provider is Anthropic, which has no embeddings API) and defaults to Llm:Provider otherwise.
 builder.Services.AddLlmProviders(builder.Configuration);
 builder.Services.AddScoped<TriageAgent>();
+builder.Services.AddScoped<FreshnessGateAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
 builder.Services.AddScoped<KbResearcherVerifier>();
+builder.Services.AddScoped<CrossReferenceAgent>();
 builder.Services.AddScoped<CodeAnalyzerAgent>();
 builder.Services.AddScoped<CodeAnalyzerVerifier>();
 builder.Services.AddScoped<VisionAnalyzerAgent>();
@@ -136,14 +138,17 @@ builder.Services.AddScoped<KbSearchTool>();
 builder.Services.AddScoped<VisionAnalysisTool>();
 builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<TriageAgent>(),
+    sp.GetRequiredService<FreshnessGateAgent>(),
     sp.GetRequiredService<KbResearcherAgent>(),
     sp.GetRequiredService<KbResearcherVerifier>(),
+    sp.GetRequiredService<CrossReferenceAgent>(),
     sp.GetRequiredService<CodeAnalyzerAgent>(),
     sp.GetRequiredService<CodeAnalyzerVerifier>(),
     sp.GetRequiredService<VisionAnalyzerAgent>(),
     sp.GetRequiredService<VisionAnalyzerVerifier>(),
     sp.GetRequiredService<DrafterAgent>()));
 builder.Services.AddSingleton<IngestionQueue>();
+builder.Services.AddSingleton<SupportForge.Agents.Tools.IIngestionActivity>(sp => sp.GetRequiredService<IngestionQueue>());
 builder.Services.AddHostedService<IngestionBackgroundService>();
 builder.Services.AddSingleton<GraphifyCliRunner>();
 // Resolved eagerly (not inside a lazy DI factory) so an incompatible Llm:Provider/Graphify:Gateway
@@ -162,6 +167,26 @@ builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFa
 // per-repo CodeIngestionJob for a project is guaranteed to run before that project's merge job.
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeGraphMergeJobFactory(sp, repoCacheRoot));
 builder.Services.AddScoped<IGraphifyQueryTool>(sp => new GraphifyQueryTool(sp.GetRequiredService<GraphifyCliRunner>(), repoCacheRoot));
+
+// WS1 (retrieval-pipeline remediation plan): Neo4j/Memgraph graph-DB path, built and importing
+// alongside the CLI-based path above, but NOT yet the active IGraphifyQueryTool registration -- swap
+// only after the parity spike (GraphifyQueryTool vs GraphDbQueryTool, same questions) passes.
+var neo4jOptions = builder.Configuration.GetSection("Graphify:Neo4j").Get<Neo4jOptions>() ?? new Neo4jOptions();
+builder.Services.AddSingleton(neo4jOptions);
+builder.Services.AddSingleton<Neo4j.Driver.IDriver>(_ =>
+{
+    var authToken = string.IsNullOrEmpty(neo4jOptions.Password)
+        ? Neo4j.Driver.AuthTokens.None
+        : Neo4j.Driver.AuthTokens.Basic(neo4jOptions.User, neo4jOptions.Password);
+    return Neo4j.Driver.GraphDatabase.Driver(neo4jOptions.Uri, authToken, config =>
+    {
+        if (neo4jOptions.MaxConnectionPoolSize > 0)
+            config.WithMaxConnectionPoolSize(neo4jOptions.MaxConnectionPoolSize);
+    });
+});
+builder.Services.AddSingleton<IIngestionJobFactory>(sp => new GraphImportJobFactory(sp, repoCacheRoot));
+builder.Services.AddScoped<GraphDbQueryTool>(sp =>
+    new GraphDbQueryTool(sp.GetRequiredService<Neo4j.Driver.IDriver>(), neo4jOptions.Database));
 
 // KTD5: replaces the bare "200 OK" /health endpoint with real per-dependency status.
 builder.Services.AddHealthChecks()

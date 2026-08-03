@@ -41,7 +41,7 @@ public class KbResearcherVerifierTests
     public async Task RunAsync_MultipleSnippets_EscalatesToLlmJudgeOnTopSnippet(string intent)
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("yes");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("1");
         var verifier = new KbResearcherVerifier(llm.Object, new ListLogger<KbResearcherVerifier>());
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = intent };
         context.KbSnippets.Add("snippet 1");
@@ -54,17 +54,36 @@ public class KbResearcherVerifierTests
     }
 
     [Fact]
+    public async Task RunAsync_TopSnippetIrrelevant_SecondSnippetRelevant_PassesAndPromotesIt()
+    {
+        // Regression test for the "top-1 trap": the judge now reviews every retrieved snippet in one
+        // call, so a good match at rank #2 is no longer discarded just because #1 wasn't relevant.
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("2");
+        var verifier = new KbResearcherVerifier(llm.Object, new ListLogger<KbResearcherVerifier>());
+        var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "kb_question" };
+        context.KbSnippets.Add("off-topic snippet");
+        context.KbSnippets.Add("the actually relevant snippet");
+
+        var result = await verifier.RunAsync(context);
+
+        Assert.Equal(VerificationStatus.Passed, result.KbVerification.Status);
+        Assert.Equal("the actually relevant snippet", context.KbSnippets[0]);
+        llm.Verify(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task RunAsync_MultipleSnippets_AllIrrelevant_FailsInsteadOfAutoPassing()
     {
         // Regression test: nearest-neighbor vector search always returns topK results even when
         // nothing in the KB is actually relevant. Multiple irrelevant snippets must not auto-pass.
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("no");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("none");
         var verifier = new KbResearcherVerifier(llm.Object, new ListLogger<KbResearcherVerifier>());
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "code_question" };
         context.KbSnippets.Add("unrelated snippet 1");
         context.KbSnippets.Add("unrelated snippet 2");
-        context.KbVerification.Attempts = 2; // at limit, so a judged "no" should be FailedFinal
+        context.KbVerification.Attempts = 2; // at limit, so a judged "none" should be FailedFinal
 
         var result = await verifier.RunAsync(context);
 
@@ -76,11 +95,11 @@ public class KbResearcherVerifierTests
     public async Task RunAsync_SingleSnippet_EscalatesToLlmJudge()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("no");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("none");
         var verifier = new KbResearcherVerifier(llm.Object, new ListLogger<KbResearcherVerifier>());
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "kb_question" };
         context.KbSnippets.Add("one weak snippet");
-        context.KbVerification.Attempts = 2; // at limit, so a judged "no" should be FailedFinal not FailedRetrying
+        context.KbVerification.Attempts = 2; // at limit, so a judged "none" should be FailedFinal not FailedRetrying
 
         var result = await verifier.RunAsync(context);
 
@@ -107,7 +126,7 @@ public class KbResearcherVerifierTests
     public async Task RunAsync_LogsStartAndCompletion()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("yes");
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("1");
         var logger = new ListLogger<KbResearcherVerifier>();
         var verifier = new KbResearcherVerifier(llm.Object, logger);
         var context = new AgentContext { ProjectId = "p", Query = "q", Intent = "kb_question" };

@@ -39,7 +39,9 @@ public class TracingTests
 
     private static CoordinatorPipeline MakePipeline(bool visionThrows = false) => new(
         new FakeAgent("Triage"),
+        new FakeAgent("FreshnessGate"),
         new FakeAgent("KbResearcher"), new FakeAgent("KbResearcherVerifier"),
+        new FakeAgent("CrossReference"),
         new FakeAgent("CodeAnalyzer"), new FakeAgent("CodeAnalyzerVerifier"),
         new FakeAgent("VisionAnalyzer", throws: visionThrows), new FakeAgent("VisionAnalyzerVerifier"),
         new FakeAgent("Drafter"));
@@ -64,10 +66,11 @@ public class TracingTests
         var spans = CollectSpans(() =>
             pipeline.RunAsync(new AgentContext { ProjectId = "p", Query = "q" }).GetAwaiter().GetResult());
 
-        // All 8 nodes in the fixed fan-out/fan-in graph execute (per-agent no-op logic lives inside
-        // each agent's own RunAsync, not the graph shape -- see docs/agentic-pipeline.md, U10).
+        // All 10 nodes in the fixed fan-out/fan-in graph execute (per-agent no-op logic lives inside
+        // each agent's own RunAsync, not the graph shape -- see docs/agentic-pipeline.md, U10;
+        // FreshnessGate/CrossReference added by WS3/WS4, retrieval-pipeline remediation plan).
         var names = spans.Select(s => s.OperationName).ToList();
-        Assert.Equal(8, names.Count);
+        Assert.Equal(10, names.Count);
         Assert.Contains("Triage", names);
         Assert.Contains("Drafter", names);
         Assert.All(spans, s => Assert.Equal(ActivityStatusCode.Ok, s.Status));

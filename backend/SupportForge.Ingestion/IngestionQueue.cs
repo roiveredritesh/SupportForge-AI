@@ -1,9 +1,10 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using SupportForge.Agents.Tools;
 
 namespace SupportForge.Ingestion;
 
-public sealed class IngestionQueue
+public sealed class IngestionQueue : IIngestionActivity
 {
     private readonly Channel<IIngestionJob> _channel = Channel.CreateUnbounded<IIngestionJob>();
     private readonly ConcurrentDictionary<string, int> _pendingByProjectId = new();

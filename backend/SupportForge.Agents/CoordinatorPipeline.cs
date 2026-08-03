@@ -92,8 +92,11 @@ internal sealed class MergeExecutor : Executor<AgentContext>
 
 /// <summary>
 /// Runs the support-query pipeline as a Microsoft Agent Framework workflow:
-/// <see href="https://github.com/microsoft/agent-framework"/>. Triage runs first; KbResearcher,
-/// CodeAnalyzer, and VisionAnalyzer fan out in parallel. Each specialist is followed by its verifier,
+/// <see href="https://github.com/microsoft/agent-framework"/>. Triage runs first, then FreshnessGate
+/// (WS3); KbResearcher and VisionAnalyzer then fan out in parallel. CodeAnalyzer is no longer part of
+/// that fan-out (WS4): it starts only after KbResearcherVerifier forwards to CrossReference, which
+/// extracts code-searchable terms from KB findings before Code retrieves. Each specialist is
+/// followed by its verifier,
 /// which either loops back to the specialist for one retry (conditional edge on
 /// VerificationStatus.FailedRetrying) or forwards to that branch's collector. The three collectors
 /// feed a fan-in barrier into Merge, which only requires each collector to eventually deliver exactly
@@ -105,16 +108,29 @@ public sealed class CoordinatorPipeline
 
     public CoordinatorPipeline(
         IAgent triage,
+        IAgent freshnessGate,
         IAgent kb, IAgent kbVerifier,
+        IAgent crossReference,
         IAgent code, IAgent codeVerifier,
         IAgent vision, IAgent visionVerifier,
         IAgent drafter)
     {
         var triageExec = new AgentExecutor(triage);
+        // WS3: unconditional edge -- runs for every request, no LLM call, so every branch (and
+        // Drafter) sees staleness before retrieval runs.
+        var freshnessGateExec = new AgentExecutor(freshnessGate);
 
         var kbExec = new AgentExecutor(kb);
         var kbVerifierExec = new AgentExecutor(kbVerifier);
         var kbCollectorExec = new PassthroughExecutor("KbCollector");
+
+        // WS4 (retrieval-pipeline remediation plan): sits between KB's verifier and Code, so Code no
+        // longer starts from the Triage/FreshnessGate fan-out directly -- every request where Code
+        // would run also runs KB (code_issue/code_question both gate KB in too, see KbResearcherAgent),
+        // so chaining Code behind KB+CrossReference unconditionally is correct, not just for a subset
+        // of intents: for intents where Code self-gates to a no-op (kb_question and anything else),
+        // this adds one extra hop, not incorrect behavior.
+        var crossReferenceExec = new AgentExecutor(crossReference);
 
         var codeExec = new AgentExecutor(code);
         var codeVerifierExec = new AgentExecutor(codeVerifier);
@@ -127,15 +143,18 @@ public sealed class CoordinatorPipeline
         var mergeExec = new MergeExecutor();
         var drafterExec = new AgentExecutor(drafter, isTerminal: true);
 
-        var parallelExecs = new ExecutorBinding[] { kbExec, codeExec, visionExec };
+        var parallelExecs = new ExecutorBinding[] { kbExec, visionExec };
+        var crossReferenceTargets = new ExecutorBinding[] { kbCollectorExec, codeExec };
         var collectorExecs = new ExecutorBinding[] { kbCollectorExec, codeCollectorExec, visionCollectorExec };
 
         var builder = new WorkflowBuilder(triageExec);
-        builder.AddFanOutEdge(triageExec, parallelExecs);
+        builder.AddEdge(triageExec, freshnessGateExec);
+        builder.AddFanOutEdge(freshnessGateExec, parallelExecs);
 
         builder.AddEdge(kbExec, kbVerifierExec);
         builder.AddEdge<AgentContext>(kbVerifierExec, kbExec, ctx => ctx!.KbVerification.Status == VerificationStatus.FailedRetrying);
-        builder.AddEdge<AgentContext>(kbVerifierExec, kbCollectorExec, ctx => ctx!.KbVerification.Status != VerificationStatus.FailedRetrying);
+        builder.AddEdge<AgentContext>(kbVerifierExec, crossReferenceExec, ctx => ctx!.KbVerification.Status != VerificationStatus.FailedRetrying);
+        builder.AddFanOutEdge(crossReferenceExec, crossReferenceTargets);
 
         builder.AddEdge(codeExec, codeVerifierExec);
         builder.AddEdge<AgentContext>(codeVerifierExec, codeExec, ctx => ctx!.CodeVerification.Status == VerificationStatus.FailedRetrying);

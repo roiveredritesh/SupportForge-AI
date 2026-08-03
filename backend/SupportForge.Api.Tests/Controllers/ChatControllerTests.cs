@@ -16,6 +16,23 @@ namespace SupportForge.Api.Tests.Controllers;
 
 public class ChatControllerTests
 {
+    // WS3 (retrieval-pipeline remediation plan): a project repo returning null (no project found) and an
+    // ingestion-activity check that's never busy -- FreshnessGateAgent handles both gracefully, so this is
+    // a safe stand-in everywhere these tests don't care about freshness behavior specifically.
+    private static FreshnessGateAgent MakeFreshnessGateAgent()
+    {
+        var projects = new Mock<IProjectRepository>();
+        projects.Setup(p => p.GetByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((Project?)null);
+        var ingestionActivity = new Mock<IIngestionActivity>();
+        ingestionActivity.Setup(i => i.IsBusy(It.IsAny<string>())).Returns(false);
+        return new FreshnessGateAgent(projects.Object, ingestionActivity.Object, NullLogger<FreshnessGateAgent>.Instance);
+    }
+
+    // WS4 (retrieval-pipeline remediation plan): a real CrossReferenceAgent instance around a stubbed
+    // LLM client -- ChatController's constructor requires the concrete type, same as every other agent.
+    private static CrossReferenceAgent MakeCrossReferenceAgent(ILlmClient llm) =>
+        new(llm, NullLogger<CrossReferenceAgent>.Instance);
+
     private static ChatController MakeController(CoordinatorPipeline pipeline, ILlmClient llm, ITokenUsageRepository tokenUsage)
     {
         var vectorStore = new Mock<IVectorStoreService>();
@@ -34,7 +51,9 @@ public class ChatControllerTests
         return new ChatController(
             pipeline,
             new TriageAgent(llm, NullLogger<TriageAgent>.Instance),
+            MakeFreshnessGateAgent(),
             new KbResearcherAgent(new KbSearchTool(llm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            MakeCrossReferenceAgent(llm),
             new CodeAnalyzerAgent(new Mock<IGraphifyQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(llm, NullLogger<KbResearcherVerifier>.Instance),
             new CodeAnalyzerVerifier(llm, NullLogger<CodeAnalyzerVerifier>.Instance),
@@ -55,8 +74,10 @@ public class ChatControllerTests
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
             new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new NoOpAgent("FreshnessGate"),
             new NoOpAgent("KbResearcher"),
             new NoOpAgent("KbResearcherVerifier"),
+            new NoOpAgent("CrossReference"),
             new NoOpAgent("CodeAnalyzer"),
             new NoOpAgent("CodeAnalyzerVerifier"),
             new NoOpAgent("VisionAnalyzer"),
@@ -79,8 +100,10 @@ public class ChatControllerTests
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
             new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new NoOpAgent("FreshnessGate"),
             new NoOpAgent("KbResearcher"),
             new NoOpAgent("KbResearcherVerifier"),
+            new NoOpAgent("CrossReference"),
             new NoOpAgent("CodeAnalyzer"),
             new NoOpAgent("CodeAnalyzerVerifier"),
             new NoOpAgent("VisionAnalyzer"),
@@ -170,8 +193,10 @@ public class ChatControllerTests
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
             new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new NoOpAgent("FreshnessGate"),
             new SourceAddingAgent("KbResearcher", "KB: getting-started.md", "kb/getting-started.md"),
             new NoOpAgent("KbResearcherVerifier"),
+            new NoOpAgent("CrossReference"),
             new SourceAddingAgent("CodeAnalyzer", "Code: ChatController.cs", "backend/ChatController.cs"),
             new NoOpAgent("CodeAnalyzerVerifier"),
             new NoOpAgent("VisionAnalyzer"),
@@ -190,8 +215,9 @@ public class ChatControllerTests
             .ReturnsAsync(new List<ChatMessage>());
 
         var controller = new ChatController(
-            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(),
             new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            MakeCrossReferenceAgent(openAiLlm),
             new CodeAnalyzerAgent(new Mock<IGraphifyQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
@@ -221,8 +247,10 @@ public class ChatControllerTests
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var pipeline = new CoordinatorPipeline(
             new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new NoOpAgent("FreshnessGate"),
             new NoOpAgent("KbResearcher"),
             new NoOpAgent("KbResearcherVerifier"),
+            new NoOpAgent("CrossReference"),
             new NoOpAgent("CodeAnalyzer"),
             new NoOpAgent("CodeAnalyzerVerifier"),
             new NoOpAgent("VisionAnalyzer"),
@@ -274,13 +302,14 @@ public class ChatControllerTests
         var tokenUsage = new Mock<ITokenUsageRepository>();
 
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"),
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), new NoOpAgent("FreshnessGate"), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"), new NoOpAgent("CrossReference"),
             new NoOpAgent("CodeAnalyzer"), new NoOpAgent("CodeVerifier"),
             new NoOpAgent("VisionAnalyzer"), new NoOpAgent("VisionVerifier"),
             new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
 
         var controller = new ChatController(
-            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), kbResearcher,
+            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(), kbResearcher,
+            MakeCrossReferenceAgent(openAiLlm),
             new CodeAnalyzerAgent(new Mock<IGraphifyQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance), kbVerifier,
             new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
@@ -325,14 +354,15 @@ public class ChatControllerTests
             .ReturnsAsync(new List<ChatMessage>());
 
         var pipeline = new CoordinatorPipeline(
-            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"),
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), new NoOpAgent("FreshnessGate"), new NoOpAgent("KbResearcher"), new NoOpAgent("KbVerifier"), new NoOpAgent("CrossReference"),
             new NoOpAgent("CodeAnalyzer"), new NoOpAgent("CodeVerifier"),
             new NoOpAgent("VisionAnalyzer"), new NoOpAgent("VisionVerifier"),
             new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
 
         var controller = new ChatController(
-            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(),
             new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            MakeCrossReferenceAgent(openAiLlm),
             new CodeAnalyzerAgent(new Mock<IGraphifyQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
