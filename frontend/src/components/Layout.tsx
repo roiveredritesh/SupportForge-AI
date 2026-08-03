@@ -1,6 +1,9 @@
+import { useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
 import { useAuthStore } from '../store/useAuthStore';
+import { useAppStore } from '../store/useAppStore';
+import { useProjects } from '../hooks/useProjects';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', end: true, icon: DashboardIcon },
@@ -11,6 +14,18 @@ const NAV_ITEMS = [
 export default function Layout() {
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
+  const { data: projects } = useProjects();
+  const { selectedProjectId, setSelectedProjectId } = useAppStore();
+
+  // A projectId persisted from a previous session (deleted project, different
+  // backend, stale browser profile) doesn't match any option in the project
+  // <select>s, which fall back to displaying the first project as if selected
+  // while still submitting the stale id underneath. Clear it once real data loads.
+  useEffect(() => {
+    if (projects && selectedProjectId && !projects.some((p) => p.id === selectedProjectId)) {
+      setSelectedProjectId(null);
+    }
+  }, [projects, selectedProjectId, setSelectedProjectId]);
 
   const handleLogout = () => {
     logout();

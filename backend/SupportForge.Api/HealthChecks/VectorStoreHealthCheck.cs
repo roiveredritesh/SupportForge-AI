@@ -8,7 +8,7 @@ namespace SupportForge.Api.HealthChecks;
 // a successful round-trip (even zero results) reports Healthy.
 public sealed class VectorStoreHealthCheck : IHealthCheck
 {
-    private const string ProbeCollection = "__health_check__";
+    private const string ProbeCollection = "health-check-0";
 
     private readonly IVectorStoreService _vectorStore;
 

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { apiClient } from '../lib/apiClient';
+import { useAuthStore } from '../store/useAuthStore';
 import type { ChatQueryRequest } from './useChatQuery';
 
 interface DoneEvent { confidence: number; conversationId: string; }
@@ -20,9 +21,13 @@ export function useChatQueryStream() {
     setIsStreaming(true);
 
     try {
+      const { accessToken } = useAuthStore.getState();
       const res = await fetch(`${apiClient.defaults.baseURL}/chat/query/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify(request),
       });
       if (!res.ok || !res.body) throw new Error(`Request failed: ${res.status}`);
