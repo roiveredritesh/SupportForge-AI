@@ -12,6 +12,36 @@ public sealed partial class DrafterAgent : IAgent
     public const string LeakFallback =
         "I can't share code or document excerpts directly. I've looked into this, but I'll need someone from the team to walk you through the specifics - please reach out to them and they can pick it up from here.";
 
+    public const string NoContextFallback =
+        "I don't have documentation or code context covering this. I'd recommend reaching out to the team directly for an answer.";
+
+    // The system prompt already tells the model "if all context is empty, say you need more
+    // information" -- but a weak/small model doesn't reliably follow that instruction and will
+    // confabulate a plausible-sounding answer from nothing instead.
+    //
+    // Driven by verification status, not raw snippet counts: a verifier that never ran (NotRun, e.g.
+    // a no-op stand-in in a test, or a branch this intent doesn't use) says nothing about whether real
+    // content exists, so it's excluded rather than treated as a confirmed miss. Only "at least one
+    // branch actually ran its retrieval + judge, and none of them passed" means retrieval genuinely
+    // found nothing usable. "unclear" intent is exempt: it's designed to ask a clarifying question
+    // without needing any retrieved context in the first place.
+    public static bool HasNoUsableContext(AgentContext context)
+    {
+        if (context.Intent == "unclear") return false;
+        var ran = new[] { context.KbVerification, context.CodeVerification, context.VisionVerification }
+            .Where(v => v.Status != VerificationStatus.NotRun)
+            .ToList();
+        return ran.Count > 0 && ran.All(v => v.Status != VerificationStatus.Passed);
+    }
+
+    // Appended for one retry when LooksLikeLeak fires -- small local models (e.g. an 8B NIM model)
+    // sometimes echo short, structured source text (a menu path, an exact phrase) verbatim despite
+    // the no-quote rules above, even though a paraphrase was possible. One retry with the failure
+    // named explicitly resolves most of those without falling back to LeakFallback for what would
+    // otherwise have been a perfectly answerable question.
+    public const string LeakRetryNote =
+        "\n\nYour previous answer repeated source text too closely (a near-verbatim run from the KB/code context). Rewrite your answer in your own words, following the no-quote rules above exactly.";
+
     [GeneratedRegex(@"[\w.\\/-]+\.(cs|ts|tsx|js|jsx|py|java|go|rb|php|rs|kt|swift|scala|sql|c|h|cpp|hpp)\b", RegexOptions.IgnoreCase)]
     private static partial Regex SourceFileRef();
 
@@ -135,11 +165,26 @@ public sealed partial class DrafterAgent : IAgent
         _logger.LogInformation("{Agent} starting: project={ProjectId} intent={Intent}", Name, context.ProjectId, context.Intent);
         try
         {
-            var draft = await _llm.CompleteAsync(SystemPrompt, BuildUserPrompt(context), ct);
+            if (HasNoUsableContext(context))
+            {
+                context.Draft = NoContextFallback;
+                context.Confidence = 0.0;
+                _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: no usable context, skipped LLM call", Name, sw.ElapsedMilliseconds);
+                return context;
+            }
+
+            var userPrompt = BuildUserPrompt(context);
+            var draft = await _llm.CompleteAsync(SystemPrompt, userPrompt, ct);
+            context.TotalTokensUsed += _llm.LastTotalTokens;
             var leaked = LooksLikeLeak(draft, context);
+            if (leaked)
+            {
+                draft = await _llm.CompleteAsync(SystemPrompt, userPrompt + LeakRetryNote, ct);
+                context.TotalTokensUsed += _llm.LastTotalTokens;
+                leaked = LooksLikeLeak(draft, context);
+            }
             context.Draft = leaked ? LeakFallback : draft;
             context.Confidence = leaked ? 0.0 : ComputeConfidence(context);
-            context.TotalTokensUsed += _llm.LastTotalTokens;
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: leaked={Leaked} confidence={Confidence}", Name, sw.ElapsedMilliseconds, leaked, context.Confidence);
             return context;
         }

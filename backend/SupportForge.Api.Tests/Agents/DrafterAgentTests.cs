@@ -262,6 +262,35 @@ public class DrafterAgentTests
     }
 
     [Fact]
+    public async Task RunAsync_AllVerificationsFailedFinal_SkipsLlmAndReturnsNoContextFallback()
+    {
+        var context = new AgentContext { ProjectId = "p", Query = "what does this repository do", Intent = "kb_question" };
+        context.KbVerification.Status = VerificationStatus.FailedFinal;
+        var llm = new Mock<ILlmClient>(MockBehavior.Strict);
+
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>()).RunAsync(context);
+
+        Assert.Equal(DrafterAgent.NoContextFallback, context.Draft);
+        Assert.Equal(0.0, context.Confidence);
+        llm.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task RunAsync_NoVerificationRanYet_StillCallsLlm()
+    {
+        // NotRun (e.g. a branch this intent doesn't use, or a no-op stand-in) must not be mistaken for
+        // a confirmed "nothing found" -- only an actual FailedFinal verdict should suppress the call.
+        var context = new AgentContext { ProjectId = "p", Query = "hi", Intent = "kb_question" };
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Sure, happy to help.");
+
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>()).RunAsync(context);
+
+        Assert.Equal("Sure, happy to help.", context.Draft);
+    }
+
+    [Fact]
     public async Task RunAsync_WhenLlmThrows_LogsFailureAndPropagates()
     {
         var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };

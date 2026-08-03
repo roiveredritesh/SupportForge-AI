@@ -62,7 +62,8 @@ public class ChatControllerTests
             llm,
             tokenUsage,
             conversations.Object,
-            messages.Object);
+            messages.Object,
+            NullLogger<ChatController>.Instance);
     }
 
     [Fact]
@@ -221,7 +222,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<IGraphifyQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, NullLogger<ChatController>.Instance);
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
 
@@ -313,7 +314,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<IGraphifyQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance), kbVerifier,
             new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, tokenUsage.Object, conversations.Object, messages.Object);
+            openAiLlm, tokenUsage.Object, conversations.Object, messages.Object, NullLogger<ChatController>.Instance);
 
         var responseBody = new MemoryStream();
         var httpContext = new DefaultHttpContext { Response = { Body = responseBody } };
@@ -334,6 +335,12 @@ public class ChatControllerTests
     {
         var llmMock = new Mock<ILlmClient>();
         llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("code_issue");
+        // The judge calls (KbResearcherVerifier/CodeAnalyzerVerifier) share CompleteAsync with Triage's
+        // intent classification above -- this more specific setup (matched by the judge's distinguishing
+        // "You judge" system prompt text) makes KB verification pass so DrafterAgent.HasNoUsableContext
+        // doesn't short-circuit before the leak check this test exists to exercise.
+        llmMock.Setup(l => l.CompleteAsync(It.Is<string>(s => s.Contains("You judge")), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("1");
         llmMock.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
         llmMock.Setup(l => l.StreamCompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(ToAsyncEnumerable(new[] { "Here you go:\n", "```cs\nvar x = 1;\n```" }));
@@ -341,7 +348,7 @@ public class ChatControllerTests
         var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
         var vectorStore = new Mock<IVectorStoreService>();
         vectorStore.Setup(v => v.QueryAsync(It.IsAny<string>(), It.IsAny<float[]>(), It.IsAny<int>(), null, default))
-            .ReturnsAsync(new List<VectorQueryResult>());
+            .ReturnsAsync(new List<VectorQueryResult> { new("doc-1", "some KB text", 0.1f, new Dictionary<string, string> { ["source"] = "faq.md" }) });
 
         var conversations = new Mock<IConversationRepository>();
         conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
@@ -366,7 +373,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<IGraphifyQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, NullLogger<ChatController>.Instance);
 
         var body = new MemoryStream();
         controller.ControllerContext = new ControllerContext

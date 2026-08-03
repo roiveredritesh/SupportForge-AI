@@ -82,6 +82,14 @@ public sealed class ChromaVectorStoreService : IVectorStoreService
             response.EnsureSuccessStatusCode();
     }
 
+    public async Task<long> CountAsync(string collection, CancellationToken ct = default)
+    {
+        var collectionId = await ResolveCollectionIdAsync(collection, ct);
+        var response = await _http.GetAsync($"{_collectionsPath}/{collectionId}/count", ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<long>(cancellationToken: ct);
+    }
+
     // Chroma's v2 API resolves GET/DELETE collection routes by name, but upsert/query/delete-records
     // routes require the collection's UUID, so those need a get_or_create round-trip first.
     private async Task<string> ResolveCollectionIdAsync(string collection, CancellationToken ct)

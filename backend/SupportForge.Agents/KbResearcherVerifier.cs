@@ -5,10 +5,23 @@ namespace SupportForge.Agents;
 
 public sealed class KbResearcherVerifier : IAgent
 {
+    // Vector search always returns topK nearest neighbors with no relevance floor (see the comment
+    // below), so this judge is the only check standing between a merely topically-adjacent snippet
+    // and an answer that misrepresents it as on-topic. Small/weak judge models default to picking
+    // *something* rather than admitting nothing fits, so the prompt states the failure mode and gives
+    // a worked example instead of relying on the instruction alone.
     private const string JudgeSystemPrompt = """
-        You judge which of several retrieved knowledge-base snippets, if any, is actually relevant to a
-        customer's support question. Respond with only the number of the single most relevant snippet,
-        or "none" if none of them are relevant. Respond with nothing else.
+        You judge which of several retrieved knowledge-base snippets, if any, actually answers a
+        customer's support question -- not merely shares a topic or a keyword with it.
+
+        Picking a snippet that doesn't answer the question is worse than saying none do: the customer
+        will be told something false about their situation. When in doubt, answer "none".
+
+        Example: question "what does this repository do?", snippets are a billing FAQ and a password-
+        reset guide. Neither describes the repository. Correct answer: none.
+
+        Respond with only the number of the single snippet that directly answers the question, or
+        "none" if no snippet does. Respond with nothing else.
         """;
 
     private readonly ILlmChatClient _llm;
@@ -60,6 +73,14 @@ public sealed class KbResearcherVerifier : IAgent
 
             if (v.Status == VerificationStatus.FailedRetrying)
                 _logger.LogWarning("{Agent} retrying: attempt={Attempt} reason={Reason}", Name, v.Attempts, v.Reason);
+
+            // DrafterAgent.BuildUserPrompt dumps context.KbSnippets into the prompt unconditionally --
+            // it has no visibility into KbVerification.Status. A final "nothing relevant" verdict has
+            // to be enforced here by actually removing the rejected snippets, or the judge's negative
+            // verdict only affects the confidence score while the irrelevant content still reaches the
+            // model and gets answered from anyway.
+            if (v.Status == VerificationStatus.FailedFinal)
+                context.KbSnippets.Clear();
 
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: status={Status} reason={Reason}", Name, sw.ElapsedMilliseconds, v.Status, v.Reason);
             return context;

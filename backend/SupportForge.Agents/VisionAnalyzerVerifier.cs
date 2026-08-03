@@ -53,6 +53,12 @@ public sealed class VisionAnalyzerVerifier : IAgent
             if (v.Status == VerificationStatus.FailedRetrying)
                 _logger.LogWarning("{Agent} retrying: attempt={Attempt} reason={Reason}", Name, v.Attempts, v.Reason);
 
+            // See KbResearcherVerifier's matching comment: DrafterAgent.BuildUserPrompt has no
+            // visibility into VisionVerification.Status, so a final "not a real answer" verdict has to
+            // be enforced here by actually removing the rejected findings.
+            if (v.Status == VerificationStatus.FailedFinal)
+                context.VisionFindings = null;
+
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: status={Status} reason={Reason}", Name, sw.ElapsedMilliseconds, v.Status, v.Reason);
             return context;
         }

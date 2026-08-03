@@ -16,4 +16,6 @@ public interface IVectorStoreService
     Task DeleteAsync(string collection, IReadOnlyList<string> ids, CancellationToken ct = default);
 
     Task DeleteCollectionAsync(string collection, CancellationToken ct = default);
+
+    Task<long> CountAsync(string collection, CancellationToken ct = default);
 }

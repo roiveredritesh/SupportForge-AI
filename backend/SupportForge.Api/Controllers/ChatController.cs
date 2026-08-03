@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Agents;
@@ -28,6 +30,9 @@ public class ChatController : ControllerBase
     private readonly ITokenUsageRepository _tokenUsage;
     private readonly IConversationRepository _conversations;
     private readonly IChatMessageRepository _messages;
+    private readonly ILogger<ChatController> _logger;
+
+    private const string DrafterName = "Drafter";
 
     public ChatController(
         CoordinatorPipeline pipeline,
@@ -43,7 +48,8 @@ public class ChatController : ControllerBase
         ILlmChatClient llm,
         ITokenUsageRepository tokenUsage,
         IConversationRepository conversations,
-        IChatMessageRepository messages)
+        IChatMessageRepository messages,
+        ILogger<ChatController> logger)
     {
         _pipeline = pipeline;
         _triage = triage;
@@ -59,6 +65,15 @@ public class ChatController : ControllerBase
         _tokenUsage = tokenUsage;
         _conversations = conversations;
         _messages = messages;
+        _logger = logger;
+    }
+
+    // Splits on word boundaries while keeping the trailing whitespace attached to each chunk, so
+    // re-joining the yielded pieces reproduces the original string exactly.
+    private static IEnumerable<string> SplitKeepingDelimiters(string text)
+    {
+        foreach (Match m in Regex.Matches(text, @"\S+\s*"))
+            yield return m.Value;
     }
 
     // Mirrors CoordinatorPipeline's retry-once-then-flag semantics for this manual (non-graph)
@@ -238,22 +253,60 @@ public class ChatController : ControllerBase
         Response.ContentType = "text/event-stream";
         Response.Headers.CacheControl = "no-cache";
 
-        var draft = new StringBuilder();
-        await foreach (var token in _llm.StreamCompleteAsync(DrafterAgent.SystemPrompt, DrafterAgent.BuildUserPrompt(context), ct))
+        // Buffered, not token-piped: LooksLikeLeak needs the complete draft to find verbatim runs
+        // against source snippets, and once a token is written to the SSE response it's rendered in
+        // the browser -- there's no taking it back. So the full draft is assembled server-side first,
+        // checked, and only the vetted text (real answer or LeakFallback) ever reaches the client.
+        _logger.LogInformation("{Agent} starting: project={ProjectId} intent={Intent}", DrafterName, context.ProjectId, context.Intent);
+        var sw = Stopwatch.StartNew();
+
+        string finalText;
+        double confidence;
+        bool leaked = false;
+
+        if (DrafterAgent.HasNoUsableContext(context))
         {
-            draft.Append(token);
-            await Response.WriteAsync($"data: {JsonSerializer.Serialize(token)}\n\n", ct);
+            finalText = DrafterAgent.NoContextFallback;
+            confidence = 0.0;
+        }
+        else
+        {
+            var userPrompt = DrafterAgent.BuildUserPrompt(context);
+
+            async Task<string> CompleteDraftAsync(string prompt)
+            {
+                var sb = new StringBuilder();
+                await foreach (var token in _llm.StreamCompleteAsync(DrafterAgent.SystemPrompt, prompt, ct))
+                    sb.Append(token);
+                context.TotalTokensUsed += _llm.LastTotalTokens;
+                return sb.ToString();
+            }
+
+            var draft = await CompleteDraftAsync(userPrompt);
+            leaked = DrafterAgent.LooksLikeLeak(draft, context);
+            if (leaked)
+            {
+                draft = await CompleteDraftAsync(userPrompt + DrafterAgent.LeakRetryNote);
+                leaked = DrafterAgent.LooksLikeLeak(draft, context);
+            }
+
+            finalText = leaked ? DrafterAgent.LeakFallback : draft;
+            confidence = leaked ? 0.0 : DrafterAgent.ComputeConfidence(context);
+        }
+
+        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
+
+        _logger.LogInformation(
+            "{Agent} completed in {ElapsedMs}ms: leaked={Leaked} confidence={Confidence}", DrafterName, sw.ElapsedMilliseconds, leaked, confidence);
+
+        // Chunked word-by-word (not one SSE event) purely to preserve the typing-effect UX the
+        // frontend already renders -- every word here already passed the leak check above.
+        foreach (var word in SplitKeepingDelimiters(finalText))
+        {
+            await Response.WriteAsync($"data: {JsonSerializer.Serialize(word)}\n\n", ct);
             await Response.Body.FlushAsync(ct);
         }
 
-        context.TotalTokensUsed += _llm.LastTotalTokens;
-        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
-
-        // Tokens are already flushed, so a leak can't be un-sent over SSE; what we can keep clean is
-        // the persisted turn (and the recap it feeds) and the final confidence the client renders.
-        var leaked = DrafterAgent.LooksLikeLeak(draft.ToString(), context);
-        var finalText = leaked ? DrafterAgent.LeakFallback : draft.ToString();
-        var confidence = leaked ? 0.0 : DrafterAgent.ComputeConfidence(context);
         await RecordTurnAsync(conversation, request.Query, finalText, confidence, ct);
 
         var done = JsonSerializer.Serialize(new

@@ -61,6 +61,12 @@ public sealed class CodeAnalyzerVerifier : IAgent
             if (v.Status == VerificationStatus.FailedRetrying)
                 _logger.LogWarning("{Agent} retrying: attempt={Attempt} reason={Reason}", Name, v.Attempts, v.Reason);
 
+            // See KbResearcherVerifier's matching comment: DrafterAgent.BuildUserPrompt has no
+            // visibility into CodeVerification.Status, so a final "nothing relevant" verdict has to be
+            // enforced here by actually removing the rejected snippets.
+            if (v.Status == VerificationStatus.FailedFinal)
+                context.CodeSnippets.Clear();
+
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: status={Status} reason={Reason}", Name, sw.ElapsedMilliseconds, v.Status, v.Reason);
             return context;
         }
