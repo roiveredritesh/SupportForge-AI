@@ -44,7 +44,7 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
                 ORDER BY score DESC
                 LIMIT $limit
                 """,
-                new { question, projectId, limit = MaxStartNodes });
+                new { question = EscapeLuceneQuery(question), projectId, limit = MaxStartNodes });
             return await cursor.ToListAsync();
         });
         var starts = startRecords.Select(r => (Id: r["id"].As<string>(), Label: r["label"].As<string>())).ToList();
@@ -121,4 +121,22 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     // ponytail: chars/4 token estimate -- exact tokenizer parity isn't required, this only needs to
     // stop growth in the right ballpark.
     private static int EstimatedTokens(StringBuilder sb) => sb.Length / 4;
+
+    // $question reaches Neo4j as a Lucene query string, not a plain search string -- an unescaped
+    // special char (a "/" in a file path, a stray quote, etc.) throws a Lucene TokenMgrError that
+    // was previously unhandled all the way up to a raw 500. Escaping every Lucene special char
+    // preserves fuzzy term matching while treating the question as literal text.
+    private static readonly char[] LuceneSpecialChars =
+        ['\\', '+', '-', '&', '|', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '*', '?', ':', '/'];
+
+    internal static string EscapeLuceneQuery(string input)
+    {
+        var sb = new StringBuilder(input.Length);
+        foreach (var c in input)
+        {
+            if (Array.IndexOf(LuceneSpecialChars, c) >= 0) sb.Append('\\');
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
 }
