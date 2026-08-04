@@ -16,7 +16,7 @@ public sealed class AgentContext
     public string Intent { get; set; } = string.Empty;
     public FreshnessContext? Freshness { get; set; }
     // WS4 (retrieval-pipeline remediation plan): written by CrossReferenceAgent from KB findings,
-    // folded into CodeAnalyzerAgent's graphify query text.
+    // folded into CodeAnalyzerAgent's code graph query text.
     public string? CodeQueryAugmentation { get; set; }
     public List<(string Role, string Content)> History { get; } = new();
     public List<string> KbSnippets { get; } = new();

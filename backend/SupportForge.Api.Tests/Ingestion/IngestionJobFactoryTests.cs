@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using SupportForge.Agents;
@@ -8,7 +7,6 @@ using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
-using SupportForge.Ingestion.Graphify;
 using SupportForge.VectorStore;
 using Xunit;
 
@@ -23,7 +21,6 @@ public class IngestionJobFactoryTests
         services.AddSingleton<IProjectRepository>(new Mock<IProjectRepository>().Object);
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton<GitRepoSyncService>();
-        services.AddSingleton(new GraphifyCliRunner(NullLogger<GraphifyCliRunner>.Instance));
         services.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
         services.AddSingleton(new Mock<ILlmEmbeddingClient>().Object);
         services.AddSingleton(new Mock<IVectorStoreService>().Object);
@@ -181,52 +178,5 @@ public class IngestionJobFactoryTests
 
         Assert.Equal(2, jobs.Count);
         Assert.All(jobs, j => Assert.Equal("proj1", j.ProjectId));
-    }
-
-    [Fact]
-    public void CodeGraphMergeJobFactory_ReturnsNoJobs_WhenProjectHasNoRepos()
-    {
-        using var provider = BuildProvider();
-        var factory = new CodeGraphMergeJobFactory(provider, Path.GetTempPath());
-        var project = new Project { Id = "proj1", Name = "Test" };
-
-        Assert.Empty(factory.CreateJobs(project));
-    }
-
-    [Fact]
-    public void CodeGraphMergeJobFactory_ReturnsOneJob_WithRepoGraphPathsAndProjectGraphPath()
-    {
-        using var provider = BuildProvider();
-        var cacheRoot = Path.GetTempPath();
-        var factory = new CodeGraphMergeJobFactory(provider, cacheRoot);
-        var project = new Project
-        {
-            Id = "proj1",
-            Name = "Test",
-            Repos = new List<GitHubRepoConfig>
-            {
-                new("owner", "repo-a", "main", null),
-                new("owner", "repo-b", "main", null),
-            },
-        };
-
-        var job = Assert.IsType<CodeGraphMergeJob>(factory.CreateJobs(project).Single());
-        Assert.Equal("proj1", job.ProjectId);
-
-        var repoGraphPaths = (IReadOnlyList<string>)job.GetType()
-            .GetField("_repoGraphPaths", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .GetValue(job)!;
-        Assert.Equal(
-            new[]
-            {
-                Path.Combine(cacheRoot, "proj1", "repo-a", "graphify-out", "graph.json"),
-                Path.Combine(cacheRoot, "proj1", "repo-b", "graphify-out", "graph.json"),
-            },
-            repoGraphPaths);
-
-        var projectGraphPath = (string)job.GetType()
-            .GetField("_projectGraphOutPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .GetValue(job)!;
-        Assert.Equal(Path.Combine(cacheRoot, "proj1", "graphify-project", "graph.json"), projectGraphPath);
     }
 }

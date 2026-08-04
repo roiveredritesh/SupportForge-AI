@@ -2,13 +2,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Neo4j.Driver;
 using SupportForge.Core.Entities;
 
-namespace SupportForge.Ingestion.Graphify;
+namespace SupportForge.Ingestion.Graph;
 
 /// <summary>
-/// WS1 (retrieval-pipeline remediation plan): one <see cref="GraphImportJob"/> per repo, run after that
-/// repo's <c>CodeIngestionJob</c> extract step -- registration order after
-/// <c>CodeIngestionJobFactory</c> in <c>Program.cs</c> guarantees this via the same FIFO-queue ordering
-/// <c>CodeGraphMergeJobFactory</c> already relies on.
+/// One <see cref="GraphImportJob"/> per repo, run after that repo's <c>CodeIngestionJob</c> --
+/// registration order after <c>CodeIngestionJobFactory</c> in <c>Program.cs</c> guarantees this via
+/// the FIFO-queue ordering the ingestion queue drains in.
 /// </summary>
 public sealed class GraphImportJobFactory : IIngestionJobFactory
 {
@@ -28,7 +27,7 @@ public sealed class GraphImportJobFactory : IIngestionJobFactory
 
         return project.Repos.Select(r => new GraphImportJob(
             project.Id,
-            Path.Combine(_cacheRoot, project.Id, r.Repo, "graphify-out", "graph.json"),
+            Path.Combine(_cacheRoot, project.Id, r.Repo, "code-graph", "graph.json"),
             r.Repo,
             driver,
             database)).ToList();

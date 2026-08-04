@@ -1,4 +1,4 @@
-using SupportForge.Ingestion.Graphify;
+using SupportForge.Ingestion.Graph;
 using Xunit;
 
 namespace SupportForge.Api.Tests.Ingestion;

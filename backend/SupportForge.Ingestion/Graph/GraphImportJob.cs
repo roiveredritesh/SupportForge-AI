@@ -1,14 +1,12 @@
 using System.Text.Json;
 using Neo4j.Driver;
 
-namespace SupportForge.Ingestion.Graphify;
+namespace SupportForge.Ingestion.Graph;
 
 /// <summary>
-/// WS1 (retrieval-pipeline remediation plan): reads a repo's <c>graphify-out/graph.json</c> (written by
-/// <c>graphify extract --no-cluster</c>, unchanged) and imports it into the graph database, tagging every
-/// node with <c>projectId</c>/<c>repo</c>. Runs per repo, same as <see cref="Code.CodeIngestionJob"/>'s
-/// extract step -- unlike <see cref="Code.CodeGraphMergeJob"/>, no separate merge step is needed, because
-/// <see cref="GraphDbQueryTool"/> scopes every query by the <c>projectId</c> property directly.
+/// Reads a repo's extracted code graph JSON file and imports it into Neo4j, tagging every node with
+/// <c>projectId</c>/<c>repo</c> so <see cref="GraphDbQueryTool"/> can scope every query to a project.
+/// Runs per repo, same as <see cref="Code.CodeIngestionJob"/>.
 /// </summary>
 public sealed class GraphImportJob : IIngestionJob
 {
@@ -30,11 +28,11 @@ public sealed class GraphImportJob : IIngestionJob
 
     public async Task RunAsync(CancellationToken ct)
     {
-        if (!File.Exists(_graphJsonPath)) return; // extract hasn't produced a graph yet -- graceful, not an error
+        if (!File.Exists(_graphJsonPath)) return; // no code graph produced for this repo yet -- graceful, not an error
 
         var json = await File.ReadAllTextAsync(_graphJsonPath, ct);
-        var graph = JsonSerializer.Deserialize<GraphifyGraphFile>(json)
-            ?? throw new InvalidOperationException($"'{_graphJsonPath}' did not deserialize to a graphify graph.");
+        var graph = JsonSerializer.Deserialize<CodeGraphFile>(json)
+            ?? throw new InvalidOperationException($"'{_graphJsonPath}' did not deserialize to a code graph.");
 
         await using var session = _driver.AsyncSession(o => o.WithDatabase(_database));
 

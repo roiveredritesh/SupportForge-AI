@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
-using SupportForge.Ingestion.Graphify;
 
 namespace SupportForge.Ingestion.Code;
 
@@ -19,7 +18,6 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
     public IEnumerable<IIngestionJob> CreateJobs(Project project)
     {
         var gitSync = _services.GetRequiredService<GitRepoSyncService>();
-        var graphify = _services.GetRequiredService<GraphifyCliRunner>();
         var projects = _services.GetRequiredService<IProjectRepository>();
 
         return project.Repos.Select(r => new CodeIngestionJob(
@@ -29,6 +27,6 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
             Path.Combine(_cacheRoot, project.Id, r.Repo),
             r.Owner,
             r.Repo,
-            gitSync, graphify, projects)).ToList();
+            gitSync, projects)).ToList();
     }
 }

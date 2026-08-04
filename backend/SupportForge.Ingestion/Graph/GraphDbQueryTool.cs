@@ -2,23 +2,14 @@ using System.Text;
 using Neo4j.Driver;
 using SupportForge.Agents.Tools;
 
-namespace SupportForge.Ingestion.Graphify;
+namespace SupportForge.Ingestion.Graph;
 
 /// <summary>
-/// WS1 (retrieval-pipeline remediation plan) replacement for <see cref="GraphifyQueryTool"/>: same
-/// <see cref="IGraphifyQueryTool"/> contract, but queries the graph database (populated by
-/// <see cref="GraphImportJob"/>) via a pooled driver instead of shelling out to <c>graphify query</c> per
-/// call. Output is formatted to match <c>graphify query</c>'s plain-text shape ("NODE ... " / "EDGE ...
-/// --relation--> ..." lines) so <see cref="Agents.CodeAnalyzerVerifier"/> and <see cref="Agents.DrafterAgent"/>
-/// need no changes.
-///
-/// NOT wired into DI as the active <see cref="IGraphifyQueryTool"/> yet -- see the plan's WS1 risk note:
-/// `graphify query`'s exact entry-node matching algorithm is internal to the binary and unverified here.
-/// This full-text-index-based entry match plus depth-bounded traversal is a best-effort approximation, not
-/// a proven behavioral match. Cut over only after the parity spike (Program.cs's DI registration change)
-/// compares this against <see cref="GraphifyQueryTool"/> on real questions.
+/// Queries the Neo4j-backed code graph (populated by <see cref="GraphImportJob"/>) via a pooled
+/// driver: a full-text-index entry match followed by a depth-bounded traversal, formatted as
+/// "NODE ... " / "EDGE ... --relation--> ..." lines.
 /// </summary>
-public sealed class GraphDbQueryTool : IGraphifyQueryTool
+public sealed class GraphDbQueryTool : ICodeGraphQueryTool
 {
     private const int DefaultBudget = 2000;
     private const int RetryBudget = 4000;
@@ -90,8 +81,6 @@ public sealed class GraphDbQueryTool : IGraphifyQueryTool
         return FormatAndTruncate(traversalLabel, depth, starts.Select(s => s.Label), nodes, edges, budget);
     }
 
-    // Mirrors `graphify query`'s plain-text output shape (verified against a real run of the CLI) so
-    // downstream prompts/parsing built around that shape need no changes.
     private static string FormatAndTruncate(
         string traversalLabel, int depth, IEnumerable<string> startLabels,
         IReadOnlyList<INode> nodes, IReadOnlyList<IRelationship> edges, int budget)
@@ -129,7 +118,7 @@ public sealed class GraphDbQueryTool : IGraphifyQueryTool
         return sb.ToString();
     }
 
-    // ponytail: chars/4 token estimate, same rough heuristic class as graphify's own --budget --
-    // exact tokenizer parity isn't required, this only needs to stop growth in the right ballpark.
+    // ponytail: chars/4 token estimate -- exact tokenizer parity isn't required, this only needs to
+    // stop growth in the right ballpark.
     private static int EstimatedTokens(StringBuilder sb) => sb.Length / 4;
 }

@@ -7,17 +7,17 @@ using Microsoft.Extensions.Options;
 namespace SupportForge.Ingestion.Documents;
 
 /// <summary>
-/// The one bespoke connector graphify doesn't cover natively: fetches a Confluence page via the
-/// REST API and converts its storage-format body to plain markdown so graphify can extract it like
-/// any other doc. A 401/403 propagates as <see cref="HttpRequestException"/> so ingestion fails
-/// clearly for that source instead of retrying with a stale credential.
+/// Fetches a Confluence page via the REST API and converts its storage-format body to plain
+/// markdown so it can be indexed like any other doc. A 401/403 propagates as
+/// <see cref="HttpRequestException"/> so ingestion fails clearly for that source instead of
+/// retrying with a stale credential.
 /// </summary>
 public sealed class ConfluencePageFetcher
 {
     // Strips <script>/<style> elements (tags AND their content) before the generic tag-strip
     // below, which only removes tag delimiters and would otherwise leave JS/CSS text -- including
     // any prompt-injection text an editor hid in a script/style block -- as plain "content" that
-    // flows into graphify's semantic extraction and, eventually, ticket answers.
+    // flows into KB indexing and, eventually, ticket answers.
     private static readonly Regex ScriptOrStylePattern = new(
         @"<(script|style)\b[^>]*>.*?</\1>", RegexOptions.Compiled | RegexOptions.Singleline | RegexOptions.IgnoreCase);
     private static readonly Regex HtmlTagPattern = new("<[^>]+>", RegexOptions.Compiled);

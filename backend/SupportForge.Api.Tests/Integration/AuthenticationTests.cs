@@ -189,7 +189,7 @@ public class AuthenticationTests : IDisposable
         var client = factory.CreateClient();
 
         // /health is reachable without a token (not 401) -- its actual status (200/503) depends on
-        // whether the test host's VectorStore/LLM/graphify dependencies are live, which they are not
+        // whether the test host's VectorStore/LLM/graph-db dependencies are live, which they are not
         // in this in-memory test environment (U6 added real per-dependency checks).
         var health = await client.GetAsync("/health");
         Assert.NotEqual(HttpStatusCode.Unauthorized, health.StatusCode);

@@ -1,21 +1,19 @@
 using System.Text.Json.Serialization;
 
-namespace SupportForge.Ingestion.Graphify;
+namespace SupportForge.Ingestion.Graph;
 
-// Mirrors the exact shape `graphify extract --no-cluster` writes to graphify-out/graph.json
-// (verified by running graphify extract directly): { nodes: [...], edges: [...], hyperedges: [...],
-// input_tokens, output_tokens }. hyperedges/token counts are ignored here -- WS1 only imports the
-// plain node/edge graph that GraphDbQueryTool traverses.
-public sealed class GraphifyGraphFile
+// Shape a repo's extracted code graph is expected in on disk before GraphImportJob loads it into
+// Neo4j: { nodes: [...], edges: [...] }.
+public sealed class CodeGraphFile
 {
     [JsonPropertyName("nodes")]
-    public List<GraphifyNode> Nodes { get; set; } = [];
+    public List<CodeGraphNode> Nodes { get; set; } = [];
 
     [JsonPropertyName("edges")]
-    public List<GraphifyEdge> Edges { get; set; } = [];
+    public List<CodeGraphEdge> Edges { get; set; } = [];
 }
 
-public sealed class GraphifyNode
+public sealed class CodeGraphNode
 {
     [JsonPropertyName("id")]
     public string Id { get; set; } = "";
@@ -33,7 +31,7 @@ public sealed class GraphifyNode
     public string SourceLocation { get; set; } = "";
 }
 
-public sealed class GraphifyEdge
+public sealed class CodeGraphEdge
 {
     [JsonPropertyName("source")]
     public string Source { get; set; } = "";

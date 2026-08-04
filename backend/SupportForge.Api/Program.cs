@@ -17,7 +17,7 @@ using SupportForge.Core.Entities;
 using SupportForge.Ingestion;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Documents;
-using SupportForge.Ingestion.Graphify;
+using SupportForge.Ingestion.Graph;
 using SupportForge.VectorStore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -150,16 +150,6 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddSingleton<SupportForge.Agents.Tools.IIngestionActivity>(sp => sp.GetRequiredService<IngestionQueue>());
 builder.Services.AddHostedService<IngestionBackgroundService>();
-// Graphify:CliConcurrency: max concurrent `graphify` subprocesses (default 2, matching the tool's
-// prior hardcoded value). Raise this once ingestion throughput, not CPU/LLM rate limits, is the
-// bottleneck -- the subprocess gate is independent of GraphDbQueryTool's Neo4j connection pool, which
-// serves query traffic and isn't affected by this setting.
-var graphifyCliConcurrency = builder.Configuration.GetValue("Graphify:CliConcurrency", 2);
-builder.Services.AddSingleton(sp => new GraphifyCliRunner(sp.GetRequiredService<ILogger<GraphifyCliRunner>>(), concurrency: graphifyCliConcurrency));
-// Resolved eagerly (not inside a lazy DI factory) so an incompatible Llm:Provider/Graphify:Gateway
-// combination (e.g. Bedrock/Azure with no gateway configured) fails at startup, not on first ingest.
-var graphifyEnvironment = GraphifyBackendResolver.Resolve(builder.Configuration);
-builder.Services.AddSingleton(graphifyEnvironment);
 builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
 builder.Services.AddHttpClient<ConfluencePageFetcher>();
 var repoCacheRoot = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos");
@@ -167,18 +157,10 @@ builder.Services.AddSingleton<KbVectorIndexer>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp, repoCacheRoot));
 builder.Services.AddSingleton<GitRepoSyncService>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFactory(sp, repoCacheRoot));
-// Registered immediately after CodeIngestionJobFactory: IngestionController.Trigger enqueues jobs by
-// iterating IIngestionJobFactory in registration order, and the queue drains strictly FIFO, so every
-// per-repo CodeIngestionJob for a project is guaranteed to run before that project's merge job.
-builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeGraphMergeJobFactory(sp, repoCacheRoot));
 
-// WS1 (retrieval-pipeline remediation plan): cut over ahead of the parity spike per explicit product
-// direction -- GraphifyQueryTool's hand-rolled SemaphoreSlim(2,2) subprocess gate doesn't scale with
-// concurrent query traffic; GraphDbQueryTool goes through Neo4j.Driver's connection pool instead.
-// GraphifyCliRunner (and the `graphify` CLI itself) stays: it's still the only thing that extracts a
-// code graph from source in the first place -- GraphImportJob feeds its output into Neo4j. Only the
-// query-time path changes.
-var neo4jOptions = builder.Configuration.GetSection("Graphify:Neo4j").Get<Neo4jOptions>() ?? new Neo4jOptions();
+// Code Q&A is backed entirely by Neo4j: GraphImportJob loads each repo's code graph, tagged with
+// projectId, and GraphDbQueryTool queries it over a pooled Neo4j.Driver connection.
+var neo4jOptions = builder.Configuration.GetSection("Neo4j").Get<Neo4jOptions>() ?? new Neo4jOptions();
 builder.Services.AddSingleton(neo4jOptions);
 builder.Services.AddSingleton<Neo4j.Driver.IDriver>(_ =>
 {
@@ -192,14 +174,13 @@ builder.Services.AddSingleton<Neo4j.Driver.IDriver>(_ =>
     });
 });
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new GraphImportJobFactory(sp, repoCacheRoot));
-builder.Services.AddScoped<IGraphifyQueryTool>(sp =>
+builder.Services.AddScoped<ICodeGraphQueryTool>(sp =>
     new GraphDbQueryTool(sp.GetRequiredService<Neo4j.Driver.IDriver>(), neo4jOptions.Database));
 
 // KTD5: replaces the bare "200 OK" /health endpoint with real per-dependency status.
 builder.Services.AddHealthChecks()
     .AddCheck<VectorStoreHealthCheck>("vector_store")
-    .AddCheck<LlmConnectivityHealthCheck>("llm")
-    .AddCheck<GraphifyHealthCheck>("graphify");
+    .AddCheck<LlmConnectivityHealthCheck>("llm");
 
 // U7: traces the agent pipeline (one span per agent that ran, via PipelineTelemetry.ActivitySource
 // in CoordinatorPipeline) plus inbound ASP.NET Core requests and outbound HttpClient calls.

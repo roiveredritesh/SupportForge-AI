@@ -5,8 +5,8 @@ using SupportForge.Core;
 namespace SupportForge.Ingestion.Documents;
 
 /// <summary>
-/// Fetches a website/URL KB source directly (no graphify dependency) and indexes its visible text
-/// into the vector store via <see cref="KbVectorIndexer"/>.
+/// Fetches a website/URL KB source directly and indexes its visible text into the vector store via
+/// <see cref="KbVectorIndexer"/>.
 /// </summary>
 public sealed class WebsiteIngestionJob : IIngestionJob
 {

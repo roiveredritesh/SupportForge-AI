@@ -32,13 +32,9 @@ Example: Anthropic for chat/vision with NVIDIA NIM for embeddings —
 "Embeddings": { "Provider": "NvidiaNim" }
 ```
 
-### graphify's own backend (`Graphify:Gateway`)
+### Code knowledge graph (`Neo4j`)
 
-Separately from the app's `Llm:*` config, graphify's own semantic-extraction step (used for docs/Confluence/website ingestion, not code) selects its LLM backend via environment variables the app derives automatically from `Llm:Provider`:
-
-- `OpenAI` / `NvidiaNim` → graphify's `OPENAI_BASE_URL`/`OPENAI_MODEL`/`OPENAI_API_KEY`, so `--backend openai` reaches it directly.
-- `Anthropic` → graphify's `ANTHROPIC_BASE_URL`/`ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`, so `--backend claude` reaches it directly.
-- `Azure` / `Bedrock` → **graphify has no native Bedrock or Azure backend.** Front it with an OpenAI-compatible gateway (e.g. [LiteLLM](https://github.com/BerriAI/litellm)) and set `Graphify:Gateway:BaseUrl` (must be HTTPS) and `Graphify:Gateway:ApiKey`. The app derives `OPENAI_BASE_URL`/`OPENAI_API_KEY` from the gateway. **Startup fails immediately** with a specific error if `Llm:Provider` is `Azure`/`Bedrock` and no gateway is configured — this is caught at deploy time, not on first ingestion.
+Code Q&A is backed by a Neo4j graph, scoped per project via the `projectId` node property. Configure the connection under `Neo4j` (`Uri`, `User`, `Password`, `Database`). `GraphImportJob` loads each repo's code graph into it; `GraphDbQueryTool` queries it over a pooled `Neo4j.Driver` connection — no external CLI or per-repo subprocess involved.
 
 ## Onboarding a new project
 1. Open the Admin page (`/admin`).

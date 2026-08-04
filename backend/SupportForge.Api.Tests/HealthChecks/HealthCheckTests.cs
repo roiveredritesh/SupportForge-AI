@@ -65,18 +65,4 @@ public class HealthCheckTests
 
         Assert.Equal(HealthStatus.Healthy, result.Status);
     }
-
-    // GraphifyHealthCheck shells out to a real `graphify` process, whose presence on PATH is
-    // environment-dependent (absent in most CI/test environments). This asserts the contract that
-    // matters regardless of environment: the check reports a status, it never throws -- whether
-    // that status is Healthy or Unhealthy depends on whether graphify happens to be installed here.
-    [Fact]
-    public async Task GraphifyHealthCheck_NeverThrows_RegardlessOfBinaryAvailability()
-    {
-        var check = new GraphifyHealthCheck();
-
-        var result = await check.CheckHealthAsync(Context);
-
-        Assert.True(result.Status is HealthStatus.Healthy or HealthStatus.Unhealthy);
-    }
 }
