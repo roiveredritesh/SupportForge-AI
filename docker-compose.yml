@@ -1,0 +1,20 @@
+services:
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./.chroma-data:/data
+
+  neo4j:
+    image: neo4j:5.26-community
+    environment:
+      # No password matches Neo4jOptions' default (empty Password -> AuthTokens.None) so the app
+      # connects out of the box with zero config -- set NEO4J_AUTH to user/password and Neo4j:Password
+      # in appsettings together if you need auth locally.
+      - NEO4J_AUTH=none
+    ports:
+      - "7474:7474" # browser UI
+      - "7687:7687" # bolt (what the app connects to)
+    volumes:
+      - ./.neo4j-data:/data

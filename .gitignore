@@ -9,3 +9,5 @@ frontend/.env
 .claude/
 publish/
 App_Data/
+.chroma-data/
+.neo4j-data/

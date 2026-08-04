@@ -1,8 +1,11 @@
 # Backend Deployment Runbook (EC2 + IIS)
 
+## Local dev dependencies (Chroma + Neo4j)
+`docker compose up -d` (repo root) starts both: Chroma on `localhost:8000` (KB vector store) and Neo4j on `localhost:7687` bolt / `localhost:7474` browser UI (code knowledge graph). Both match this repo's default `appsettings.json` with zero config — Neo4j runs with `NEO4J_AUTH=none`, matching `Neo4jOptions`' empty-password default. Data persists to `.chroma-data/` and `.neo4j-data/` (both gitignored).
+
 ## Prerequisites on the EC2 Windows instance
 1. Install IIS with the "Web Server (IIS)" role and ASP.NET Core Hosting Bundle for .NET 9.
-2. Install Docker Desktop (or use Pinecone in prod — see `VectorStore:Provider` config) for the local Chroma container if not using Pinecone.
+2. Install Docker Desktop (or use Pinecone in prod — see `VectorStore:Provider` config) for the local Chroma container if not using Pinecone. Neo4j is required regardless of `VectorStore:Provider`, since code Q&A always uses it — see `Neo4j` config in `configuration-guide.md`.
 3. Create an Application Pool named `SupportForgeApi` with .NET CLR version "No Managed Code".
 
 ## Deploy steps
