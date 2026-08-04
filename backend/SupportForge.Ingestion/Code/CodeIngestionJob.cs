@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SupportForge.Core;
 
 namespace SupportForge.Ingestion.Code;
@@ -31,6 +32,14 @@ public sealed class CodeIngestionJob : IIngestionJob
     {
         _gitSync.CloneOrPull(_repoUrl, _localCachePath, _branch);
         Directory.CreateDirectory(_localCachePath);
+
+        // GraphImportJobFactory reads this same path (<repo>/code-graph/graph.json) and loads it into
+        // Neo4j tagged with projectId -- GraphImportJob runs as a separate, later-registered job so
+        // this job doesn't need a Neo4j driver of its own.
+        var graph = CodeGraphExtractor.Extract(_localCachePath);
+        var graphOutDir = Path.Combine(_localCachePath, "code-graph");
+        Directory.CreateDirectory(graphOutDir);
+        await File.WriteAllTextAsync(Path.Combine(graphOutDir, "graph.json"), JsonSerializer.Serialize(graph), ct);
 
         var project = await _projects.GetByIdAsync(ProjectId, ct);
         if (project != null)
