@@ -60,10 +60,14 @@ public sealed class GraphImportJob : IIngestionJob
                 {
                     projectId = ProjectId,
                     repo = _repo,
+                    // Neo4j.Driver maps anonymous-type properties to Cypher parameters by their exact
+                    // C# name (case-sensitive) -- every property must be explicitly lower-cased here to
+                    // match the lowercase field names ("node.id", "node.label", ...) referenced in the
+                    // Cypher above, or that field silently binds to null in the query instead of erroring.
                     nodes = graph.Nodes.Select(n => new
                     {
-                        n.Id,
-                        n.Label,
+                        id = n.Id,
+                        label = n.Label,
                         fileType = n.FileType,
                         sourceFile = n.SourceFile,
                         sourceLocation = n.SourceLocation,
@@ -81,7 +85,13 @@ public sealed class GraphImportJob : IIngestionJob
                 new
                 {
                     projectId = ProjectId,
-                    edges = graph.Edges.Select(e => new { e.Source, e.Target, e.Relation, e.Confidence }),
+                    edges = graph.Edges.Select(e => new
+                    {
+                        source = e.Source,
+                        target = e.Target,
+                        relation = e.Relation,
+                        confidence = e.Confidence,
+                    }),
                 });
         });
     }
