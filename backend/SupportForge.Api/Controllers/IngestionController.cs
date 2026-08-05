@@ -29,6 +29,12 @@ public class IngestionController : ControllerBase
         var project = await _projects.GetByIdAsync(request.ProjectId, ct);
         if (project is null) return NotFound();
 
+        // Without this, a double-click (or an impatient re-trigger) queues a fully redundant
+        // clone+extract+graph-import per repo on top of the one already running -- no error, just
+        // wasted work racing itself.
+        if (_queue.IsBusy(request.ProjectId))
+            return Conflict("Ingestion is already running for this project.");
+
         // Task 7 / Task 8 register the concrete job factories that read `project.KbSources` / `project.Repos`.
         foreach (var factory in _services.GetServices<IIngestionJobFactory>())
             foreach (var job in factory.CreateJobs(project))
