@@ -9,9 +9,16 @@ public interface ILlmChatClient
     int LastTotalTokens { get; }
 }
 
+// NIM's asymmetric embedding models (e.g. nv-embedqa-e5-v5) encode "what am I looking for" and
+// "what does this document contain" into different subspaces -- embedding both sides the same way
+// measurably degrades nearest-neighbor ranking. Query is the default (matches every pre-existing
+// two-arg call site, all of which were search-query embeds); callers indexing documents must pass
+// Passage explicitly.
+public enum EmbeddingPurpose { Query, Passage }
+
 public interface ILlmEmbeddingClient
 {
-    Task<float[]> EmbedAsync(string text, CancellationToken ct = default);
+    Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query);
     int LastTotalTokens { get; }
 }
 

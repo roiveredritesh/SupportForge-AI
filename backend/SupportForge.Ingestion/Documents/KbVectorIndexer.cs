@@ -30,7 +30,7 @@ public sealed class KbVectorIndexer
             var chunks = DocumentChunker.Chunk(text);
             for (var i = 0; i < chunks.Count; i++)
             {
-                var embedding = await _llm.EmbedAsync(chunks[i], ct);
+                var embedding = await _llm.EmbedAsync(chunks[i], ct, EmbeddingPurpose.Passage);
                 vectorDocs.Add(new VectorDocument(
                     Id: $"{SanitizeId(sourceRef)}-{i}",
                     Text: chunks[i],

@@ -17,7 +17,7 @@ public class KbResearcherAgentTests
     public async Task RunAsync_PopulatesKbSnippetsAndSources(string intent)
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default, It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
 
         var vectorStore = new Mock<IVectorStoreService>();
         vectorStore.Setup(v => v.QueryAsync("proj1-kb", It.IsAny<float[]>(), 5, null, default))
@@ -37,7 +37,7 @@ public class KbResearcherAgentTests
     public async Task RunAsync_OnRetry_ClearsPreviousSnippetsAndWidensTopK()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default, It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
 
         var vectorStore = new Mock<IVectorStoreService>();
         vectorStore.Setup(v => v.QueryAsync("proj1-kb", It.IsAny<float[]>(), 10, null, default))
@@ -73,7 +73,7 @@ public class KbResearcherAgentTests
         Assert.Empty(result.KbSnippets);
         Assert.Empty(result.Sources);
         Assert.Equal(0, result.KbVerification.Attempts);
-        llm.Verify(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        llm.Verify(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()), Times.Never);
         vectorStore.Verify(v => v.QueryAsync(It.IsAny<string>(), It.IsAny<float[]>(), It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -81,7 +81,7 @@ public class KbResearcherAgentTests
     public async Task RunAsync_LogsStartAndCompletion()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default, It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
 
         var vectorStore = new Mock<IVectorStoreService>();
         vectorStore.Setup(v => v.QueryAsync("proj1-kb", It.IsAny<float[]>(), 5, null, default))
@@ -102,7 +102,7 @@ public class KbResearcherAgentTests
     public async Task RunAsync_WhenSearchThrows_LogsFailureAndPropagates()
     {
         var llm = new Mock<ILlmClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ThrowsAsync(new InvalidOperationException("embed failed"));
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default, It.IsAny<EmbeddingPurpose>())).ThrowsAsync(new InvalidOperationException("embed failed"));
 
         var vectorStore = new Mock<IVectorStoreService>();
         var tool = new KbSearchTool(llm.Object, vectorStore.Object);

@@ -56,7 +56,9 @@ public class BedrockLlmClient : ILlmClient
         return text;
     }
 
-    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+    // Titan embeddings are symmetric (no query/passage distinction), so purpose is accepted for
+    // interface compatibility and otherwise unused here.
+    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query)
     {
         var body = new { inputText = text };
         var request = new InvokeModelRequest

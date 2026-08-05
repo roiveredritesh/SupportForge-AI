@@ -28,7 +28,7 @@ public class WebsiteIngestionJobTests
     private static WebsiteIngestionJob CreateJob(string url, HttpMessageHandler? handler = null, IVectorStoreService? vectorStore = null)
     {
         var llm = new Mock<ILlmEmbeddingClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new float[] { 0.1f });
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
         var indexer = new KbVectorIndexer(llm.Object, vectorStore ?? new Mock<IVectorStoreService>().Object);
         return new WebsiteIngestionJob("proj1", url, new HttpClient(handler ?? new ThrowingHandler()), indexer, new Mock<IProjectRepository>().Object);
     }

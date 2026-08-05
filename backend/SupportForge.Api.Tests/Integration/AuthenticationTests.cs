@@ -255,7 +255,7 @@ public class AuthenticationTests : IDisposable
         public Task<string> AnalyzeImageAsync(string base64Image, string prompt, CancellationToken ct = default)
             => Task.FromResult(string.Empty);
 
-        public Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+        public Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query)
             => Task.FromResult(new float[] { 0.1f });
     }
 }

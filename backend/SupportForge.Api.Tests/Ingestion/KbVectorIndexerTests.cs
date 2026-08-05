@@ -13,7 +13,7 @@ public class KbVectorIndexerTests
     public async Task IndexAsync_ChunksEachDocument_EmbedsEachChunk_ThenUpsertsOnce()
     {
         var llm = new Mock<ILlmEmbeddingClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new float[] { 0.1f, 0.2f });
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f, 0.2f });
         var vectorStore = new Mock<IVectorStoreService>();
         IReadOnlyList<VectorDocument>? upserted = null;
         vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
@@ -51,7 +51,7 @@ public class KbVectorIndexerTests
     public async Task IndexAsync_GeneratesDistinctIdsPerChunk()
     {
         var llm = new Mock<ILlmEmbeddingClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new float[] { 0.1f });
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
         var vectorStore = new Mock<IVectorStoreService>();
         IReadOnlyList<VectorDocument>? upserted = null;
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
@@ -63,5 +63,22 @@ public class KbVectorIndexerTests
 
         Assert.NotNull(upserted);
         Assert.Equal(upserted!.Select(d => d.Id).Distinct().Count(), upserted.Count);
+    }
+
+    // Asymmetric embedding models (e.g. NIM's nv-embedqa-e5-v5) rank poorly if documents are embedded
+    // as queries -- indexing must request Passage, not the default Query.
+    [Fact]
+    public async Task IndexAsync_EmbedsChunks_WithPassagePurpose()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object);
+
+        await indexer.IndexAsync("proj1", [("a.md", "one")], CancellationToken.None);
+
+        llm.Verify(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), EmbeddingPurpose.Passage), Times.Once);
     }
 }

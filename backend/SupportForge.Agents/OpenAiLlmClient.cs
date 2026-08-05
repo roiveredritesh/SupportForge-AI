@@ -97,15 +97,15 @@ public class OpenAiLlmClient : ILlmClient
         LastTotalTokens = (int)(updates.ToChatResponse().Usage?.TotalTokenCount ?? 0);
     }
 
-    // ponytail: NIM asymmetric embedding models need input_type "query" vs "passage" depending on
-    // whether text is being indexed or searched; this client doesn't distinguish callers, so a single
-    // configured type is used for both. Fine for dev/testing; split indexing from search if retrieval
-    // quality matters.
+    // NIM asymmetric embedding models need input_type "query" vs "passage" depending on whether text
+    // is being indexed or searched -- EmbeddingPurpose carries that distinction from the caller.
+    // _embeddingInputType configured (non-null) means this provider uses the input_type parameter at
+    // all; the actual value sent is derived from purpose, not the configured string.
     //
     // Uses the protocol-level (raw JSON) embeddings call rather than IEmbeddingGenerator: the OpenAI SDK's
     // typed EmbeddingGenerationOptions silently drops unrecognized fields like NIM's "input_type" instead
     // of forwarding them, so the strongly-typed path can't express this provider-specific parameter.
-    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query)
     {
         var payload = new Dictionary<string, object?>
         {
@@ -114,7 +114,7 @@ public class OpenAiLlmClient : ILlmClient
             ["encoding_format"] = "float",
         };
         if (_embeddingInputType is not null)
-            payload["input_type"] = _embeddingInputType;
+            payload["input_type"] = purpose == EmbeddingPurpose.Passage ? "passage" : "query";
 
         var response = await _embeddingClient.GenerateEmbeddingsAsync(
             BinaryContent.Create(BinaryData.FromObjectAsJson(payload)),

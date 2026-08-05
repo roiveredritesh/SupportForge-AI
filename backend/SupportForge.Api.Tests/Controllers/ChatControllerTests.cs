@@ -275,7 +275,7 @@ public class ChatControllerTests
     {
         var llmMock = new Mock<ILlmClient>();
         llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("kb_question");
-        llmMock.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+        llmMock.Setup(l => l.EmbedAsync(It.IsAny<string>(), default, It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
         llmMock.SetupSequence(l => l.StreamCompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(ToAsyncEnumerable(new[] { "answer" }));
 
@@ -341,7 +341,7 @@ public class ChatControllerTests
         // doesn't short-circuit before the leak check this test exists to exercise.
         llmMock.Setup(l => l.CompleteAsync(It.Is<string>(s => s.Contains("You judge")), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("1");
-        llmMock.Setup(l => l.EmbedAsync(It.IsAny<string>(), default)).ReturnsAsync(new float[] { 0.1f });
+        llmMock.Setup(l => l.EmbedAsync(It.IsAny<string>(), default, It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
         llmMock.Setup(l => l.StreamCompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(ToAsyncEnumerable(new[] { "Here you go:\n", "```cs\nvar x = 1;\n```" }));
 
@@ -429,9 +429,9 @@ public class ChatControllerTests
             return await _inner.CompleteAsync(systemPrompt, userPrompt, ct);
         }
 
-        public override async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+        public override async Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query)
         {
-            return await _inner.EmbedAsync(text, ct);
+            return await _inner.EmbedAsync(text, ct, purpose);
         }
 
         public override async Task<string> AnalyzeImageAsync(string base64Image, string prompt, CancellationToken ct = default)

@@ -31,7 +31,7 @@ public class ConfluenceIngestionJobTests
             new HttpClient(new StubHandler(json)), Options.Create(new ConfluenceOptions { BaseUrl = "http://confluence.example.com" }));
 
         var llm = new Mock<ILlmEmbeddingClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new float[] { 0.1f });
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
         var vectorStore = new Mock<IVectorStoreService>();
         IReadOnlyList<VectorDocument>? upserted = null;
         vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))

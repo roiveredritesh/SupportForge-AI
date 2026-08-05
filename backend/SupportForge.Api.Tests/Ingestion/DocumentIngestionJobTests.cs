@@ -14,7 +14,7 @@ public class DocumentIngestionJobTests
     private static (Mock<ILlmEmbeddingClient> Llm, Mock<IVectorStoreService> VectorStore, KbVectorIndexer Indexer) MakeIndexer()
     {
         var llm = new Mock<ILlmEmbeddingClient>();
-        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new float[] { 0.1f });
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
         var vectorStore = new Mock<IVectorStoreService>();
         return (llm, vectorStore, new KbVectorIndexer(llm.Object, vectorStore.Object));
     }
