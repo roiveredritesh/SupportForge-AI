@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Moq;
 using SupportForge.Api.Controllers;
 using SupportForge.Api.Identity;
@@ -33,7 +34,8 @@ public class ProjectsControllerTests
             new Mock<ITokenUsageRepository>().Object,
             new Mock<IConversationRepository>().Object,
             env.Object,
-            new IngestionQueue());
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
 
         var project = new Project { Id = "proj1", Name = "Test Project" };
         await controller.CreateOrUpdate(project);
@@ -62,7 +64,8 @@ public class ProjectsControllerTests
             new Mock<ITokenUsageRepository>().Object,
             new Mock<IConversationRepository>().Object,
             env.Object,
-            new IngestionQueue());
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
 
         var project = new Project { Id = "proj-locked", Name = "Locked Repo Project" };
         await controller.CreateOrUpdate(project);
@@ -104,7 +107,8 @@ public class ProjectsControllerTests
             new Mock<ITokenUsageRepository>().Object,
             new Mock<IConversationRepository>().Object,
             env.Object,
-            queue);
+            queue,
+            Mock.Of<ILogger<ProjectsController>>());
 
         var project = new Project { Id = "proj-ingesting", Name = "Ingesting Project" };
         await controller.CreateOrUpdate(project);
@@ -131,6 +135,45 @@ public class ProjectsControllerTests
         Assert.IsType<NoContentResult>(result);
         Assert.False(Directory.Exists(repoDir));
 
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Delete_StillRemovesProjectRecord_WhenRepoDirIsPermanentlyLocked()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+
+        var project = new Project { Id = "proj-stuck-lock", Name = "Stuck Lock Project" };
+        await controller.CreateOrUpdate(project);
+
+        var repoDir = Path.Combine(tempDir, "App_Data", "repos", project.Id);
+        Directory.CreateDirectory(repoDir);
+        var lockedFile = Path.Combine(repoDir, "pack-fake.idx");
+        await File.WriteAllTextAsync(lockedFile, "fake pack data");
+
+        // Unlike the "momentarily locked" case above, this handle is never released -- simulates
+        // a stuck OS-level lock (search indexer, AV) that outlives the bounded retry budget.
+        using var handle = new FileStream(lockedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        var result = await controller.Delete(project.Id);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Null(await repo.GetByIdAsync(project.Id));
+        Assert.True(Directory.Exists(repoDir)); // best-effort: left on disk, not blocking the record delete
+
+        handle.Dispose();
         Directory.Delete(tempDir, recursive: true);
     }
 

@@ -19,6 +19,7 @@ public class ProjectsController : ControllerBase
     private readonly IConversationRepository _conversations;
     private readonly IWebHostEnvironment _env;
     private readonly IngestionQueue _ingestionQueue;
+    private readonly ILogger<ProjectsController> _logger;
 
     public ProjectsController(
         IProjectRepository repo,
@@ -27,7 +28,8 @@ public class ProjectsController : ControllerBase
         ITokenUsageRepository tokenUsage,
         IConversationRepository conversations,
         IWebHostEnvironment env,
-        IngestionQueue ingestionQueue)
+        IngestionQueue ingestionQueue,
+        ILogger<ProjectsController> logger)
     {
         _repo = repo;
         _vectorStore = vectorStore;
@@ -36,6 +38,7 @@ public class ProjectsController : ControllerBase
         _conversations = conversations;
         _env = env;
         _ingestionQueue = ingestionQueue;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -65,7 +68,22 @@ public class ProjectsController : ControllerBase
         await _ingestionQueue.WaitUntilIdleAsync(id, TimeSpan.FromSeconds(30), ct);
 
         var repoDir = Path.Combine(_env.ContentRootPath, "App_Data", "repos", id);
-        await DeleteRepoDirWithRetryAsync(repoDir);
+        try
+        {
+            await DeleteRepoDirWithRetryAsync(repoDir);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            // ponytail: on Windows this lock isn't always the transient LibGit2Sharp pack-file mmap
+            // the retry above targets -- a search indexer or AV scan can hold a directory handle open
+            // far longer than any bounded retry should wait. That must not make project deletion
+            // itself unrecoverable: the KB/feedback/token/conversation data below is still fully
+            // cleaned up and the project record is still removed. The directory is orphaned on disk
+            // (not in app state) and can be cleared out manually later.
+            _logger.LogWarning(ex,
+                "Could not delete repo directory {RepoDir} for project {ProjectId}; leaving it on disk and continuing with project deletion",
+                repoDir, id);
+        }
 
         await _feedback.DeleteByProjectIdAsync(id, ct);
         await _tokenUsage.DeleteByProjectIdAsync(id, ct);
