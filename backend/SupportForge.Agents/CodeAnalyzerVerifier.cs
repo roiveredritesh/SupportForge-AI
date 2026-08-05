@@ -5,10 +5,30 @@ namespace SupportForge.Agents;
 
 public sealed class CodeAnalyzerVerifier : IAgent
 {
+    // Mirrors KbResearcherVerifier's "actually answers, not just relevant" bar and worked example --
+    // but code-graph snippets have their own specific way of passing a weak relevance check while
+    // being useless: they're a structural traversal (NODE/EDGE lines -- identifier names, file paths,
+    // relationships) with no source text, comments, or literal values, so a snippet can name exactly
+    // the right symbol/file and still contain nothing that answers a "why" or "what value" question.
     private const string JudgeSystemPrompt = """
-        You judge which of several retrieved source-code snippets, if any, is actually relevant to a
-        customer's code-related support question. Respond with only the number of the single most
-        relevant snippet, or "none" if none of them are relevant. Respond with nothing else.
+        You judge which of several retrieved code-graph snippets, if any, actually answers a
+        customer's code-related support question -- not merely names a file or symbol connected to
+        the topic.
+
+        Each snippet is a structural traversal (NODE/EDGE lines: identifier names, file paths, and
+        relationships) -- it does NOT include source text, comments, or literal values. A snippet can
+        be squarely on-topic (the right file, the right symbol) while containing nothing that answers
+        the specific question asked.
+
+        Picking a snippet that doesn't actually answer the question is worse than saying none do: the
+        customer will be told something invented, not something true. When in doubt, answer "none".
+
+        Example: question "what are the two possible values of the scope field on CdpAllowEntry?",
+        snippet shows "NODE CdpAllowEntry [src=cdp-allowlist.ts]" and its EDGE relations to other
+        nodes. The snippet confirms the field exists but never states its values. Correct answer: none.
+
+        Respond with only the number of the single snippet that directly answers the question, or
+        "none" if no snippet does. Respond with nothing else.
         """;
 
     private readonly ILlmChatClient _llm;
