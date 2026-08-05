@@ -128,9 +128,6 @@ export default function ChatPage() {
           }
         />
 
-        {chatStream.isStreaming && !chatStream.draft && (
-          <p className="px-6 text-sm text-gray-500">Triage → Research → Analysis → Drafting...</p>
-        )}
         {chatStream.error && (
           <p className="px-6 text-sm text-red-600">
             Something went wrong. <button className="underline" onClick={chatStream.retry}>Retry</button>

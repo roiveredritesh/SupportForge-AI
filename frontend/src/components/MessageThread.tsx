@@ -1,4 +1,5 @@
 import { MessageBubble, type MessageBubbleActions } from './MessageBubble';
+import { ThinkingIndicator } from './ThinkingIndicator';
 import type { ChatMessage } from '../hooks/useConversations';
 
 interface PendingTurn {
@@ -34,13 +35,15 @@ export function MessageThread({ messages, pending, lastAssistantActions }: Props
       {pending && (
         <>
           <MessageBubble role="user" content={pending.query} />
-          {pending.draft && (
+          {pending.draft ? (
             <MessageBubble
               role="assistant"
               content={pending.draft}
               confidence={pending.confidence}
               actions={pending.actions}
             />
+          ) : (
+            <ThinkingIndicator />
           )}
         </>
       )}
