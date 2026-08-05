@@ -66,6 +66,10 @@ public sealed partial class DrafterAgent : IAgent
         language that the information may not reflect the very latest state, without naming any internal
         sync mechanism or timestamp.
 
+        If Intent is "greeting", there is no support question to answer: reply briefly and warmly (one sentence)
+        and invite them to share what they need help with. Do not ask a clarifying question about a problem that
+        was never mentioned, do not list capabilities, do not add caveats about context or data freshness.
+
         If Intent is "unclear", the question is ambiguous: ask exactly one clarifying question and nothing else.
         Do not attempt an answer, do not list possibilities, do not add caveats.
 

@@ -127,6 +127,14 @@ public class DrafterAgentTests
     }
 
     [Fact]
+    public void SystemPrompt_RepliesBrieflyToGreetingsWithoutAskingForClarification()
+    {
+        Assert.Contains("\"greeting\"", DrafterAgent.SystemPrompt);
+        Assert.Contains("reply briefly and warmly", DrafterAgent.SystemPrompt);
+        Assert.Contains("Do not ask a clarifying question about a problem that", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
     public void SystemPrompt_AsksOneClarifyingQuestionWhenIntentIsUnclear()
     {
         Assert.Contains("\"unclear\"", DrafterAgent.SystemPrompt);
@@ -288,6 +296,22 @@ public class DrafterAgentTests
         await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>()).RunAsync(context);
 
         Assert.Equal("Sure, happy to help.", context.Draft);
+    }
+
+    [Fact]
+    public async Task RunAsync_GreetingIntent_CallsLlmAndReturnsDraft_InsteadOfNoContextFallback()
+    {
+        // A greeting has no KB/code/vision branch to run, so this is the same "nothing ran" shape as
+        // the "unclear" intent -- it must reach the LLM (and get a real reply), not the empty-context
+        // short-circuit that skips the call entirely.
+        var context = new AgentContext { ProjectId = "p", Query = "hi", Intent = "greeting" };
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Hello! What can I help you with?");
+
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>()).RunAsync(context);
+
+        Assert.Equal("Hello! What can I help you with?", context.Draft);
     }
 
     [Fact]

@@ -76,6 +76,7 @@ public class TriageAgentTests
     [InlineData("**code_question**", "code_question")]
     [InlineData("code_issue.", "code_issue")]
     [InlineData("  Screenshot_Error \n", "screenshot_error")]
+    [InlineData("greeting", "greeting")]
     [InlineData("bug_report", "unclear")]
     [InlineData("This looks like a bug in the checkout flow.", "unclear")]
     [InlineData("", "unclear")]
@@ -106,5 +107,20 @@ public class TriageAgentTests
         await agent.RunAsync(new AgentContext { ProjectId = "proj1", Query = "it broke" });
 
         Assert.Contains("\"unclear\"", systemPrompt);
+    }
+
+    [Fact]
+    public async Task RunAsync_SystemPrompt_OffersGreetingLabel()
+    {
+        string? systemPrompt = null;
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), default))
+           .Callback((string s, string _, CancellationToken _) => systemPrompt = s)
+           .ReturnsAsync("greeting");
+
+        var agent = new TriageAgent(llm.Object, new ListLogger<TriageAgent>());
+        await agent.RunAsync(new AgentContext { ProjectId = "proj1", Query = "hi there" });
+
+        Assert.Contains("\"greeting\"", systemPrompt);
     }
 }

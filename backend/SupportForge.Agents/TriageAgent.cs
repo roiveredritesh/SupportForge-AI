@@ -7,7 +7,7 @@ public sealed class TriageAgent : IAgent
 {
     private static readonly HashSet<string> KnownLabels = new(StringComparer.OrdinalIgnoreCase)
     {
-        "kb_question", "code_issue", "code_question", "screenshot_error", "unclear"
+        "kb_question", "code_issue", "code_question", "screenshot_error", "greeting", "unclear"
     };
 
     private static readonly char[] Decoration = [' ', '\t', '\r', '\n', '"', '\'', '`', '*', '.', ':', '#'];
@@ -35,6 +35,8 @@ public sealed class TriageAgent : IAgent
                 - "code_question": a question about the project's source code that is not a bug report — e.g. "how does X work",
                   "explain function Y", "where is Z implemented", architecture questions.
                 - "screenshot_error": the query is about an attached screenshot showing an error or UI state.
+                - "greeting": a greeting, thanks, farewell, or other pleasantry with no actual support question
+                  in it — e.g. "hi", "hello", "thanks!", "that's all for now".
                 - "unclear": you cannot confidently place the query in any of the labels above — it is too vague,
                   missing context, or plausibly fits more than one category.
                 Respond with only the label, nothing else.
