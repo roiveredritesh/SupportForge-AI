@@ -38,7 +38,7 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         {
             var cursor = await tx.RunAsync(
                 """
-                CALL db.index.fulltext.queryNodes('graphNodeLabel', $question) YIELD node, score
+                CALL db.index.fulltext.queryNodes('graphNodeSearch', $question) YIELD node, score
                 WHERE node.projectId = $projectId
                 RETURN node.id AS id, node.label AS label
                 ORDER BY score DESC
@@ -96,7 +96,15 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
             sb.Append("NODE ").Append(n.Properties.GetValueOrDefault("label"))
               .Append(" [src=").Append(n.Properties.GetValueOrDefault("sourceFile"))
               .Append(" loc=").Append(n.Properties.GetValueOrDefault("sourceLocation"))
-              .Append(" community=]").Append('\n');
+              .Append(" community=]");
+
+            // Doc-comment prose captured by CodeGraphExtractor (see GraphImportModels.CodeGraphNode.Summary)
+            // -- without this, every NODE line is identifier skeleton only, and CodeAnalyzerAgent/DrafterAgent
+            // have nothing but the label/path to reason from for "why"-shaped questions.
+            if (n.Properties.GetValueOrDefault("summary") is string summary && summary.Length > 0)
+                sb.Append(": ").Append(summary);
+
+            sb.Append('\n');
 
             if (EstimatedTokens(sb) >= budget) return sb.ToString();
         }

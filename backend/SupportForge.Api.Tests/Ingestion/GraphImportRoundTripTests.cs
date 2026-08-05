@@ -46,7 +46,7 @@ public class GraphImportRoundTripTests
             {
                 Nodes =
                 [
-                    new CodeGraphNode { Id = "a.cs", Label = "a.cs", FileType = "csharp", SourceFile = "a.cs", SourceLocation = "L1" },
+                    new CodeGraphNode { Id = "a.cs", Label = "a.cs", FileType = "csharp", SourceFile = "a.cs", SourceLocation = "L1", Summary = "Handles session auth." },
                     new CodeGraphNode { Id = "a.cs::Auth", Label = "Auth", FileType = "csharp", SourceFile = "a.cs", SourceLocation = "L3" },
                 ],
                 Edges = [new CodeGraphEdge { Source = "a.cs", Target = "a.cs::Auth", Relation = "defines", Confidence = "high" }],
@@ -61,13 +61,13 @@ public class GraphImportRoundTripTests
             var records = await session.ExecuteReadAsync(async tx =>
             {
                 var cursor = await tx.RunAsync(
-                    "MATCH (n:GraphNode {projectId: $projectId}) RETURN n.id AS id, n.label AS label ORDER BY n.id",
+                    "MATCH (n:GraphNode {projectId: $projectId}) RETURN n.id AS id, n.label AS label, n.summary AS summary ORDER BY n.id",
                     new { projectId });
                 return await cursor.ToListAsync();
             });
 
             Assert.Equal(2, records.Count);
-            Assert.Contains(records, r => r["id"].As<string>() == "a.cs" && r["label"].As<string>() == "a.cs");
+            Assert.Contains(records, r => r["id"].As<string>() == "a.cs" && r["label"].As<string>() == "a.cs" && r["summary"].As<string>() == "Handles session auth.");
             Assert.Contains(records, r => r["id"].As<string>() == "a.cs::Auth" && r["label"].As<string>() == "Auth");
 
             var edgeRecords = await session.ExecuteReadAsync(async tx =>

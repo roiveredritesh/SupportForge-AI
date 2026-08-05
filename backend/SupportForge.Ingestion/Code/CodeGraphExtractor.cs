@@ -62,6 +62,12 @@ public static class CodeGraphExtractor
         @"^\s*from\s+([\w.]+)\s+import\b",
         RegexOptions.Compiled | RegexOptions.Multiline);
 
+    private static readonly Regex PythonModuleDocstring = new(
+        "\\A\\s*[rRuU]?(\"\"\"|''')(?<body>.*?)\\1",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+
+    private const int MaxSummaryLength = 500;
+
     public static CodeGraphFile Extract(string repoDir)
     {
         var graph = new CodeGraphFile();
@@ -74,6 +80,10 @@ public static class CodeGraphExtractor
         {
             var fileType = FileTypeByExtension[Path.GetExtension(fullPath)];
 
+            string text;
+            try { text = File.ReadAllText(fullPath); }
+            catch (IOException) { continue; }
+
             graph.Nodes.Add(new CodeGraphNode
             {
                 Id = relativePath,
@@ -81,11 +91,8 @@ public static class CodeGraphExtractor
                 FileType = fileType,
                 SourceFile = relativePath,
                 SourceLocation = "L1",
+                Summary = ExtractFileHeaderComment(text, fileType),
             });
-
-            string text;
-            try { text = File.ReadAllText(fullPath); }
-            catch (IOException) { continue; }
 
             if (DefinitionPatternByFileType.TryGetValue(fileType, out var definitionPattern))
                 AddDefinitionNodesAndEdges(graph, relativePath, fileType, text, definitionPattern);
@@ -113,6 +120,7 @@ public static class CodeGraphExtractor
                 FileType = fileType,
                 SourceFile = relativePath,
                 SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
+                Summary = ExtractPrecedingCommentBlock(text, match.Index),
             });
             graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = nodeId, Relation = "defines", Confidence = "high" });
         }
@@ -167,6 +175,68 @@ public static class CodeGraphExtractor
     }
 
     private static int CountLinesBefore(string text, int index) => text.AsSpan(0, index).Count('\n') + 1;
+
+    private static bool IsCommentLine(string trimmed) =>
+        trimmed.StartsWith("//") || trimmed.StartsWith("*") || trimmed.StartsWith("/*");
+
+    private static string StripCommentMarkers(string trimmed) =>
+        trimmed.TrimStart('/', '*').TrimEnd('*', '/').Trim();
+
+    private static string Truncate(string s) =>
+        s.Length <= MaxSummaryLength ? s : s[..MaxSummaryLength] + "…";
+
+    // This codebase's dominant place for "why this file exists" prose is a block comment at the very
+    // top (see e.g. staging-guard.ts, cdp-allowlist.ts) -- identifier names and edges tell an agent
+    // WHAT exists, this is the one place a regex-only pass can recover WHY. Best-effort: a shebang
+    // line, missing header, or non-comment first line just yields an empty summary.
+    private static string ExtractFileHeaderComment(string text, string fileType)
+    {
+        if (fileType == "python") return ExtractPythonModuleDocstring(text);
+
+        var lines = new List<string>();
+        foreach (var rawLine in text.Split('\n'))
+        {
+            var trimmed = rawLine.TrimEnd('\r').Trim();
+            if (trimmed.Length == 0)
+            {
+                if (lines.Count > 0) break; // blank line after content ends the header
+                continue; // allow blank lines before the header starts
+            }
+            if (!IsCommentLine(trimmed)) break;
+            var stripped = StripCommentMarkers(trimmed);
+            if (stripped.Length > 0) lines.Add(stripped);
+        }
+        return Truncate(string.Join(' ', lines));
+    }
+
+    private static string ExtractPythonModuleDocstring(string text)
+    {
+        var match = PythonModuleDocstring.Match(text);
+        return match.Success ? Truncate(match.Groups["body"].Value.Trim()) : "";
+    }
+
+    // Backward from a definition's match start: XML-doc (///), JSDoc (/** */), and plain // blocks
+    // directly above it, the dominant per-symbol doc-comment convention for C#/TS/JS/Java/Go. Stops
+    // at the first blank or non-comment line -- a real doc comment sits with no gap above its symbol.
+    // Not attempted for Python: its docstring is the first statement INSIDE the body, not a comment
+    // above it, and a regex pass can't reliably find where a (possibly multi-line) signature ends.
+    private static string ExtractPrecedingCommentBlock(string text, int definitionIndex)
+    {
+        if (definitionIndex <= 0) return "";
+
+        var lines = new List<string>();
+        var lineEnd = text.LastIndexOf('\n', definitionIndex - 1);
+        while (lineEnd >= 0)
+        {
+            var lineStart = text.LastIndexOf('\n', lineEnd - 1) + 1;
+            var line = text[lineStart..lineEnd].TrimEnd('\r').Trim();
+            if (line.Length == 0 || !IsCommentLine(line)) break;
+            var stripped = StripCommentMarkers(line);
+            if (stripped.Length > 0) lines.Insert(0, stripped);
+            lineEnd = lineStart - 1;
+        }
+        return Truncate(string.Join(' ', lines));
+    }
 
     private static IEnumerable<string> EnumerateSourceFiles(string repoDir) =>
         EnumerateFiles(repoDir).Where(f => FileTypeByExtension.ContainsKey(Path.GetExtension(f)));

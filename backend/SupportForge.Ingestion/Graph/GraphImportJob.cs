@@ -38,9 +38,13 @@ public sealed class GraphImportJob : IIngestionJob
 
         // Neo4j rejects a data write in the same transaction as a schema modification ("Tried to
         // execute Write query after executing Schema modification"), so the index create needs its
-        // own transaction before the node/edge MERGEs below.
+        // own transaction before the node/edge MERGEs below. Indexed on summary as well as label so
+        // the start-node search in GraphDbQueryTool can match a question against captured doc-comment
+        // prose ("why"), not just identifier names ("what") -- named graphNodeSearch, not the old
+        // graphNodeLabel, since changing an existing index's ON EACH fields requires DROP+CREATE and
+        // "IF NOT EXISTS" would otherwise silently keep pre-existing deployments on the label-only index.
         await session.ExecuteWriteAsync(tx => tx.RunAsync(
-            "CREATE FULLTEXT INDEX graphNodeLabel IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label]"));
+            "CREATE FULLTEXT INDEX graphNodeSearch IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label, n.summary]"));
 
         await session.ExecuteWriteAsync(async tx =>
         {
@@ -54,6 +58,7 @@ public sealed class GraphImportJob : IIngestionJob
                     n.fileType = node.fileType,
                     n.sourceFile = node.sourceFile,
                     n.sourceLocation = node.sourceLocation,
+                    n.summary = node.summary,
                     n.repo = $repo
                 """,
                 new
@@ -71,6 +76,7 @@ public sealed class GraphImportJob : IIngestionJob
                         fileType = n.FileType,
                         sourceFile = n.SourceFile,
                         sourceLocation = n.SourceLocation,
+                        summary = n.Summary,
                     }),
                 });
 

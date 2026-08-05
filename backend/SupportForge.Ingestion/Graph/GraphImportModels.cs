@@ -29,6 +29,12 @@ public sealed class CodeGraphNode
 
     [JsonPropertyName("source_location")]
     public string SourceLocation { get; set; } = "";
+
+    // Leading doc-comment/header-comment prose captured verbatim (best-effort, regex-based -- see
+    // CodeGraphExtractor). Structural fields above tell an agent WHAT exists; this is the one place
+    // this extractor recovers WHY, since it never parses a real AST and has no other way to know.
+    [JsonPropertyName("summary")]
+    public string Summary { get; set; } = "";
 }
 
 public sealed class CodeGraphEdge
