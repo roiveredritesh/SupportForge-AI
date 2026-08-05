@@ -15,7 +15,22 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     private const int RetryBudget = 4000;
     private const int DefaultDepth = 2;
     private const int RetryDepth = 4;
-    private const int MaxStartNodes = 3;
+
+    // The code graph's extractor only ever emits "defines" edges (file -> symbol), so traversal
+    // can never bridge two files -- e.g. eight sibling grader types each living in their own file
+    // are graph-unreachable from one another no matter the depth. Given that, the fulltext index is
+    // the real retrieval mechanism here, not a seed-picker for traversal: pull a wide set of matches
+    // (MaxFulltextMatches) and surface every one that's actually relevant (RelevanceFloor, relative
+    // to the top score) directly in the output, rather than gambling on 3 seeds and hoping traversal
+    // finds the rest. Traversal is kept only for same-file context around the best few matches.
+    // ponytail: on a real repo, per-term Lucene scoring puts plenty of tangentially-word-overlapping
+    // matches within half the top score (observed: an unrelated session-teardown function outscored
+    // the actually-relevant node for a "lifecycle hooks" question) -- 0.65/10 trades a little recall
+    // for a lot less noise reaching the small drafting model. Revisit with a smarter query (term
+    // extraction, stopword stripping) if recall turns out to matter more than this signal-to-noise cut.
+    private const int MaxFulltextMatches = 10;
+    private const int MaxTraversalSeeds = 5;
+    private const double RelevanceFloor = 0.65;
 
     private readonly IDriver _driver;
     private readonly string _database;
@@ -34,22 +49,30 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         var budget = retrying ? RetryBudget : DefaultBudget;
         var traversalLabel = retrying ? "DFS" : "BFS";
 
-        var startRecords = await session.ExecuteReadAsync(async tx =>
+        var matchRecords = await session.ExecuteReadAsync(async tx =>
         {
             var cursor = await tx.RunAsync(
                 """
                 CALL db.index.fulltext.queryNodes('graphNodeSearch', $question) YIELD node, score
                 WHERE node.projectId = $projectId
-                RETURN node.id AS id, node.label AS label
+                RETURN node, score
                 ORDER BY score DESC
                 LIMIT $limit
                 """,
-                new { question = EscapeLuceneQuery(question), projectId, limit = MaxStartNodes });
+                new { question = EscapeLuceneQuery(question), projectId, limit = MaxFulltextMatches });
             return await cursor.ToListAsync();
         });
-        var starts = startRecords.Select(r => (Id: r["id"].As<string>(), Label: r["label"].As<string>())).ToList();
 
-        if (starts.Count == 0) return null;
+        if (matchRecords.Count == 0) return null;
+
+        var topScore = matchRecords[0]["score"].As<double>();
+        var relevantMatches = matchRecords
+            .Select(r => (Node: r["node"].As<INode>(), Score: r["score"].As<double>()))
+            .Where(r => r.Score >= topScore * RelevanceFloor)
+            .ToList();
+
+        var seedIds = relevantMatches.Take(MaxTraversalSeeds)
+            .Select(r => r.Node.Properties["id"].As<string>()).ToArray();
 
         var traversalRecords = await session.ExecuteReadAsync(async tx =>
         {
@@ -64,21 +87,30 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
                 UNWIND rl AS r
                 RETURN ns, collect(DISTINCT r) AS rs
                 """.Replace("%DEPTH%", depth.ToString()),
-                new { startIds = starts.Select(s => s.Id).ToArray(), projectId });
+                new { startIds = seedIds, projectId });
             return await cursor.ToListAsync();
         });
 
-        List<INode> nodes = [];
+        List<INode> traversalNodes = [];
         List<IRelationship> edges = [];
         if (traversalRecords.Count > 0)
         {
-            nodes = traversalRecords[0]["ns"].As<List<INode>>();
+            traversalNodes = traversalRecords[0]["ns"].As<List<INode>>();
             edges = traversalRecords[0]["rs"].As<List<IRelationship>>();
         }
 
+        // Relevance-ranked matches first (guarantees the actual answer survives budget truncation),
+        // then whatever same-file context traversal turned up that isn't already in that list.
+        var seenIds = new HashSet<string>();
+        List<INode> nodes = [];
+        foreach (var m in relevantMatches)
+            if (seenIds.Add(m.Node.ElementId)) nodes.Add(m.Node);
+        foreach (var n in traversalNodes)
+            if (seenIds.Add(n.ElementId)) nodes.Add(n);
+
         if (nodes.Count == 0) return null;
 
-        return FormatAndTruncate(traversalLabel, depth, starts.Select(s => s.Label), nodes, edges, budget);
+        return FormatAndTruncate(traversalLabel, depth, relevantMatches.Select(m => m.Node.Properties.GetValueOrDefault("label")?.ToString() ?? ""), nodes, edges, budget);
     }
 
     private static string FormatAndTruncate(
