@@ -19,7 +19,7 @@ namespace SupportForge.Agents;
 /// </summary>
 public static class LlmServiceCollectionExtensions
 {
-    private static readonly string[] SupportedProviders = { "OpenAI", "NvidiaNim", "Azure", "Anthropic", "Bedrock" };
+    private static readonly string[] SupportedProviders = { "OpenAI", "NvidiaNim", "Ollama", "Azure", "Anthropic", "Bedrock" };
 
     public static IServiceCollection AddLlmProviders(this IServiceCollection services, IConfiguration configuration)
     {
@@ -65,6 +65,7 @@ public static class LlmServiceCollectionExtensions
         {
             case "OpenAI":
             case "NvidiaNim":
+            case "Ollama":
                 services.AddSingleton<ILlmChatClient>(_ => BuildOpenAiCompatibleClient(configuration, provider));
                 break;
             case "Azure":
@@ -95,6 +96,7 @@ public static class LlmServiceCollectionExtensions
         {
             case "OpenAI":
             case "NvidiaNim":
+            case "Ollama":
                 services.AddSingleton<ILlmEmbeddingClient>(_ => BuildOpenAiCompatibleClient(configuration, provider));
                 break;
             case "Azure":
@@ -154,14 +156,18 @@ public static class LlmServiceCollectionExtensions
     private static OpenAiLlmClient BuildOpenAiCompatibleClient(IConfiguration configuration, string providerSection)
     {
         var section = configuration.GetSection($"Llm:{providerSection}");
-        var baseUrl = section["BaseUrl"] ?? "https://api.openai.com/v1/";
+        var isOllama = providerSection == "Ollama";
+        var baseUrl = section["BaseUrl"] ?? (isOllama ? "http://localhost:11434/v1/" : "https://api.openai.com/v1/");
         var apiKey = section["ApiKey"] ?? configuration["Llm:ApiKey"] ?? configuration["OpenAI:ApiKey"];
-        var chatModel = section["ChatModel"] ?? "gpt-4o-mini";
-        var embeddingModel = section["EmbeddingModel"] ?? "text-embedding-3-small";
+        var chatModel = section["ChatModel"] ?? (isOllama ? "llama3.1" : "gpt-4o-mini");
+        var embeddingModel = section["EmbeddingModel"] ?? (isOllama ? "nomic-embed-text" : "text-embedding-3-small");
         var embeddingInputType = section["EmbeddingInputType"];
 
         var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
-        var credential = new ApiKeyCredential(apiKey ?? string.Empty);
+        // Ollama's server ignores the Authorization header entirely (no auth), but the OpenAI SDK's
+        // ApiKeyCredential still requires a non-empty string client-side -- "ollama" is the value
+        // Ollama's own docs use as a placeholder for OpenAI-SDK-compatible clients.
+        var credential = new ApiKeyCredential(!string.IsNullOrEmpty(apiKey) ? apiKey : isOllama ? "ollama" : string.Empty);
         return new OpenAiLlmClient(
             new OpenAI.Chat.ChatClient(chatModel, credential, options).AsIChatClient(),
             new OpenAI.Embeddings.EmbeddingClient(embeddingModel, credential, options),

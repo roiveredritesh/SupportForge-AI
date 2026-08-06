@@ -56,6 +56,23 @@ public class LlmServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddLlmProviders_Ollama_RegistersUnionClient_WithNoApiKeyConfigured()
+    {
+        // Ollama's server ignores auth entirely -- unlike every other OpenAI-compatible provider,
+        // this must not throw when Llm:Ollama:ApiKey is absent (BuildOpenAiCompatibleClient falls
+        // back to a placeholder credential for this provider specifically).
+        var services = new ServiceCollection();
+        var config = BuildConfig(new() { ["Llm:Provider"] = "Ollama" });
+
+        services.AddLlmProviders(config);
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<OpenAiLlmClient>(provider.GetRequiredService<ILlmChatClient>());
+        Assert.IsType<OpenAiLlmClient>(provider.GetRequiredService<ILlmEmbeddingClient>());
+        Assert.NotNull(provider.GetRequiredService<ILlmClient>());
+    }
+
+    [Fact]
     public void AddLlmProviders_Bedrock_RegistersUnionClient()
     {
         var services = new ServiceCollection();
