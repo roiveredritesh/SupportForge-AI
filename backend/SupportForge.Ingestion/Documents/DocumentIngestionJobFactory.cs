@@ -58,7 +58,7 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
         return project.KbSources.Select(s => (IIngestionJob)(s.Type switch
         {
             KbSourceType.Documents => BuildDocumentsJob(s),
-            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects),
+            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects, s.CrawlLinkedPages),
             KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, confluence, indexer, projects),
             _ => throw new NotSupportedException($"KB source type '{s.Type}' is not supported."),
         })).ToList();

@@ -6,21 +6,32 @@ namespace SupportForge.Ingestion.Documents;
 
 /// <summary>
 /// Fetches a website/URL KB source directly and indexes its visible text into the vector store via
-/// <see cref="KbVectorIndexer"/>.
+/// <see cref="KbVectorIndexer"/>. When <see cref="_crawlLinkedPages"/> is set, also indexes same-host
+/// pages linked directly from the root page (one level, not a recursive site crawl -- see the
+/// ponytail note on <see cref="MaxCrawledPages"/>).
 /// </summary>
 public sealed class WebsiteIngestionJob : IIngestionJob
 {
+    // ponytail: single-level link expansion (root page's own links only, not a recursive
+    // multi-hop crawl), capped so a large site can't turn one ingestion run into hundreds of
+    // fetches. Add recursive depth + a visited-page budget if a real KB source needs deeper
+    // coverage than "root page + its direct links".
+    private const int MaxCrawledPages = 25;
+
     private readonly string _url;
+    private readonly bool _crawlLinkedPages;
     private readonly HttpClient _httpClient;
     private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
 
     public string ProjectId { get; }
 
-    public WebsiteIngestionJob(string projectId, string url, HttpClient httpClient, KbVectorIndexer indexer, IProjectRepository projects)
+    public WebsiteIngestionJob(
+        string projectId, string url, HttpClient httpClient, KbVectorIndexer indexer, IProjectRepository projects, bool crawlLinkedPages = false)
     {
         ProjectId = projectId;
         _url = url;
+        _crawlLinkedPages = crawlLinkedPages;
         _httpClient = httpClient;
         _indexer = indexer;
         _projects = projects;
@@ -30,18 +41,43 @@ public sealed class WebsiteIngestionJob : IIngestionJob
     {
         EnsurePublicHttpUrl(_url);
 
-        var html = await _httpClient.GetStringAsync(_url, ct);
-        var text = ExtractVisibleText(html);
+        var rootDoc = await FetchAsync(_url, ct);
+        var pages = new List<(string SourceRef, string Text)> { (_url, ExtractVisibleText(rootDoc)) };
 
-        await _indexer.IndexAsync(ProjectId, [(_url, text)], ct);
+        if (_crawlLinkedPages)
+        {
+            var rootUri = new Uri(_url);
+            foreach (var link in DiscoverSameHostLinks(rootDoc, rootUri).Take(MaxCrawledPages))
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    EnsurePublicHttpUrl(link);
+                    var linkedDoc = await FetchAsync(link, ct);
+                    pages.Add((link, ExtractVisibleText(linkedDoc)));
+                }
+                catch (Exception ex) when (ex is HttpRequestException or ArgumentException or TaskCanceledException)
+                {
+                    // One broken, disallowed, or slow linked page shouldn't fail the whole crawl --
+                    // the root page (and every other linked page) still gets indexed.
+                }
+            }
+        }
+
+        await _indexer.IndexAsync(ProjectId, pages, ct);
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _url, ct);
     }
 
-    private static string ExtractVisibleText(string html)
+    private async Task<HtmlDocument> FetchAsync(string url, CancellationToken ct)
     {
+        var html = await _httpClient.GetStringAsync(url, ct);
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
+        return doc;
+    }
 
+    private static string ExtractVisibleText(HtmlDocument doc)
+    {
         foreach (var node in doc.DocumentNode.SelectNodes("//script|//style")?.ToList() ?? [])
             node.Remove();
 
@@ -49,10 +85,34 @@ public sealed class WebsiteIngestionJob : IIngestionJob
         return WebUtility.HtmlDecode(body.InnerText).Trim();
     }
 
+    // Same-host only (not "same domain including subdomains") -- a link to a different host is a
+    // different site's content, which this KB source was never configured to index.
+    private static IEnumerable<string> DiscoverSameHostLinks(HtmlDocument doc, Uri rootUri)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { NormalizeForDedup(rootUri) };
+        var hrefs = doc.DocumentNode.SelectNodes("//a[@href]")?.Select(n => n.GetAttributeValue("href", "")) ?? [];
+
+        foreach (var href in hrefs)
+        {
+            if (string.IsNullOrWhiteSpace(href)) continue;
+            if (!Uri.TryCreate(rootUri, href, out var resolved)) continue;
+            if (resolved.Scheme != Uri.UriSchemeHttp && resolved.Scheme != Uri.UriSchemeHttps) continue;
+            if (!string.Equals(resolved.Host, rootUri.Host, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var key = NormalizeForDedup(resolved);
+            if (!seen.Add(key)) continue;
+
+            yield return resolved.GetLeftPart(UriPartial.Query);
+        }
+    }
+
+    // Strips the fragment (#section) so "/page" and "/page#section" aren't crawled as two pages.
+    private static string NormalizeForDedup(Uri uri) => uri.GetLeftPart(UriPartial.Query);
+
     // SSRF guard: this URL comes from persisted project config and is handed straight to our own
     // outbound fetcher, so it must not be allowed to reach loopback, link-local, private, or
     // cloud-metadata addresses (e.g. 169.254.169.254) that a server-side fetch could otherwise be
-    // tricked into reaching.
+    // tricked into reaching. Applied to every discovered link too, not just the configured root URL.
     private static void EnsurePublicHttpUrl(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||

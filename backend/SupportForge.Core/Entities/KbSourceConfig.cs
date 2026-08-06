@@ -14,4 +14,9 @@ public sealed record KbSourceConfig(
     string Location,
     DateTimeOffset? LastSyncedAt,
     string? RepoOwner = null,
-    string? RepoName = null);
+    string? RepoName = null,
+    // Website sources only: false (default, matches prior behavior) indexes just this one page.
+    // true also indexes same-host pages linked directly from it -- an explicit opt-in the user
+    // makes when configuring the source, not a runtime prompt (there's no ingestion-time UI to
+    // prompt from; this field *is* the confirmation).
+    bool CrawlLinkedPages = false);
