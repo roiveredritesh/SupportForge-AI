@@ -17,6 +17,9 @@ export interface ProjectKbSource {
   repoOwner?: string | null;
   repoName?: string | null;
   lastSyncedAt?: string | null;
+  // Website sources only: also index same-host pages linked directly from the root page.
+  // Omitted/false matches prior behavior (single page only).
+  crawlLinkedPages?: boolean;
 }
 
 export interface Project {

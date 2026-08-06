@@ -199,6 +199,16 @@ export default function AdminPage() {
                   </select>
                 </div>
               )}
+              {k.type === 'Website' && (
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={k.crawlLinkedPages ?? false}
+                    onChange={(e) => updateKbSource(i, { crawlLinkedPages: e.target.checked })}
+                  />
+                  Also index pages linked from this page (same site only)
+                </label>
+              )}
               <button
                 className="text-sm text-red-600 hover:underline dark:text-red-400"
                 onClick={() => setKbSources((prev) => prev.filter((_, idx) => idx !== i))}
@@ -259,6 +269,7 @@ export default function AdminPage() {
                     <li key={`${k.type}:${k.location}`}>
                       KB [{k.type}]: {k.location}
                       {k.repoOwner && k.repoName ? ` (via ${k.repoOwner}/${k.repoName})` : ''}
+                      {k.type === 'Website' && k.crawlLinkedPages ? ' (+ linked pages)' : ''}
                       {k.lastSyncedAt ? ` — last synced ${new Date(k.lastSyncedAt).toLocaleString()}` : ' — never synced'}
                     </li>
                   ))}
