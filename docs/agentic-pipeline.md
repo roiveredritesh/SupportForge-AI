@@ -1,5 +1,13 @@
 # Agentic Support Pipeline
 
+> **STALE as of 2026-08-06.** The diagrams/flow below (§3–§4) still show Triage fanning out to
+> KB/Code/Vision in parallel. The current `CoordinatorPipeline` gates Code behind
+> `KbResearcherVerifier → CrossReferenceAgent` and adds a `FreshnessGateAgent` after Triage, neither of
+> which appear here. See [`docs/architecture/2026-08-06-001-hld-system-design.md`](./architecture/2026-08-06-001-hld-system-design.md)
+> §2 for the verified current topology. This doc still accurately explains the Agent Framework
+> `Workflow` mechanics (executors, fan-in barriers, verifier retry edges) in §2 — only the specific
+> shape of the graph is out of date.
+
 How a support query flows through SupportForge's backend, and how that flow
 is implemented on top of the [Microsoft Agent Framework](https://github.com/microsoft/agent-framework)
 `Workflow` API.

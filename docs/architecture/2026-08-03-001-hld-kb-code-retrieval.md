@@ -1,5 +1,13 @@
 # HLD: KB and Code Retrieval Architecture
 
+> **STALE as of 2026-08-06.** The `graphify extract`/`graphify query` external CLI subprocess described
+> throughout this doc (§1–§2, both diagrams) has been removed from the codebase. Code-graph extraction is
+> now an in-process regex-based extractor (`CodeGraphExtractor.cs`) writing directly into **Neo4j**
+> (`GraphImportJob.cs`) — there is no `graph.json` file and no `graphify` CLI dependency anymore. KB
+> retrieval via Chroma (§1's left column) is still accurate. See
+> [`docs/architecture/2026-08-06-001-hld-system-design.md`](./2026-08-06-001-hld-system-design.md) §2 and §4
+> for the corrected architecture and full explanation.
+
 Status: reflects code on branch `worktree-fix-verifier-relevance` as of 2026-08-03.
 Companion doc: [`2026-08-03-002-lld-kb-code-retrieval.md`](./2026-08-03-002-lld-kb-code-retrieval.md).
 Existing doc: [`docs/agentic-pipeline.md`](../agentic-pipeline.md) covers the `CoordinatorPipeline` workflow wiring in
