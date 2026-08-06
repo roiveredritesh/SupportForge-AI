@@ -1,0 +1,137 @@
+[
+  {
+    "id": "waza-code-01", "domain": "waza (e-commerce API)", "expectPass": true,
+    "query": "what does the RefundHandler class do?",
+    "snippets": [
+      "NODE RefundHandler [src=refund-handler.ts] -- handles POST /refunds, validates order state, calls PaymentGateway.reverse",
+      "NODE CheckoutWidget [src=checkout-widget.tsx] -- renders Apple Pay and Google Pay buttons"
+    ]
+  },
+  {
+    "id": "waza-code-02", "domain": "waza (e-commerce API)", "expectPass": false,
+    "query": "what design pattern is a factory method?",
+    "snippets": [
+      "NODE RefundHandler [src=refund-handler.ts] -- handles POST /refunds, validates order state",
+      "EDGE RefundHandler -> PaymentGateway [calls]"
+    ]
+  },
+  {
+    "id": "waza-code-03", "domain": "waza (e-commerce API)", "expectPass": false,
+    "query": "what are the two possible values of RefundHandler's status field?",
+    "snippets": [
+      "NODE RefundHandler [src=refund-handler.ts] -- has field 'status'",
+      "EDGE RefundHandler -> OrderRepository [reads]"
+    ]
+  },
+  {
+    "id": "waza-code-04", "domain": "waza (e-commerce API)", "expectPass": true,
+    "query": "what does CheckoutWidget call to process a payment?",
+    "snippets": [
+      "NODE RefundHandler [src=refund-handler.ts] -- handles POST /refunds",
+      "NODE CheckoutWidget [src=checkout-widget.tsx] -- calls PaymentGateway.charge on submit"
+    ]
+  },
+
+  {
+    "id": "intakely-code-01", "domain": "intakely (healthcare intake)", "expectPass": true,
+    "query": "what does IntakeSyncJob do?",
+    "snippets": [
+      "NODE IntakeSyncJob [src=intake-sync-job.cs] -- runs every 15 minutes, pushes completed forms to EhrClient",
+      "NODE ReminderService [src=reminder-service.cs] -- sends SMS reminders via TwilioClient"
+    ]
+  },
+  {
+    "id": "intakely-code-02", "domain": "intakely (healthcare intake)", "expectPass": false,
+    "query": "explain dependency injection in general",
+    "snippets": [
+      "NODE IntakeSyncJob [src=intake-sync-job.cs] -- runs every 15 minutes",
+      "EDGE IntakeSyncJob -> EhrClient [calls]"
+    ]
+  },
+  {
+    "id": "intakely-code-03", "domain": "intakely (healthcare intake)", "expectPass": false,
+    "query": "what timeout does EhrClient use for its HTTP calls?",
+    "snippets": [
+      "NODE EhrClient [src=ehr-client.cs] -- has method PushIntakeForm",
+      "EDGE IntakeSyncJob -> EhrClient [calls]"
+    ]
+  },
+
+  {
+    "id": "routely-code-01", "domain": "routely (logistics dashboard)", "expectPass": true,
+    "query": "what does DispatchGate check before releasing a shipment?",
+    "snippets": [
+      "NODE DispatchGate [src=dispatch-gate.go] -- blocks release until CarrierClient.ConfirmPickupScan returns true",
+      "NODE EtaRefresher [src=eta-refresher.go] -- polls carrier ETAs every 10 minutes"
+    ]
+  },
+  {
+    "id": "routely-code-02", "domain": "routely (logistics dashboard)", "expectPass": false,
+    "query": "what is a message queue?",
+    "snippets": [
+      "NODE DispatchGate [src=dispatch-gate.go] -- blocks release until pickup scan confirmed",
+      "EDGE DispatchGate -> CarrierClient [calls]"
+    ]
+  },
+  {
+    "id": "routely-code-03", "domain": "routely (logistics dashboard)", "expectPass": false,
+    "query": "what retry backoff does EtaRefresher use on carrier API failure?",
+    "snippets": [
+      "NODE EtaRefresher [src=eta-refresher.go] -- has method Poll",
+      "EDGE EtaRefresher -> CarrierClient [calls]"
+    ]
+  },
+
+  {
+    "id": "pulsely-code-01", "domain": "pulsely (devops monitoring)", "expectPass": true,
+    "query": "what does AlertSilencer do when a bell icon is clicked?",
+    "snippets": [
+      "NODE AlertSilencer [src=alert-silencer.ts] -- sets Alert.silencedUntil based on the chosen duration",
+      "NODE MetricRetentionPolicy [src=retention-policy.ts] -- purges raw metrics older than 13 months"
+    ]
+  },
+  {
+    "id": "pulsely-code-02", "domain": "pulsely (devops monitoring)", "expectPass": false,
+    "query": "what is the CAP theorem?",
+    "snippets": [
+      "NODE AlertSilencer [src=alert-silencer.ts] -- sets Alert.silencedUntil",
+      "EDGE AlertSilencer -> AlertRepository [writes]"
+    ]
+  },
+  {
+    "id": "pulsely-code-03", "domain": "pulsely (devops monitoring)", "expectPass": false,
+    "query": "which notification providers does the AlertRouter class support?",
+    "snippets": [
+      "NODE AlertRouter [src=alert-router.ts] -- has method Dispatch",
+      "EDGE AlertRouter -> AlertSilencer [checks]"
+    ]
+  },
+
+  {
+    "id": "onboardly-code-01", "domain": "onboardly (HR onboarding)", "expectPass": true,
+    "query": "what triggers the WelcomeEmailSender?",
+    "snippets": [
+      "NODE WelcomeEmailSender [src=welcome-email-sender.cs] -- fires on Hire.StartDate reached, sends via SendGridClient",
+      "NODE ChecklistAssigner [src=checklist-assigner.cs] -- assigns a template to a new hire"
+    ]
+  },
+  {
+    "id": "onboardly-code-02", "domain": "onboardly (HR onboarding)", "expectPass": false,
+    "query": "explain how a message broker works",
+    "snippets": [
+      "NODE WelcomeEmailSender [src=welcome-email-sender.cs] -- fires on Hire.StartDate reached",
+      "EDGE WelcomeEmailSender -> SendGridClient [calls]"
+    ]
+  },
+  {
+    "id": "onboardly-code-03", "domain": "onboardly (HR onboarding)", "expectPass": false,
+    "query": "how many checklist templates can ChecklistAssigner hold?",
+    "snippets": [
+      "NODE ChecklistAssigner [src=checklist-assigner.cs] -- has method Assign",
+      "EDGE ChecklistAssigner -> TemplateRepository [reads]"
+    ]
+  },
+
+  { "id": "code-empty-01", "domain": "empty-result", "expectPass": false, "query": "what does the OrderExporter class do in Waza?", "snippets": [] },
+  { "id": "code-empty-02", "domain": "empty-result", "expectPass": false, "query": "what does PulselyDashboardController render?", "snippets": [] }
+]

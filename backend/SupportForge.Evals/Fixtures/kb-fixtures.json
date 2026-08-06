@@ -1,0 +1,177 @@
+[
+  {
+    "id": "waza-01", "domain": "waza (e-commerce API)", "expectPass": true,
+    "query": "how do I install Waza on macOS?",
+    "snippets": [
+      "Run curl -fsSL https://waza.dev/install.sh | sh to install Waza on macOS or Linux.",
+      "Waza's refund API returns a 409 if the order was already refunded."
+    ]
+  },
+  {
+    "id": "waza-02", "domain": "waza (e-commerce API)", "expectPass": false,
+    "query": "what is a webhook in general?",
+    "snippets": [
+      "Waza's refund API returns a 409 if the order was already refunded.",
+      "Waza's checkout widget supports Apple Pay and Google Pay out of the box."
+    ]
+  },
+  {
+    "id": "waza-03", "domain": "waza (e-commerce API)", "expectPass": true,
+    "query": "why does the refund API return 409?",
+    "snippets": [
+      "Waza's checkout widget supports Apple Pay and Google Pay out of the box.",
+      "Waza's refund API returns a 409 if the order was already refunded."
+    ]
+  },
+  {
+    "id": "waza-04", "domain": "waza (e-commerce API)", "expectPass": false,
+    "query": "what does this repository do?",
+    "snippets": [
+      "Waza's billing FAQ: subscriptions renew monthly on the signup anniversary date.",
+      "Waza's password-reset guide: click 'Forgot password' on the login screen."
+    ]
+  },
+  {
+    "id": "waza-05", "domain": "waza (e-commerce API)", "expectPass": false,
+    "query": "tell me about idempotency keys",
+    "snippets": [
+      "Waza's install guide: curl -fsSL https://waza.dev/install.sh | sh",
+      "Waza's release notes v2.3: added Apple Pay support to the checkout widget."
+    ]
+  },
+
+  {
+    "id": "intakely-01", "domain": "intakely (healthcare intake)", "expectPass": true,
+    "query": "how do I mark a patient intake form as complete?",
+    "snippets": [
+      "In Intakely, open the patient's record and click 'Mark Complete' on the intake tab.",
+      "Intakely syncs completed intake forms to the EHR every 15 minutes."
+    ]
+  },
+  {
+    "id": "intakely-02", "domain": "intakely (healthcare intake)", "expectPass": false,
+    "query": "what is HIPAA compliance?",
+    "snippets": [
+      "Intakely syncs completed intake forms to the EHR every 15 minutes.",
+      "Intakely's appointment reminders send via SMS 24 hours before the visit."
+    ]
+  },
+  {
+    "id": "intakely-03", "domain": "intakely (healthcare intake)", "expectPass": true,
+    "query": "how often does Intakely sync to the EHR?",
+    "snippets": [
+      "Intakely's appointment reminders send via SMS 24 hours before the visit.",
+      "Intakely syncs completed intake forms to the EHR every 15 minutes."
+    ]
+  },
+  {
+    "id": "intakely-04", "domain": "intakely (healthcare intake)", "expectPass": false,
+    "query": "how do refunds work for Waza orders?",
+    "snippets": [
+      "Intakely's appointment reminders send via SMS 24 hours before the visit.",
+      "Intakely's intake form supports up to 40 custom fields per template."
+    ]
+  },
+
+  {
+    "id": "routely-01", "domain": "routely (logistics dashboard)", "expectPass": true,
+    "query": "why is a shipment stuck in 'pending dispatch'?",
+    "snippets": [
+      "Routely marks a shipment 'pending dispatch' until the carrier confirms pickup scan.",
+      "Routely's dashboard refreshes carrier ETAs every 10 minutes."
+    ]
+  },
+  {
+    "id": "routely-02", "domain": "routely (logistics dashboard)", "expectPass": false,
+    "query": "what's the difference between FIFO and LIFO inventory?",
+    "snippets": [
+      "Routely's dashboard refreshes carrier ETAs every 10 minutes.",
+      "Routely supports UPS, FedEx, and DHL as carrier integrations."
+    ]
+  },
+  {
+    "id": "routely-03", "domain": "routely (logistics dashboard)", "expectPass": true,
+    "query": "which carriers does Routely support?",
+    "snippets": [
+      "Routely marks a shipment 'pending dispatch' until the carrier confirms pickup scan.",
+      "Routely supports UPS, FedEx, and DHL as carrier integrations."
+    ]
+  },
+  {
+    "id": "routely-04", "domain": "routely (logistics dashboard)", "expectPass": false,
+    "query": "how do I reset my Intakely password?",
+    "snippets": [
+      "Routely's dashboard refreshes carrier ETAs every 10 minutes.",
+      "Routely supports UPS, FedEx, and DHL as carrier integrations."
+    ]
+  },
+
+  {
+    "id": "pulsely-01", "domain": "pulsely (devops monitoring)", "expectPass": true,
+    "query": "how do I silence an alert in Pulsely?",
+    "snippets": [
+      "Pulsely: click the bell icon on any alert card and choose a silence duration.",
+      "Pulsely retains raw metrics for 13 months by default."
+    ]
+  },
+  {
+    "id": "pulsely-02", "domain": "pulsely (devops monitoring)", "expectPass": false,
+    "query": "explain the difference between p50 and p99 latency",
+    "snippets": [
+      "Pulsely retains raw metrics for 13 months by default.",
+      "Pulsely's alert rules support PagerDuty and Slack as notification targets."
+    ]
+  },
+  {
+    "id": "pulsely-03", "domain": "pulsely (devops monitoring)", "expectPass": true,
+    "query": "how long does Pulsely keep raw metrics?",
+    "snippets": [
+      "Pulsely's alert rules support PagerDuty and Slack as notification targets.",
+      "Pulsely retains raw metrics for 13 months by default."
+    ]
+  },
+  {
+    "id": "pulsely-04", "domain": "pulsely (devops monitoring)", "expectPass": false,
+    "query": "how many custom fields can an Intakely form have?",
+    "snippets": [
+      "Pulsely's alert rules support PagerDuty and Slack as notification targets.",
+      "Pulsely retains raw metrics for 13 months by default."
+    ]
+  },
+
+  {
+    "id": "onboardly-01", "domain": "onboardly (HR onboarding)", "expectPass": true,
+    "query": "how do I assign an onboarding checklist to a new hire?",
+    "snippets": [
+      "Onboardly: from the new hire's profile, click 'Assign Checklist' and pick a template.",
+      "Onboardly sends a welcome email automatically on the hire's start date."
+    ]
+  },
+  {
+    "id": "onboardly-02", "domain": "onboardly (HR onboarding)", "expectPass": false,
+    "query": "what is context rot in AI agents?",
+    "snippets": [
+      "Onboardly sends a welcome email automatically on the hire's start date.",
+      "Onboardly's org chart view supports up to 5 levels of reporting hierarchy."
+    ]
+  },
+  {
+    "id": "onboardly-03", "domain": "onboardly (HR onboarding)", "expectPass": true,
+    "query": "does Onboardly send a welcome email automatically?",
+    "snippets": [
+      "Onboardly's org chart view supports up to 5 levels of reporting hierarchy.",
+      "Onboardly sends a welcome email automatically on the hire's start date."
+    ]
+  },
+  {
+    "id": "onboardly-04", "domain": "onboardly (HR onboarding)", "expectPass": false,
+    "query": "why is my Routely shipment stuck?",
+    "snippets": [
+      "Onboardly sends a welcome email automatically on the hire's start date.",
+      "Onboardly's org chart view supports up to 5 levels of reporting hierarchy."
+    ]
+  },
+
+  { "id": "empty-01", "domain": "empty-result", "expectPass": false, "query": "how do I export a Waza order history CSV?", "snippets": [] },
+  { "id": "empty-02", "domain": "empty-result", "expectPass": false, "query": "does Pulsely support custom dashboards?", "snippets": [] }
+]

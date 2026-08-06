@@ -1,0 +1,16 @@
+[
+  { "id": "vision-01", "expectPass": true,  "query": "why is my checkout failing?", "findings": "500 error banner", "note": "short (<20 chars), meaningful -- exercises the LLM judge" },
+  { "id": "vision-02", "expectPass": false, "query": "why is my checkout failing?", "findings": "not sure", "note": "short, vague non-answer -- exercises the LLM judge" },
+  { "id": "vision-03", "expectPass": false, "query": "what's wrong with this page?", "findings": "n/a", "note": "short, vague non-answer" },
+  { "id": "vision-04", "expectPass": true,  "query": "what error do you see?", "findings": "404 Not Found", "note": "short, meaningful" },
+  { "id": "vision-05", "expectPass": false, "query": "what's on screen?", "findings": "looks fine", "note": "short, vague non-answer" },
+  { "id": "vision-06", "expectPass": true,  "query": "any error visible?", "findings": "red banner shown", "note": "short, meaningful" },
+  { "id": "vision-07", "expectPass": false, "query": "describe the screen", "findings": "unclear image", "note": "short, vague non-answer" },
+  { "id": "vision-08", "expectPass": true,  "query": "what does the modal say?", "findings": "timeout, retry now", "note": "short, meaningful" },
+
+  { "id": "vision-empty-01", "expectPass": false, "query": "what error do you see?", "findings": "", "note": "empty findings -- auto-fails without calling the LLM judge at all" },
+  { "id": "vision-empty-02", "expectPass": false, "query": "describe the error banner", "findings": "   ", "note": "whitespace-only -- auto-fails without calling the LLM judge" },
+
+  { "id": "vision-long-01", "expectPass": true, "query": "what does the stack trace show?", "findings": "NullReferenceException at OrderController.Submit line 42, thrown when order.Customer is null", "note": ">=20 chars -- auto-passes without calling the LLM judge (documents the short-circuit, not a judge-quality case)" },
+  { "id": "vision-long-02", "expectPass": true, "query": "what's shown in the screenshot?", "findings": "A 403 Forbidden error dialog is displayed over the settings page, with a 'Contact support' button below it", "note": ">=20 chars -- auto-passes without calling the LLM judge" }
+]
