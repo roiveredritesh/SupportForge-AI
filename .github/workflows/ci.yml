@@ -37,6 +37,34 @@ jobs:
           OpenAI__ApiKey: ${{ secrets.OPENAI_API_KEY }}
         run: dotnet test backend/SupportForge.Backend.sln --no-build --configuration Release
 
+  # E2 (gap-closing-solutions.md Phase E, item 2): runs the frontend test suite, typecheck, and
+  # lint on every push/PR -- previously only the backend .NET suite ran in CI.
+  frontend-build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install
+        run: npm ci
+        working-directory: frontend
+
+      - name: Lint
+        run: npm run lint
+        working-directory: frontend
+
+      - name: Test
+        run: npx vitest run
+        working-directory: frontend
+
+      - name: Typecheck and build
+        run: npm run build
+        working-directory: frontend
+
   docker-build:
     runs-on: ubuntu-latest
     needs: build-and-test
