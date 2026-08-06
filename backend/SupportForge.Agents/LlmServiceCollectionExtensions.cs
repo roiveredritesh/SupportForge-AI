@@ -21,6 +21,15 @@ public static class LlmServiceCollectionExtensions
 {
     private static readonly string[] SupportedProviders = { "OpenAI", "NvidiaNim", "Ollama", "Azure", "Anthropic", "Bedrock" };
 
+    // Model tiering (gap-closing-solutions.md Phase C, item 3): the key under which a second,
+    // cheap-tier ILlmChatClient is registered alongside the default one. Resolve via
+    // sp.GetRequiredKeyedService<ILlmChatClient>(CheapTierKey) for classifier/judge-style calls
+    // (Triage, the three verifiers) where a smaller model is an acceptable quality/cost trade --
+    // see docs/architecture/2026-08-06-003-gap-closing-solutions.md Phase C item 3. Every provider's
+    // *ChatModel config falls back to the main ChatModel when unset, so tiering is opt-in per
+    // deployment: registering this key changes nothing until a CheapChatModel is actually configured.
+    public const string CheapTierKey = "cheap";
+
     public static IServiceCollection AddLlmProviders(this IServiceCollection services, IConfiguration configuration)
     {
         var chatProvider = NullIfBlank(configuration["Llm:Provider"]) ?? "OpenAI";
@@ -30,6 +39,7 @@ public static class LlmServiceCollectionExtensions
         var sameProvider = string.Equals(chatProvider, embeddingProvider, StringComparison.OrdinalIgnoreCase);
 
         RegisterChatProvider(services, configuration, chatProvider);
+        RegisterCheapChatProvider(services, configuration, chatProvider);
 
         if (sameProvider)
         {
@@ -84,6 +94,58 @@ public static class LlmServiceCollectionExtensions
                 services.Configure<BedrockOptions>(configuration.GetSection("Llm:Bedrock"));
                 services.AddSingleton<BedrockLlmClient>();
                 services.AddSingleton<ILlmChatClient>(sp => sp.GetRequiredService<BedrockLlmClient>());
+                break;
+            default:
+                throw new InvalidOperationException($"Llm:Provider '{provider}' is not recognized. Supported: {string.Join(", ", SupportedProviders)}.");
+        }
+    }
+
+    // Registers the same provider a second time under CheapTierKey, using each provider's
+    // *CheapChatModel config (falling back to its normal ChatModel -- see CheapTierKey doc comment).
+    // Embeddings are never tiered: only chat/judge calls (Triage, verifiers) use this key.
+    private static void RegisterCheapChatProvider(IServiceCollection services, IConfiguration configuration, string provider)
+    {
+        switch (provider)
+        {
+            case "OpenAI":
+            case "NvidiaNim":
+            case "Ollama":
+                services.AddKeyedSingleton<ILlmChatClient>(CheapTierKey,
+                    (_, _) => BuildOpenAiCompatibleClient(configuration, provider, cheapTier: true));
+                break;
+            case "Azure":
+                services.AddKeyedSingleton<ILlmChatClient>(CheapTierKey, (_, _) => BuildAzureClient(configuration, cheapTier: true));
+                break;
+            case "Anthropic":
+                services.AddKeyedSingleton<ILlmChatClient>(CheapTierKey, (sp, _) =>
+                {
+                    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AnthropicOptions>>().Value;
+                    var cheapOptions = Microsoft.Extensions.Options.Options.Create(new AnthropicOptions
+                    {
+                        BaseUrl = options.BaseUrl,
+                        ChatModel = options.CheapChatModel ?? options.ChatModel,
+                        ApiKey = options.ApiKey,
+                        MaxTokens = options.MaxTokens,
+                    });
+                    // Reuses the same named+configured HttpClient (timeout, resilience handler) the
+                    // default AnthropicLlmClient registration already set up -- only the model differs.
+                    var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AnthropicLlmClient));
+                    return new AnthropicLlmClient(http, cheapOptions);
+                });
+                break;
+            case "Bedrock":
+                services.AddKeyedSingleton<ILlmChatClient>(CheapTierKey, (sp, _) =>
+                {
+                    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BedrockOptions>>().Value;
+                    var cheapOptions = Microsoft.Extensions.Options.Options.Create(new BedrockOptions
+                    {
+                        Region = options.Region,
+                        ChatModel = options.CheapChatModel ?? options.ChatModel,
+                        EmbeddingModel = options.EmbeddingModel,
+                        MaxTokens = options.MaxTokens,
+                    });
+                    return new BedrockLlmClient(sp.GetRequiredService<IAmazonBedrockRuntime>(), cheapOptions);
+                });
                 break;
             default:
                 throw new InvalidOperationException($"Llm:Provider '{provider}' is not recognized. Supported: {string.Join(", ", SupportedProviders)}.");
@@ -153,13 +215,16 @@ public static class LlmServiceCollectionExtensions
         });
     }
 
-    private static OpenAiLlmClient BuildOpenAiCompatibleClient(IConfiguration configuration, string providerSection)
+    private static OpenAiLlmClient BuildOpenAiCompatibleClient(IConfiguration configuration, string providerSection, bool cheapTier = false)
     {
         var section = configuration.GetSection($"Llm:{providerSection}");
         var isOllama = providerSection == "Ollama";
         var baseUrl = section["BaseUrl"] ?? (isOllama ? "http://localhost:11434/v1/" : "https://api.openai.com/v1/");
         var apiKey = section["ApiKey"] ?? configuration["Llm:ApiKey"] ?? configuration["OpenAI:ApiKey"];
         var chatModel = section["ChatModel"] ?? (isOllama ? "llama3.1" : "gpt-4o-mini");
+        // Model tiering (gap-closing-solutions.md Phase C, item 3): falls back to the normal
+        // ChatModel when CheapChatModel is unset, so this is a no-op change unless configured.
+        if (cheapTier) chatModel = section["CheapChatModel"] ?? chatModel;
         var embeddingModel = section["EmbeddingModel"] ?? (isOllama ? "nomic-embed-text" : "text-embedding-3-small");
         var embeddingInputType = section["EmbeddingInputType"];
 
@@ -175,7 +240,7 @@ public static class LlmServiceCollectionExtensions
             embeddingInputType);
     }
 
-    private static OpenAiLlmClient BuildAzureClient(IConfiguration configuration)
+    private static OpenAiLlmClient BuildAzureClient(IConfiguration configuration, bool cheapTier = false)
     {
         // Azure.AI.OpenAI's GetChatClient/GetEmbeddingClient return the same OpenAI SDK types
         // OpenAiLlmClient already wraps, so Azure needs no new ILlmClient implementation -- only a
@@ -184,6 +249,10 @@ public static class LlmServiceCollectionExtensions
         var endpoint = section["BaseUrl"] ?? throw new InvalidOperationException("Llm:Azure:BaseUrl (the Azure OpenAI resource endpoint) is required.");
         var apiKey = section["ApiKey"] ?? configuration["Llm:ApiKey"];
         var chatDeployment = section["ChatModel"] ?? throw new InvalidOperationException("Llm:Azure:ChatModel (the chat deployment name) is required.");
+        // Model tiering (gap-closing-solutions.md Phase C, item 3): falls back to the normal
+        // deployment when CheapChatModel is unset -- Azure deployment names are provider-assigned,
+        // so a cheap tier here requires a separate deployment to already exist.
+        if (cheapTier) chatDeployment = section["CheapChatModel"] ?? chatDeployment;
         var embeddingDeployment = section["EmbeddingModel"] ?? throw new InvalidOperationException("Llm:Azure:EmbeddingModel (the embedding deployment name) is required.");
         var embeddingInputType = section["EmbeddingInputType"];
 

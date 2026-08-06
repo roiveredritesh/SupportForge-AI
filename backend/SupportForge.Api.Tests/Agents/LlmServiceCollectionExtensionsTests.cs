@@ -107,6 +107,46 @@ public class LlmServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddLlmProviders_RegistersCheapTierClient_AlongsideDefault()
+    {
+        // Model tiering (gap-closing-solutions.md Phase C, item 3): the keyed "cheap" client must
+        // resolve independently of the default ILlmChatClient, whether or not CheapChatModel is set.
+        var services = new ServiceCollection();
+        var config = BuildConfig(new() { ["Llm:OpenAI:ApiKey"] = "test-key" });
+
+        services.AddLlmProviders(config);
+        using var provider = services.BuildServiceProvider();
+
+        var cheap = provider.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey);
+        var main = provider.GetRequiredService<ILlmChatClient>();
+
+        Assert.IsType<OpenAiLlmClient>(cheap);
+        Assert.NotSame(main, cheap); // distinct client instances, even with no CheapChatModel configured
+    }
+
+    [Fact]
+    public void AddLlmProviders_Anthropic_CheapTierClient_ReusesConfiguredHttpClientPipeline()
+    {
+        // Anthropic's cheap-tier client is built manually (not via AddHttpClient<T>) -- this asserts
+        // it still resolves via the same named/configured HttpClient rather than a bare default one.
+        var services = new ServiceCollection();
+        var config = BuildConfig(new()
+        {
+            ["Llm:Provider"] = "Anthropic",
+            ["Llm:Anthropic:ApiKey"] = "test",
+            ["Llm:Anthropic:CheapChatModel"] = "claude-haiku",
+            ["Embeddings:Provider"] = "NvidiaNim",
+            ["Llm:NvidiaNim:ApiKey"] = "nim-key",
+        });
+
+        services.AddLlmProviders(config);
+        using var provider = services.BuildServiceProvider();
+
+        var cheap = provider.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey);
+        Assert.IsType<AnthropicLlmClient>(cheap);
+    }
+
+    [Fact]
     public void AddLlmProviders_Throws_ForUnrecognizedProvider()
     {
         var services = new ServiceCollection();

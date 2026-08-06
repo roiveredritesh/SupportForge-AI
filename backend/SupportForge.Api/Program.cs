@@ -126,15 +126,27 @@ builder.Services.AddRateLimiter(options =>
 // "Embeddings:Provider" optionally selects a different provider for embeddings (required whenever
 // Llm:Provider is Anthropic, which has no embeddings API) and defaults to Llm:Provider otherwise.
 builder.Services.AddLlmProviders(builder.Configuration);
-builder.Services.AddScoped<TriageAgent>();
+// Model tiering (gap-closing-solutions.md Phase C, item 3): Triage's intent classification and the
+// three verifiers' relevance judgments are cheap-tier calls (opt-in via *CheapChatModel config, see
+// LlmServiceCollectionExtensions.CheapTierKey) -- DrafterAgent, the retrieval specialists, and
+// CrossReferenceAgent stay on the default/main-tier client.
+builder.Services.AddScoped<TriageAgent>(sp => new TriageAgent(
+    sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
+    sp.GetRequiredService<ILogger<TriageAgent>>()));
 builder.Services.AddScoped<FreshnessGateAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
-builder.Services.AddScoped<KbResearcherVerifier>();
+builder.Services.AddScoped<KbResearcherVerifier>(sp => new KbResearcherVerifier(
+    sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
+    sp.GetRequiredService<ILogger<KbResearcherVerifier>>()));
 builder.Services.AddScoped<CrossReferenceAgent>();
 builder.Services.AddScoped<CodeAnalyzerAgent>();
-builder.Services.AddScoped<CodeAnalyzerVerifier>();
+builder.Services.AddScoped<CodeAnalyzerVerifier>(sp => new CodeAnalyzerVerifier(
+    sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
+    sp.GetRequiredService<ILogger<CodeAnalyzerVerifier>>()));
 builder.Services.AddScoped<VisionAnalyzerAgent>();
-builder.Services.AddScoped<VisionAnalyzerVerifier>();
+builder.Services.AddScoped<VisionAnalyzerVerifier>(sp => new VisionAnalyzerVerifier(
+    sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
+    sp.GetRequiredService<ILogger<VisionAnalyzerVerifier>>()));
 builder.Services.AddScoped<DrafterAgent>();
 builder.Services.AddScoped<KbSearchTool>();
 builder.Services.AddScoped<VisionAnalysisTool>();

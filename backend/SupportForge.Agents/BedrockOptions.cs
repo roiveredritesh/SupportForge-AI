@@ -4,6 +4,8 @@ public sealed class BedrockOptions
 {
     public string Region { get; set; } = "us-east-1";
     public string ChatModel { get; set; } = "anthropic.claude-3-5-sonnet-20241022-v2:0";
+    // Model tiering (gap-closing-solutions.md Phase C, item 3) -- see AnthropicOptions.CheapChatModel.
+    public string? CheapChatModel { get; set; }
     public string EmbeddingModel { get; set; } = "amazon.titan-embed-text-v2:0";
     public int MaxTokens { get; set; } = 4096;
 }
