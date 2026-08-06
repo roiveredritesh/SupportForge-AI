@@ -37,7 +37,9 @@ public class ConfluenceIngestionJobTests
         vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object);
+        var hashes = new Mock<IContentHashRepository>();
+        hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object);
 
         var projects = new Mock<IProjectRepository>();
         var project = new Project
@@ -58,6 +60,9 @@ public class ConfluenceIngestionJobTests
 
         Assert.NotNull(upserted);
         Assert.Contains(upserted!, d => d.Text.Contains("Restart the service."));
+        // D1 (gap-closing-solutions.md Phase D, item 1): the page title ConfluencePageFetcher already
+        // parses out is now attached as chunk metadata instead of being discarded.
+        Assert.All(upserted, d => Assert.Equal("Runbook", d.Metadata["title"]));
         Assert.NotNull(saved);
         Assert.NotNull(saved!.KbSources[0].LastSyncedAt);
     }

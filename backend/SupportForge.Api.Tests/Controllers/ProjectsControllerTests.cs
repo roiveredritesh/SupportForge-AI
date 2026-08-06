@@ -47,6 +47,7 @@ public class ProjectsControllerTests
             new Mock<ITokenUsageRepository>().Object,
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
@@ -80,6 +81,7 @@ public class ProjectsControllerTests
             new Mock<ITokenUsageRepository>().Object,
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
@@ -126,6 +128,7 @@ public class ProjectsControllerTests
             new Mock<ITokenUsageRepository>().Object,
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
             env.Object,
             queue,
             Mock.Of<ILogger<ProjectsController>>());
@@ -174,6 +177,7 @@ public class ProjectsControllerTests
             new Mock<ITokenUsageRepository>().Object,
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -15,33 +17,51 @@ public sealed class KbVectorIndexer
 {
     private readonly ILlmEmbeddingClient _llm;
     private readonly IVectorStoreService _vectorStore;
+    private readonly IContentHashRepository _contentHashes;
 
-    public KbVectorIndexer(ILlmEmbeddingClient llm, IVectorStoreService vectorStore)
+    public KbVectorIndexer(ILlmEmbeddingClient llm, IVectorStoreService vectorStore, IContentHashRepository contentHashes)
     {
         _llm = llm;
         _vectorStore = vectorStore;
+        _contentHashes = contentHashes;
     }
 
-    public async Task IndexAsync(string projectId, IEnumerable<(string SourceRef, string Text)> documents, CancellationToken ct)
+    // D1 (gap-closing-solutions.md Phase D, item 1): Title is optional richer metadata (Confluence
+    // page title, Website <title>) attached per chunk when the source format provides one -- null
+    // for sources with no natural title distinct from their SourceRef (Documents file paths).
+    public async Task IndexAsync(string projectId, IEnumerable<(string SourceRef, string Text, string? Title)> documents, CancellationToken ct)
     {
         var vectorDocs = new List<VectorDocument>();
-        foreach (var (sourceRef, text) in documents)
+        foreach (var (sourceRef, text, title) in documents)
         {
+            // D1: unchanged content since the last successful index is skipped entirely -- no
+            // re-chunk, no re-embed, no upsert call. A document that changes even slightly still
+            // gets fully re-processed; this only saves work for genuinely untouched sources.
+            var hash = ComputeHash(text);
+            var previousHash = await _contentHashes.GetHashAsync(projectId, sourceRef, ct);
+            if (previousHash == hash) continue;
+
             var chunks = DocumentChunker.Chunk(text);
             for (var i = 0; i < chunks.Count; i++)
             {
                 var embedding = await _llm.EmbedAsync(chunks[i], ct, EmbeddingPurpose.Passage);
+                var metadata = new Dictionary<string, string> { ["source"] = sourceRef, ["chunk"] = i.ToString() };
+                if (!string.IsNullOrWhiteSpace(title)) metadata["title"] = title;
                 vectorDocs.Add(new VectorDocument(
                     Id: $"{SanitizeId(sourceRef)}-{i}",
                     Text: chunks[i],
                     Embedding: embedding,
-                    Metadata: new Dictionary<string, string> { ["source"] = sourceRef, ["chunk"] = i.ToString() }));
+                    Metadata: metadata));
             }
+
+            await _contentHashes.SetHashAsync(projectId, sourceRef, hash, ct);
         }
 
         if (vectorDocs.Count > 0)
             await _vectorStore.UpsertAsync($"{projectId}-kb", vectorDocs, ct);
     }
+
+    private static string ComputeHash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
     // Chroma document ids must be stable and collision-free per source; strip characters that
     // don't survive round-tripping through a URL-derived or path-derived sourceRef.

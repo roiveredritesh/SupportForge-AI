@@ -92,6 +92,9 @@ public class ScheduledKbSyncServiceTests
         docServices.AddSingleton(projects);
         docServices.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         docServices.AddSingleton<GitRepoSyncService>();
+        var hashes = new Mock<IContentHashRepository>();
+        hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        docServices.AddSingleton(hashes.Object);
         docServices.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
         docServices.AddSingleton(new Mock<ILlmEmbeddingClient>().Object);
         docServices.AddSingleton(new Mock<IVectorStoreService>().Object);

@@ -42,7 +42,7 @@ public sealed class WebsiteIngestionJob : IIngestionJob
         EnsurePublicHttpUrl(_url);
 
         var rootDoc = await FetchAsync(_url, ct);
-        var pages = new List<(string SourceRef, string Text)> { (_url, ExtractVisibleText(rootDoc)) };
+        var pages = new List<(string SourceRef, string Text, string? Title)> { (_url, ExtractVisibleText(rootDoc), ExtractTitle(rootDoc)) };
 
         if (_crawlLinkedPages)
         {
@@ -54,7 +54,7 @@ public sealed class WebsiteIngestionJob : IIngestionJob
                 {
                     EnsurePublicHttpUrl(link);
                     var linkedDoc = await FetchAsync(link, ct);
-                    pages.Add((link, ExtractVisibleText(linkedDoc)));
+                    pages.Add((link, ExtractVisibleText(linkedDoc), ExtractTitle(linkedDoc)));
                 }
                 catch (Exception ex) when (ex is HttpRequestException or ArgumentException or TaskCanceledException)
                 {
@@ -83,6 +83,16 @@ public sealed class WebsiteIngestionJob : IIngestionJob
 
         var body = doc.DocumentNode.SelectSingleNode("//body") ?? doc.DocumentNode;
         return WebUtility.HtmlDecode(body.InnerText).Trim();
+    }
+
+    // D1 (gap-closing-solutions.md Phase D, item 1): <title> was already being parsed away as part
+    // of the page and discarded -- attaching it as chunk metadata was previously free information
+    // left on the floor.
+    private static string? ExtractTitle(HtmlDocument doc)
+    {
+        var titleNode = doc.DocumentNode.SelectSingleNode("//title");
+        var title = titleNode?.InnerText is { } t ? WebUtility.HtmlDecode(t).Trim() : null;
+        return string.IsNullOrWhiteSpace(title) ? null : title;
     }
 
     // Same-host only (not "same domain including subdomains") -- a link to a different host is a

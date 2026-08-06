@@ -23,9 +23,9 @@ public sealed class ConfluenceIngestionJob : IIngestionJob
 
     public async Task RunAsync(CancellationToken ct)
     {
-        var (_, markdown) = await _fetcher.FetchPageAsMarkdownAsync(_pageId, ct);
+        var (title, markdown) = await _fetcher.FetchPageAsMarkdownAsync(_pageId, ct);
 
-        await _indexer.IndexAsync(ProjectId, [(_pageId, markdown)], ct);
+        await _indexer.IndexAsync(ProjectId, [(_pageId, markdown, title)], ct);
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _pageId, ct);
     }
 }

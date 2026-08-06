@@ -45,7 +45,9 @@ public class WebsiteIngestionJobTests
     {
         var llm = new Mock<ILlmEmbeddingClient>();
         llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore ?? new Mock<IVectorStoreService>().Object);
+        var hashes = new Mock<IContentHashRepository>();
+        hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore ?? new Mock<IVectorStoreService>().Object, hashes.Object);
         return new WebsiteIngestionJob(
             "proj1", url, new HttpClient(handler ?? new ThrowingHandler()), indexer, new Mock<IProjectRepository>().Object, crawlLinkedPages);
     }
@@ -79,7 +81,7 @@ public class WebsiteIngestionJobTests
     [Fact]
     public async Task RunAsync_FetchesAndExtractsVisibleText_ThenIndexes()
     {
-        var html = "<html><head><style>.x{color:red}</style></head><body><script>alert(1)</script><h1>Hello</h1><p>World content.</p></body></html>";
+        var html = "<html><head><title>Welcome Page</title><style>.x{color:red}</style></head><body><script>alert(1)</script><h1>Hello</h1><p>World content.</p></body></html>";
         var vectorStore = new Mock<IVectorStoreService>();
         IReadOnlyList<VectorDocument>? upserted = null;
         vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
@@ -95,6 +97,8 @@ public class WebsiteIngestionJobTests
         Assert.NotNull(upserted);
         Assert.Contains(upserted!, d => d.Text.Contains("Hello") && d.Text.Contains("World content."));
         Assert.DoesNotContain(upserted!, d => d.Text.Contains("alert(1)") || d.Text.Contains("color:red"));
+        // D1 (gap-closing-solutions.md Phase D, item 1): <title> is now attached as chunk metadata.
+        Assert.All(upserted, d => Assert.Equal("Welcome Page", d.Metadata["title"]));
     }
 
     [Fact]

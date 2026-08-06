@@ -31,9 +31,9 @@ public sealed class DocumentIngestionJob : IIngestionJob
         var files = Directory.EnumerateFiles(_folderPath, "*.*", SearchOption.AllDirectories)
             .Where(f => SupportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
 
-        var documents = new List<(string SourceRef, string Text)>();
+        var documents = new List<(string SourceRef, string Text, string? Title)>();
         foreach (var file in files)
-            documents.Add((file, await File.ReadAllTextAsync(file, ct)));
+            documents.Add((file, await File.ReadAllTextAsync(file, ct), null));
 
         await _indexer.IndexAsync(ProjectId, documents, ct);
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _sourceLocation, ct);

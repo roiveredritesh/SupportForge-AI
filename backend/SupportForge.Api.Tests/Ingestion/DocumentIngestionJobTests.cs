@@ -16,7 +16,9 @@ public class DocumentIngestionJobTests
         var llm = new Mock<ILlmEmbeddingClient>();
         llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
         var vectorStore = new Mock<IVectorStoreService>();
-        return (llm, vectorStore, new KbVectorIndexer(llm.Object, vectorStore.Object));
+        var hashes = new Mock<IContentHashRepository>();
+        hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        return (llm, vectorStore, new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object));
     }
 
     [Fact]

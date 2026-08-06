@@ -20,6 +20,7 @@ public class ProjectsController : ControllerBase
     private readonly ITokenUsageRepository _tokenUsage;
     private readonly IConversationRepository _conversations;
     private readonly IDeadLetterRepository _deadLetters;
+    private readonly IContentHashRepository _contentHashes;
     private readonly IWebHostEnvironment _env;
     private readonly IngestionQueue _ingestionQueue;
     private readonly ILogger<ProjectsController> _logger;
@@ -32,6 +33,7 @@ public class ProjectsController : ControllerBase
         ITokenUsageRepository tokenUsage,
         IConversationRepository conversations,
         IDeadLetterRepository deadLetters,
+        IContentHashRepository contentHashes,
         IWebHostEnvironment env,
         IngestionQueue ingestionQueue,
         ILogger<ProjectsController> logger)
@@ -43,6 +45,7 @@ public class ProjectsController : ControllerBase
         _tokenUsage = tokenUsage;
         _conversations = conversations;
         _deadLetters = deadLetters;
+        _contentHashes = contentHashes;
         _env = env;
         _ingestionQueue = ingestionQueue;
         _logger = logger;
@@ -114,6 +117,7 @@ public class ProjectsController : ControllerBase
         await _conversations.DeleteByProjectIdAsync(id, ct);
         await _memberships.DeleteByProjectIdAsync(id, ct);
         await _deadLetters.DeleteByProjectIdAsync(id, ct);
+        await _contentHashes.DeleteByProjectIdAsync(id, ct);
 
         await _repo.DeleteAsync(id, ct);
         return NoContent();

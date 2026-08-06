@@ -24,6 +24,9 @@ public class IngestionJobFactoryTests
         services.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
         services.AddSingleton(new Mock<ILlmEmbeddingClient>().Object);
         services.AddSingleton(new Mock<IVectorStoreService>().Object);
+        var hashes = new Mock<IContentHashRepository>();
+        hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        services.AddSingleton(hashes.Object);
         services.AddSingleton<KbVectorIndexer>();
         return services.BuildServiceProvider();
     }
