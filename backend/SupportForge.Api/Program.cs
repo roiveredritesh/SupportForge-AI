@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
+using Azure.Monitor.OpenTelemetry.Exporter;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using SupportForge.Agents;
@@ -204,8 +206,10 @@ builder.Services.AddHealthChecks()
 
 // U7: traces the agent pipeline (one span per agent that ran, via PipelineTelemetry.ActivitySource
 // in CoordinatorPipeline) plus inbound ASP.NET Core requests and outbound HttpClient calls.
-// Exporter target is environment-driven (standard OTEL_EXPORTER_OTLP_ENDPOINT env var); falls back
-// to the console exporter in Development so tracing is visible with zero collector setup.
+// C5 (gap-closing-solutions.md Phase C, item 5): adds a matching metrics pipeline (request/HTTP-client
+// metrics -- request rate, duration, error rate) and an optional Azure Monitor/App Insights exporter,
+// additive alongside the existing OTLP/console exporters, not a replacement for either.
+var appInsightsConnectionString = builder.Configuration["ApplicationInsights:ConnectionString"];
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("SupportForge.Api"))
     .WithTracing(tracing =>
@@ -215,14 +219,25 @@ builder.Services.AddOpenTelemetry()
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation();
 
-        if (builder.Environment.IsDevelopment())
-        {
+        if (!string.IsNullOrEmpty(appInsightsConnectionString))
+            tracing.AddAzureMonitorTraceExporter(o => o.ConnectionString = appInsightsConnectionString);
+        else if (builder.Environment.IsDevelopment())
             tracing.AddConsoleExporter();
-        }
         else
-        {
             tracing.AddOtlpExporter();
-        }
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation();
+
+        if (!string.IsNullOrEmpty(appInsightsConnectionString))
+            metrics.AddAzureMonitorMetricExporter(o => o.ConnectionString = appInsightsConnectionString);
+        else if (builder.Environment.IsDevelopment())
+            metrics.AddConsoleExporter();
+        else
+            metrics.AddOtlpExporter();
     });
 
 var app = builder.Build();
