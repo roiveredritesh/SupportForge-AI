@@ -62,6 +62,8 @@ builder.Services.AddSingleton<IProjectMembershipRepository>(
     new JsonFileProjectMembershipRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IFeedbackRepository>(
     new JsonFileFeedbackRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IDeadLetterRepository>(
+    new JsonFileDeadLetterRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<ITokenUsageRepository>(
     new JsonFileTokenUsageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IConversationRepository>(

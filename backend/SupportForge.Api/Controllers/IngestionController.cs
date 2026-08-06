@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Api;
 using SupportForge.Core;
+using SupportForge.Core.Entities;
 using SupportForge.Ingestion;
 
 namespace SupportForge.Api.Controllers;
@@ -14,13 +15,17 @@ public class IngestionController : ControllerBase
     private readonly IngestionQueue _queue;
     private readonly IProjectRepository _projects;
     private readonly IProjectMembershipRepository _memberships;
+    private readonly IDeadLetterRepository _deadLetters;
     private readonly IServiceProvider _services;
 
-    public IngestionController(IngestionQueue queue, IProjectRepository projects, IProjectMembershipRepository memberships, IServiceProvider services)
+    public IngestionController(
+        IngestionQueue queue, IProjectRepository projects, IProjectMembershipRepository memberships,
+        IDeadLetterRepository deadLetters, IServiceProvider services)
     {
         _queue = queue;
         _projects = projects;
         _memberships = memberships;
+        _deadLetters = deadLetters;
         _services = services;
     }
 
@@ -46,5 +51,28 @@ public class IngestionController : ControllerBase
                 _queue.Enqueue(job);
 
         return Accepted();
+    }
+
+    // C7 (gap-closing-solutions.md Phase C, item 7): visibility into permanently-failed ingestion
+    // jobs. No "requeue this specific job" action -- the original job object isn't retained after
+    // failure, and the existing Trigger/"Re-index" endpoint already re-runs the whole project, which
+    // is the practical remedy.
+    [HttpGet("dead-letters")]
+    public async Task<ActionResult<IReadOnlyList<DeadLetterEntry>>> GetDeadLetters([FromQuery] string projectId, CancellationToken ct)
+    {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), projectId, ct)) return Forbid();
+
+        return Ok(await _deadLetters.GetByProjectIdAsync(projectId, ct));
+    }
+
+    [HttpDelete("dead-letters/{id}")]
+    public async Task<IActionResult> DismissDeadLetter(string id, CancellationToken ct)
+    {
+        var entry = await _deadLetters.GetByIdAsync(id, ct);
+        if (entry is null) return NotFound();
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), entry.ProjectId, ct)) return Forbid();
+
+        await _deadLetters.DeleteAsync(id, ct);
+        return NoContent();
     }
 }

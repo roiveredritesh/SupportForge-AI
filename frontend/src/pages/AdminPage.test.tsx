@@ -4,7 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import AdminPage from './AdminPage';
 import { apiClient } from '../lib/apiClient';
 
-vi.mock('../lib/apiClient', () => ({ apiClient: { get: vi.fn().mockResolvedValue({ data: [] }), post: vi.fn().mockResolvedValue({ data: {} }) } }));
+vi.mock('../lib/apiClient', () => ({
+  apiClient: {
+    get: vi.fn().mockResolvedValue({ data: [] }),
+    post: vi.fn().mockResolvedValue({ data: {} }),
+    delete: vi.fn().mockResolvedValue({ data: {} }),
+  },
+}));
 
 describe('AdminPage', () => {
   it('submits a new project with the entered id and name', async () => {
@@ -75,5 +81,33 @@ describe('AdminPage', () => {
         }),
       ),
     );
+  });
+
+  it('shows dead-letter entries for a project and dismisses one', async () => {
+    vi.mocked(apiClient.get).mockImplementation((url: string) => {
+      if (url === '/projects')
+        return Promise.resolve({ data: [{ id: 'proj1', name: 'Proj One', repos: [], kbSources: [] }] });
+      if (url === '/ingestion/dead-letters')
+        return Promise.resolve({
+          data: [{ id: 'dl1', projectId: 'proj1', jobType: 'WebsiteIngestionJob', error: 'boom', failedAt: '2026-01-01T00:00:00Z' }],
+        });
+      if (url.includes('/freshness'))
+        return Promise.resolve({ data: { isFresh: true, staleSources: [], sources: [] } });
+      return Promise.resolve({ data: [] });
+    });
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <AdminPage />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Failed ingestion jobs (1):')).toBeInTheDocument());
+    expect(screen.getByText(/WebsiteIngestionJob/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Dismiss'));
+
+    await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/ingestion/dead-letters/dl1'));
   });
 });

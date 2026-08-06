@@ -4,6 +4,7 @@ import { useCreateProject } from '../hooks/useCreateProject';
 import { useTriggerIngestion } from '../hooks/useTriggerIngestion';
 import { useDeleteProject } from '../hooks/useDeleteProject';
 import { useFreshness } from '../hooks/useFreshness';
+import { useDeadLetters, useDismissDeadLetter } from '../hooks/useDeadLetters';
 import { useAppStore } from '../store/useAppStore';
 
 function FreshnessBadge({ projectId }: { projectId: string }) {
@@ -23,6 +24,37 @@ function FreshnessBadge({ projectId }: { projectId: string }) {
     >
       {data.isFresh ? 'Fresh' : `Stale (${data.staleSources.length})`}
     </span>
+  );
+}
+
+// C7 (gap-closing-solutions.md Phase C, item 7): permanently-failed ingestion jobs are otherwise
+// only visible in server logs -- surfaces them here with a dismiss action, no auto-requeue (the
+// existing "Re-index" button already re-runs the whole project).
+function DeadLetterList({ projectId }: { projectId: string }) {
+  const { data } = useDeadLetters(projectId);
+  const dismiss = useDismissDeadLetter(projectId);
+  if (!data || data.length === 0) return null;
+
+  return (
+    <li>
+      <span className="font-medium text-red-600 dark:text-red-400">Failed ingestion jobs ({data.length}):</span>
+      <ul className="ml-3 space-y-0.5">
+        {data.map((entry) => (
+          <li key={entry.id} className="flex items-center justify-between gap-2">
+            <span title={entry.error}>
+              {entry.jobType} — {new Date(entry.failedAt).toLocaleString()}
+            </span>
+            <button
+              className="text-xs text-slate-500 hover:underline dark:text-gray-400"
+              onClick={() => dismiss.mutate(entry.id)}
+              disabled={dismiss.isPending}
+            >
+              Dismiss
+            </button>
+          </li>
+        ))}
+      </ul>
+    </li>
   );
 }
 
@@ -303,6 +335,9 @@ export default function AdminPage() {
                   )}
                 </ul>
               )}
+              <ul className="mt-1 space-y-0.5 text-sm">
+                <DeadLetterList projectId={p.id} />
+              </ul>
             </li>
           ))}
         </ul>
