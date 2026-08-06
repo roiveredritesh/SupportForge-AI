@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SupportForge.Api;
 using SupportForge.Core;
 using SupportForge.Ingestion;
 
@@ -12,12 +13,14 @@ public class IngestionController : ControllerBase
 {
     private readonly IngestionQueue _queue;
     private readonly IProjectRepository _projects;
+    private readonly IProjectMembershipRepository _memberships;
     private readonly IServiceProvider _services;
 
-    public IngestionController(IngestionQueue queue, IProjectRepository projects, IServiceProvider services)
+    public IngestionController(IngestionQueue queue, IProjectRepository projects, IProjectMembershipRepository memberships, IServiceProvider services)
     {
         _queue = queue;
         _projects = projects;
+        _memberships = memberships;
         _services = services;
     }
 
@@ -26,6 +29,8 @@ public class IngestionController : ControllerBase
     [HttpPost("trigger")]
     public async Task<IActionResult> Trigger([FromBody] TriggerRequest request, CancellationToken ct)
     {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), request.ProjectId, ct)) return Forbid();
+
         var project = await _projects.GetByIdAsync(request.ProjectId, ct);
         if (project is null) return NotFound();
 

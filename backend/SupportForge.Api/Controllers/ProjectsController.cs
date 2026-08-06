@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SupportForge.Api;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion;
@@ -13,6 +14,7 @@ namespace SupportForge.Api.Controllers;
 public class ProjectsController : ControllerBase
 {
     private readonly IProjectRepository _repo;
+    private readonly IProjectMembershipRepository _memberships;
     private readonly IVectorStoreService _vectorStore;
     private readonly IFeedbackRepository _feedback;
     private readonly ITokenUsageRepository _tokenUsage;
@@ -23,6 +25,7 @@ public class ProjectsController : ControllerBase
 
     public ProjectsController(
         IProjectRepository repo,
+        IProjectMembershipRepository memberships,
         IVectorStoreService vectorStore,
         IFeedbackRepository feedback,
         ITokenUsageRepository tokenUsage,
@@ -32,6 +35,7 @@ public class ProjectsController : ControllerBase
         ILogger<ProjectsController> logger)
     {
         _repo = repo;
+        _memberships = memberships;
         _vectorStore = vectorStore;
         _feedback = feedback;
         _tokenUsage = tokenUsage;
@@ -41,20 +45,37 @@ public class ProjectsController : ControllerBase
         _logger = logger;
     }
 
+    // B1: lists only the projects the caller is a member of, not every project system-wide.
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<Project>>> GetAll(CancellationToken ct = default)
-        => Ok(await _repo.GetAllAsync(ct));
+    {
+        var memberProjectIds = await _memberships.GetProjectIdsForUserAsync(this.CurrentUserId(), ct);
+        var all = await _repo.GetAllAsync(ct);
+        return Ok(all.Where(p => memberProjectIds.Contains(p.Id)).ToList());
+    }
 
+    // B1: project creation stays self-service (agreed design) -- any authenticated user can create a
+    // project and is auto-granted membership. Updating an *existing* project id requires the caller
+    // already be a member, so a non-member can't silently take over another org's project by reusing
+    // its id in a POST body.
     [HttpPost]
     public async Task<ActionResult<Project>> CreateOrUpdate(Project project, CancellationToken ct = default)
     {
+        var userId = this.CurrentUserId();
+        var existing = await _repo.GetByIdAsync(project.Id, ct);
+        if (existing is not null && !await _memberships.IsMemberAsync(userId, project.Id, ct))
+            return Forbid();
+
         await _repo.UpsertAsync(project, ct);
+        if (existing is null) await _memberships.AddAsync(userId, project.Id, ct);
         return Ok(project);
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id, CancellationToken ct = default)
     {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), id, ct)) return Forbid();
+
         var project = await _repo.GetByIdAsync(id, ct);
         if (project is null) return NotFound();
 
@@ -88,6 +109,7 @@ public class ProjectsController : ControllerBase
         await _feedback.DeleteByProjectIdAsync(id, ct);
         await _tokenUsage.DeleteByProjectIdAsync(id, ct);
         await _conversations.DeleteByProjectIdAsync(id, ct);
+        await _memberships.DeleteByProjectIdAsync(id, ct);
 
         await _repo.DeleteAsync(id, ct);
         return NoContent();

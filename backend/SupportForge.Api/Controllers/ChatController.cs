@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Agents;
+using SupportForge.Api;
 using SupportForge.Api.Contracts;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -30,6 +31,7 @@ public class ChatController : ControllerBase
     private readonly ITokenUsageRepository _tokenUsage;
     private readonly IConversationRepository _conversations;
     private readonly IChatMessageRepository _messages;
+    private readonly IProjectMembershipRepository _memberships;
     private readonly ILogger<ChatController> _logger;
 
     private const string DrafterName = "Drafter";
@@ -49,6 +51,7 @@ public class ChatController : ControllerBase
         ITokenUsageRepository tokenUsage,
         IConversationRepository conversations,
         IChatMessageRepository messages,
+        IProjectMembershipRepository memberships,
         ILogger<ChatController> logger)
     {
         _pipeline = pipeline;
@@ -65,6 +68,7 @@ public class ChatController : ControllerBase
         _tokenUsage = tokenUsage;
         _conversations = conversations;
         _messages = messages;
+        _memberships = memberships;
         _logger = logger;
     }
 
@@ -198,6 +202,7 @@ public class ChatController : ControllerBase
     {
         var validationError = ValidateRequest(request);
         if (validationError is not null) return BadRequest(validationError);
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), request.ProjectId, ct)) return Forbid();
 
         var conversation = await ResolveConversationAsync(request, ct);
         if (conversation is null) return BadRequest("ConversationId does not belong to the given ProjectId.");
@@ -227,6 +232,11 @@ public class ChatController : ControllerBase
         {
             Response.StatusCode = StatusCodes.Status400BadRequest;
             await Response.WriteAsync(validationError, ct);
+            return;
+        }
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), request.ProjectId, ct))
+        {
+            Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
 

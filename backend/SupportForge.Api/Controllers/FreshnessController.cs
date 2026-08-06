@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SupportForge.Api;
 using SupportForge.Core;
 using SupportForge.VectorStore;
 
@@ -11,17 +12,21 @@ namespace SupportForge.Api.Controllers;
 public class FreshnessController : ControllerBase
 {
     private readonly IProjectRepository _repo;
+    private readonly IProjectMembershipRepository _memberships;
     private readonly IVectorStoreService _vectorStore;
 
-    public FreshnessController(IProjectRepository repo, IVectorStoreService vectorStore)
+    public FreshnessController(IProjectRepository repo, IProjectMembershipRepository memberships, IVectorStoreService vectorStore)
     {
         _repo = repo;
+        _memberships = memberships;
         _vectorStore = vectorStore;
     }
 
     [HttpGet]
     public async Task<IActionResult> Get(string projectId, CancellationToken ct)
     {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), projectId, ct)) return Forbid();
+
         var project = await _repo.GetByIdAsync(projectId, ct);
         if (project is null) return NotFound();
 

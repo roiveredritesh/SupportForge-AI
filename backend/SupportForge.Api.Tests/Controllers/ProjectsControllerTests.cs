@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -20,15 +22,26 @@ namespace SupportForge.Api.Tests.Controllers;
 
 public class ProjectsControllerTests
 {
+    // B1: real (not mocked) file-backed membership repo, same pattern as the real JsonFileProjectRepository
+    // these tests already use -- CreateOrUpdate/GetAll/Delete's membership logic needs actual persistence to
+    // exercise the auto-grant-on-create -> GetAll-filters-by-membership round trip these tests assert on.
+    private static ClaimsPrincipal TestUser(string userId = "test-user") =>
+        new(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, userId) }, "TestAuth"));
+
+    private static void SetTestUser(ProjectsController controller, string userId = "test-user") =>
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser(userId) } };
+
     [Fact]
     public async Task CreateProject_Then_ListProjects_ReturnsCreatedProject()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
         var env = new Mock<IWebHostEnvironment>();
         env.Setup(e => e.ContentRootPath).Returns(tempDir);
         var controller = new ProjectsController(
             repo,
+            memberships,
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -36,6 +49,7 @@ public class ProjectsControllerTests
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
 
         var project = new Project { Id = "proj1", Name = "Test Project" };
         await controller.CreateOrUpdate(project);
@@ -59,6 +73,7 @@ public class ProjectsControllerTests
         env.Setup(e => e.ContentRootPath).Returns(tempDir);
         var controller = new ProjectsController(
             repo,
+            new JsonFileProjectMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -66,6 +81,7 @@ public class ProjectsControllerTests
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
 
         var project = new Project { Id = "proj-locked", Name = "Locked Repo Project" };
         await controller.CreateOrUpdate(project);
@@ -102,6 +118,7 @@ public class ProjectsControllerTests
         var queue = new IngestionQueue();
         var controller = new ProjectsController(
             repo,
+            new JsonFileProjectMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -109,6 +126,7 @@ public class ProjectsControllerTests
             env.Object,
             queue,
             Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
 
         var project = new Project { Id = "proj-ingesting", Name = "Ingesting Project" };
         await controller.CreateOrUpdate(project);
@@ -147,6 +165,7 @@ public class ProjectsControllerTests
         env.Setup(e => e.ContentRootPath).Returns(tempDir);
         var controller = new ProjectsController(
             repo,
+            new JsonFileProjectMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -154,6 +173,7 @@ public class ProjectsControllerTests
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
 
         var project = new Project { Id = "proj-stuck-lock", Name = "Stuck Lock Project" };
         await controller.CreateOrUpdate(project);

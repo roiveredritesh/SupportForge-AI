@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Mvc;
@@ -16,6 +17,21 @@ namespace SupportForge.Api.Tests.Controllers;
 
 public class ChatControllerTests
 {
+    // B1: these tests exercise agent/pipeline behavior, not project-access control (that's covered by
+    // ProjectAccessTests) -- a fixed test user plus a membership repo that always says "yes" keeps every
+    // existing test's intent unchanged now that Query/QueryStream check membership before doing any work.
+    private const string TestUserId = "test-user";
+
+    private static ClaimsPrincipal TestUser() =>
+        new(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, TestUserId) }, "TestAuth"));
+
+    private static IProjectMembershipRepository MakePermissiveMemberships()
+    {
+        var mock = new Mock<IProjectMembershipRepository>();
+        mock.Setup(m => m.IsMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        return mock.Object;
+    }
+
     // WS3 (retrieval-pipeline remediation plan): a project repo returning null (no project found) and an
     // ingestion-activity check that's never busy -- FreshnessGateAgent handles both gracefully, so this is
     // a safe stand-in everywhere these tests don't care about freshness behavior specifically.
@@ -33,7 +49,8 @@ public class ChatControllerTests
     private static CrossReferenceAgent MakeCrossReferenceAgent(ILlmClient llm) =>
         new(llm, NullLogger<CrossReferenceAgent>.Instance);
 
-    private static ChatController MakeController(CoordinatorPipeline pipeline, ILlmClient llm, ITokenUsageRepository tokenUsage)
+    private static ChatController MakeController(
+        CoordinatorPipeline pipeline, ILlmClient llm, ITokenUsageRepository tokenUsage, IProjectMembershipRepository? memberships = null)
     {
         var vectorStore = new Mock<IVectorStoreService>();
         vectorStore.Setup(v => v.QueryAsync(It.IsAny<string>(), It.IsAny<float[]>(), It.IsAny<int>(), null, default))
@@ -48,7 +65,7 @@ public class ChatControllerTests
         messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ChatMessage>());
 
-        return new ChatController(
+        var controller = new ChatController(
             pipeline,
             new TriageAgent(llm, NullLogger<TriageAgent>.Instance),
             MakeFreshnessGateAgent(),
@@ -63,7 +80,10 @@ public class ChatControllerTests
             tokenUsage,
             conversations.Object,
             messages.Object,
+            memberships ?? MakePermissiveMemberships(),
             NullLogger<ChatController>.Instance);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
+        return controller;
     }
 
     [Fact]
@@ -92,6 +112,19 @@ public class ChatControllerTests
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var body = Assert.IsType<ChatQueryResponse>(ok.Value);
         Assert.Equal("code_issue", body.Draft); // DrafterAgent stubs LLM to return same fixed string in this test
+    }
+
+    [Fact]
+    public async Task Query_CallerNotProjectMember_ReturnsForbid()
+    {
+        var (pipeline, llm) = MakeNoOpPipeline();
+        var memberships = new Mock<IProjectMembershipRepository>();
+        memberships.Setup(m => m.IsMemberAsync(TestUserId, "someone-elses-project", It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        var controller = MakeController(pipeline, llm, new Mock<ITokenUsageRepository>().Object, memberships.Object);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "someone-elses-project", Query = "hello" });
+
+        Assert.IsType<ForbidResult>(response.Result);
     }
 
     private static (CoordinatorPipeline pipeline, TestOpenAiLlmClient llm) MakeNoOpPipeline()
@@ -177,7 +210,7 @@ public class ChatControllerTests
     {
         var (pipeline, llm) = MakeNoOpPipeline();
         var controller = MakeController(pipeline, llm, new Mock<ITokenUsageRepository>().Object);
-        var httpContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+        var httpContext = new DefaultHttpContext { Response = { Body = new MemoryStream() }, User = TestUser() };
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
 
         await controller.QueryStream(new ChatQueryRequest { ProjectId = "proj1", Query = new string('a', 4001) }, default);
@@ -222,7 +255,8 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
 
@@ -314,10 +348,10 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance), kbVerifier,
             new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, tokenUsage.Object, conversations.Object, messages.Object, NullLogger<ChatController>.Instance);
+            openAiLlm, tokenUsage.Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
 
         var responseBody = new MemoryStream();
-        var httpContext = new DefaultHttpContext { Response = { Body = responseBody } };
+        var httpContext = new DefaultHttpContext { Response = { Body = responseBody }, User = TestUser() };
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
 
         await controller.QueryStream(new ChatQueryRequest { ProjectId = "proj1", Query = "how do I reset my password" }, default);
@@ -373,12 +407,12 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
 
         var body = new MemoryStream();
         controller.ControllerContext = new ControllerContext
         {
-            HttpContext = new DefaultHttpContext { Response = { Body = body } },
+            HttpContext = new DefaultHttpContext { Response = { Body = body }, User = TestUser() },
         };
 
         await controller.QueryStream(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" }, default);

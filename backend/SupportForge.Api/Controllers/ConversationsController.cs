@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SupportForge.Api;
 using SupportForge.Api.Contracts;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -13,17 +14,21 @@ public class ConversationsController : ControllerBase
 {
     private readonly IConversationRepository _conversations;
     private readonly IChatMessageRepository _messages;
+    private readonly IProjectMembershipRepository _memberships;
 
-    public ConversationsController(IConversationRepository conversations, IChatMessageRepository messages)
+    public ConversationsController(IConversationRepository conversations, IChatMessageRepository messages, IProjectMembershipRepository memberships)
     {
         _conversations = conversations;
         _messages = messages;
+        _memberships = memberships;
     }
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ConversationDto>>> GetByProject(
         [FromQuery] string projectId, CancellationToken ct = default)
     {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), projectId, ct)) return Forbid();
+
         var conversations = await _conversations.GetByProjectIdAsync(projectId, ct);
         return Ok(conversations.Select(ToDto));
     }
@@ -33,6 +38,7 @@ public class ConversationsController : ControllerBase
     {
         var conversation = await _conversations.GetByIdAsync(id, ct);
         if (conversation is null) return NotFound();
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), conversation.ProjectId, ct)) return Forbid();
 
         var messages = await _messages.GetByConversationIdAsync(id, ct);
         return Ok(new ConversationDetailDto(
@@ -47,6 +53,8 @@ public class ConversationsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ConversationDto>> Create(CreateConversationRequest request, CancellationToken ct = default)
     {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), request.ProjectId, ct)) return Forbid();
+
         var conversation = new Conversation
         {
             Id = Guid.NewGuid().ToString("n"),
@@ -60,6 +68,10 @@ public class ConversationsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(string id, CancellationToken ct = default)
     {
+        var conversation = await _conversations.GetByIdAsync(id, ct);
+        if (conversation is null) return NotFound();
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), conversation.ProjectId, ct)) return Forbid();
+
         await _messages.DeleteByConversationIdAsync(id, ct);
         await _conversations.DeleteAsync(id, ct);
         return NoContent();

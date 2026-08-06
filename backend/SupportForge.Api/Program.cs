@@ -56,6 +56,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddVectorStore(builder.Configuration);
 builder.Services.AddSingleton<IProjectRepository>(
     new JsonFileProjectRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IProjectMembershipRepository>(
+    new JsonFileProjectMembershipRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IFeedbackRepository>(
     new JsonFileFeedbackRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<ITokenUsageRepository>(

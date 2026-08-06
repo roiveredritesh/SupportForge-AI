@@ -46,6 +46,10 @@ public class AuthenticationTests : IDisposable
                 services.AddSingleton<IConversationRepository>(new JsonFileConversationRepository(_tempDir));
                 services.AddSingleton<IChatMessageRepository>(new JsonFileChatMessageRepository(_tempDir));
                 services.AddSingleton<ITokenUsageRepository>(new JsonFileTokenUsageRepository(_tempDir));
+                // B1: isolated the same way as every other repo above, so ValidJwt_ReachesChatController_AndSucceeds
+                // can seed a real project + membership row instead of hitting the real App_Data.
+                services.AddSingleton<IProjectRepository>(new JsonFileProjectRepository(_tempDir));
+                services.AddSingleton<IProjectMembershipRepository>(new JsonFileProjectMembershipRepository(_tempDir));
                 services.AddSingleton<ILlmChatClient>(new FakeLlmClient());
                 extraServices?.Invoke(services);
             });
@@ -116,8 +120,19 @@ public class AuthenticationTests : IDisposable
     {
         using var factory = MakeFactory();
         var client = factory.CreateClient();
-        await SeedUserAsync(factory);
+        var userId = await SeedUserAsync(factory);
         var token = await GetTokenAsync(client);
+
+        // B1: ChatController now requires the caller be a member of the request's ProjectId --
+        // seed the project and grant this test's user membership, same as a real client would get
+        // via POST /api/projects auto-granting the creator.
+        using (var scope = factory.Services.CreateScope())
+        {
+            var projects = scope.ServiceProvider.GetRequiredService<IProjectRepository>();
+            await projects.UpsertAsync(new Project { Id = "proj-auth-test", Name = "Auth Test Project" });
+            var memberships = scope.ServiceProvider.GetRequiredService<IProjectMembershipRepository>();
+            await memberships.AddAsync(userId, "proj-auth-test");
+        }
 
         var request = ChatQueryRequestMessage();
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
