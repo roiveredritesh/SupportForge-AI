@@ -174,7 +174,7 @@ public class ChatController : ControllerBase
     }
 
     private async Task RecordTurnAsync(
-        Conversation conversation, string query, string answer, double confidence, CancellationToken ct)
+        Conversation conversation, string query, string answer, double confidence, IReadOnlyList<ChatSource> sources, CancellationToken ct)
     {
         await _messages.AddAsync(new ChatMessage
         {
@@ -191,10 +191,27 @@ public class ChatController : ControllerBase
             Role = "assistant",
             Content = answer,
             Confidence = confidence,
+            Sources = sources,
         }, ct);
 
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
         await _conversations.UpsertAsync(conversation, ct);
+    }
+
+    // E1 (gap-closing-solutions.md Phase E): context.Sources is populated by KbResearcherAgent/
+    // CodeAnalyzerAgent at *retrieval* time (before the verifier judges relevance), so it can contain
+    // entries for a branch the verifier later rejected. Filtering here by each branch's final
+    // VerificationStatus -- rather than mutating the shared ConcurrentBag inside the verifiers, which
+    // run concurrently in CoordinatorPipeline's fan-out and would race on any shared-collection edit
+    // -- is what keeps a rejected branch's sources out of what the user actually sees.
+    private static IReadOnlyList<ChatSource> BuildSources(AgentContext context)
+    {
+        var sources = new List<ChatSource>();
+        if (context.KbVerification.Status == VerificationStatus.Passed)
+            sources.AddRange(context.Sources.Where(s => s.Label.StartsWith("KB: ", StringComparison.Ordinal)).Select(s => new ChatSource(s.Label, s.Url)));
+        if (context.CodeVerification.Status == VerificationStatus.Passed)
+            sources.AddRange(context.Sources.Where(s => s.Label.StartsWith("Code: ", StringComparison.Ordinal)).Select(s => new ChatSource(s.Label, s.Url)));
+        return sources;
     }
 
     [HttpPost("query")]
@@ -212,13 +229,15 @@ public class ChatController : ControllerBase
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
 
-        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, ct);
+        var sources = BuildSources(result);
+        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, ct);
 
         return Ok(new ChatQueryResponse
         {
             Draft = result.Draft,
             Confidence = result.Confidence,
             ConversationId = conversation.Id,
+            Sources = sources,
         });
     }
 
@@ -317,12 +336,14 @@ public class ChatController : ControllerBase
             await Response.Body.FlushAsync(ct);
         }
 
-        await RecordTurnAsync(conversation, request.Query, finalText, confidence, ct);
+        var sources = BuildSources(context);
+        await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, ct);
 
         var done = JsonSerializer.Serialize(new
         {
             confidence,
             conversationId = conversation.Id,
+            sources = sources.Select(s => new { label = s.Label, url = s.Url }),
         });
         await Response.WriteAsync($"event: done\ndata: {done}\n\n", ct);
         await Response.Body.FlushAsync(ct);

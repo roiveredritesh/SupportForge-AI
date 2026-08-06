@@ -270,6 +270,62 @@ public class ChatControllerTests
         Assert.DoesNotContain(".cs", persistedJson);
     }
 
+    // E1 (gap-closing-solutions.md Phase E): the positive case for BuildSources -- a branch whose
+    // verifier actually passes DOES surface its sources in the response and persisted turn. Paired
+    // with the test above (rejected/no-op branches correctly show none), this proves the filter is
+    // driven by verification status, not a blanket allow/deny.
+    [Fact]
+    public async Task Query_PassedVerification_IncludesSourcesInResponseAndPersistedTurn()
+    {
+        var llmMock = new Mock<ILlmClient>();
+        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("an answer");
+
+        var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
+        var pipeline = new CoordinatorPipeline(
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new NoOpAgent("FreshnessGate"),
+            new SourceAddingAgent("KbResearcher", "KB: getting-started.md", "kb/getting-started.md"),
+            new PassingVerifierAgent("KbResearcherVerifier", c => c.KbVerification.Status = VerificationStatus.Passed),
+            new NoOpAgent("CrossReference"),
+            new SourceAddingAgent("CodeAnalyzer", "Code: project graph", "proj1"),
+            new NoOpAgent("CodeAnalyzerVerifier"), // stays NotRun -- its source must NOT appear
+            new NoOpAgent("VisionAnalyzer"),
+            new NoOpAgent("VisionAnalyzerVerifier"),
+            new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        var conversations = new Mock<IConversationRepository>();
+        conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        var persisted = new List<ChatMessage>();
+        var messages = new Mock<IChatMessageRepository>();
+        messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<ChatMessage, CancellationToken>((m, _) => persisted.Add(m))
+            .Returns(Task.CompletedTask);
+        messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ChatMessage>());
+
+        var controller = new ChatController(
+            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            MakeCrossReferenceAgent(openAiLlm),
+            new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
+            new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<ChatQueryResponse>(ok.Value);
+        var source = Assert.Single(body.Sources);
+        Assert.Equal("KB: getting-started.md", source.Label);
+
+        var assistantMessage = Assert.Single(persisted, m => m.Role == "assistant");
+        var persistedSource = Assert.Single(assistantMessage.Sources);
+        Assert.Equal("KB: getting-started.md", persistedSource.Label);
+    }
+
     [Fact]
     public async Task Query_RecordsSummedTokenUsage_AcrossAllAgentsThatRan()
     {
@@ -358,10 +414,15 @@ public class ChatControllerTests
 
         Assert.Equal(2, callCount); // first search found nothing, retry found something
 
-        // The retry populated context.Sources with kb/x.md — none of it may reach the wire.
+        // The retry populated context.Sources with kb/x.md, but the LLM judge's response never
+        // parses as a valid snippet index in this test (llmMock unconditionally returns
+        // "kb_question" from every CompleteAsync call), so KbVerification never reaches Passed --
+        // BuildSources (E1: gap-closing-solutions.md Phase E) correctly excludes it. ".md" must not
+        // reach the wire either way; sources being present as an empty array (not the leaked value)
+        // is the precise proof, not "the literal word doesn't appear anywhere".
         var stream = System.Text.Encoding.UTF8.GetString(responseBody.ToArray());
         Assert.DoesNotContain(".md", stream);
-        Assert.DoesNotContain("sources", stream);
+        Assert.Contains("\"sources\":[]", stream);
     }
 
     [Fact]
@@ -443,6 +504,18 @@ public class ChatControllerTests
         public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
         {
             context.Sources.Add(_source);
+            return Task.FromResult(context);
+        }
+    }
+
+    private sealed class PassingVerifierAgent : IAgent
+    {
+        private readonly Action<AgentContext> _markPassed;
+        public PassingVerifierAgent(string name, Action<AgentContext> markPassed) { Name = name; _markPassed = markPassed; }
+        public string Name { get; }
+        public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
+        {
+            _markPassed(context);
             return Task.FromResult(context);
         }
     }

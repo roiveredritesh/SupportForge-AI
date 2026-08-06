@@ -1,3 +1,5 @@
+using SupportForge.Core.Entities;
+
 namespace SupportForge.Api.Contracts;
 
 public sealed record ConversationDto(string Id, string ProjectId, string Title, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
@@ -7,6 +9,7 @@ public sealed record ChatMessageDto(
     string Role,
     string Content,
     double? Confidence,
+    IReadOnlyList<ChatSource> Sources,
     DateTimeOffset CreatedAt);
 
 public sealed record ConversationDetailDto(

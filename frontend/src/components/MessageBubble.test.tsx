@@ -22,4 +22,29 @@ describe('MessageBubble', () => {
 
     expect(screen.getByText('Why is the server down?')).toBeInTheDocument();
   });
+
+  // E1 (gap-closing-solutions.md Phase E): sources are separate UI chrome, not merged into the
+  // copyable draft content.
+  it('renders a Sources list when sources are provided', () => {
+    render(
+      <MessageBubble
+        role="assistant"
+        content="Try restarting the service."
+        sources={[
+          { label: 'KB: getting-started.md', url: 'kb/getting-started.md' },
+          { label: 'Code: project graph', url: 'proj1' },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('Sources:')).toBeInTheDocument();
+    expect(screen.getByText('KB: getting-started.md')).toBeInTheDocument();
+    expect(screen.getByText('Code: project graph')).toBeInTheDocument();
+  });
+
+  it('omits the Sources section when sources is an empty array', () => {
+    render(<MessageBubble role="assistant" content="Try restarting the service." sources={[]} />);
+
+    expect(screen.queryByText('Sources:')).not.toBeInTheDocument();
+  });
 });

@@ -1,14 +1,15 @@
 import { useCallback, useRef, useState } from 'react';
 import { apiClient } from '../lib/apiClient';
 import { useAuthStore } from '../store/useAuthStore';
-import type { ChatQueryRequest } from './useChatQuery';
+import type { ChatQueryRequest, ChatSource } from './useChatQuery';
 
-interface DoneEvent { confidence: number; conversationId: string; }
+interface DoneEvent { confidence: number; conversationId: string; sources: ChatSource[]; }
 
 export function useChatQueryStream() {
   const [draft, setDraft] = useState('');
   const [confidence, setConfidence] = useState<number>();
   const [conversationId, setConversationId] = useState<string>();
+  const [sources, setSources] = useState<ChatSource[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<Error>();
   const requestRef = useRef<ChatQueryRequest | undefined>(undefined);
@@ -17,6 +18,7 @@ export function useChatQueryStream() {
     requestRef.current = request;
     setDraft('');
     setConfidence(undefined);
+    setSources([]);
     setError(undefined);
     setIsStreaming(true);
 
@@ -53,6 +55,7 @@ export function useChatQueryStream() {
             const payload: DoneEvent = JSON.parse(dataLine);
             setConfidence(payload.confidence);
             setConversationId(payload.conversationId);
+            setSources(payload.sources ?? []);
           } else {
             setDraft((prev) => prev + (JSON.parse(dataLine) as string));
           }
@@ -73,8 +76,9 @@ export function useChatQueryStream() {
     setDraft('');
     setConfidence(undefined);
     setConversationId(undefined);
+    setSources([]);
     setError(undefined);
   }, []);
 
-  return { draft, confidence, conversationId, isStreaming, error, start, retry, reset };
+  return { draft, confidence, conversationId, sources, isStreaming, error, start, retry, reset };
 }

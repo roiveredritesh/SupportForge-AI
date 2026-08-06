@@ -9,11 +9,17 @@ export interface ConversationSummary {
   updatedAt: string;
 }
 
+export interface ChatSource {
+  label: string;
+  url: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   confidence?: number;
+  sources?: ChatSource[];
   createdAt: string;
 }
 

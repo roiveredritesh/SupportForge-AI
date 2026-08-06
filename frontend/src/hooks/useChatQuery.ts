@@ -8,10 +8,16 @@ export interface ChatQueryRequest {
   conversationId?: string;
 }
 
+export interface ChatSource {
+  label: string;
+  url: string;
+}
+
 export interface ChatQueryResponse {
   draft: string;
   confidence: number;
   conversationId: string;
+  sources: ChatSource[];
 }
 
 export function useChatQuery() {

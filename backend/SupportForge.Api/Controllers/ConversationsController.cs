@@ -84,5 +84,6 @@ public class ConversationsController : ControllerBase
         m.Role,
         m.Content,
         m.Confidence,
+        m.Sources,
         m.CreatedAt);
 }
