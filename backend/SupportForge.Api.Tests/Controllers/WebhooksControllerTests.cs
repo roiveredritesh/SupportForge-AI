@@ -20,6 +20,7 @@ namespace SupportForge.Api.Tests.Controllers;
 public class WebhooksControllerTests
 {
     private const string Secret = "test-webhook-secret";
+    private const string ConfluenceSecret = "test-confluence-secret";
 
     private sealed class RecordingJobFactory : IIngestionJobFactory
     {
@@ -39,7 +40,7 @@ public class WebhooksControllerTests
     }
 
     private static (WebhooksController controller, IngestionQueue queue, RecordingJobFactory factory, string tempDir) MakeSut(
-        string? secret = Secret)
+        string? secret = Secret, string? confluenceSecret = ConfluenceSecret)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var projects = new JsonFileProjectRepository(tempDir);
@@ -47,9 +48,10 @@ public class WebhooksControllerTests
         var factory = new RecordingJobFactory();
         var services = new ServiceCollection();
         services.AddSingleton<IIngestionJobFactory>(factory);
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(secret is null ? [] : new Dictionary<string, string?> { ["GitHubWebhook:Secret"] = secret })
-            .Build();
+        var configValues = new Dictionary<string, string?>();
+        if (secret is not null) configValues["GitHubWebhook:Secret"] = secret;
+        if (confluenceSecret is not null) configValues["ConfluenceWebhook:Secret"] = confluenceSecret;
+        var config = new ConfigurationBuilder().AddInMemoryCollection(configValues).Build();
 
         var controller = new WebhooksController(projects, queue, services.BuildServiceProvider(), config, NullLogger<WebhooksController>.Instance);
         return (controller, queue, factory, tempDir);
@@ -182,6 +184,116 @@ public class WebhooksControllerTests
 
         Assert.IsType<AcceptedResult>(result);
         Assert.Empty(factory.CallsWithProjectSnapshot); // skipped, not re-enqueued on top of the busy job
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    // --- Confluence webhook ---
+
+    private static void SetConfluenceRequest(WebhooksController controller, string body)
+    {
+        var bytes = Encoding.UTF8.GetBytes(body);
+        var httpContext = new DefaultHttpContext { Request = { Body = new MemoryStream(bytes), ContentLength = bytes.Length } };
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+    }
+
+    private const string ConfluencePagePayload = """{ "webhookEvent": "page_updated", "page": { "id": "98765", "spaceKey": "DOCS" } }""";
+
+    [Fact]
+    public async Task Confluence_MissingSecret_ReturnsUnauthorized()
+    {
+        var (controller, _, _, tempDir) = MakeSut();
+        SetConfluenceRequest(controller, ConfluencePagePayload);
+
+        var result = await controller.Confluence(secret: null, default);
+
+        Assert.IsType<UnauthorizedResult>(result);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Confluence_WrongSecret_ReturnsUnauthorized()
+    {
+        var (controller, _, _, tempDir) = MakeSut();
+        SetConfluenceRequest(controller, ConfluencePagePayload);
+
+        var result = await controller.Confluence(secret: "not-the-secret", default);
+
+        Assert.IsType<UnauthorizedResult>(result);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Confluence_NoSecretConfigured_ReturnsServiceUnavailable()
+    {
+        var (controller, _, _, tempDir) = MakeSut(confluenceSecret: null);
+        SetConfluenceRequest(controller, ConfluencePagePayload);
+
+        var result = await controller.Confluence(secret: ConfluenceSecret, default);
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, Assert.IsType<StatusCodeResult>(result).StatusCode);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Confluence_ValidSecret_NoMatchingProject_ReturnsAccepted_EnqueuesNothing()
+    {
+        var (controller, _, factory, tempDir) = MakeSut();
+        SetConfluenceRequest(controller, ConfluencePagePayload);
+
+        var result = await controller.Confluence(secret: ConfluenceSecret, default);
+
+        Assert.IsType<AcceptedResult>(result);
+        Assert.Empty(factory.CallsWithProjectSnapshot);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Confluence_ValidSecret_MatchingPage_EnqueuesOnlyThatPage_NotOtherKbSourcesOrRepos()
+    {
+        var (controller, queue, factory, tempDir) = MakeSut();
+        var projects = new JsonFileProjectRepository(tempDir);
+        var matchedSource = new KbSourceConfig(KbSourceType.Confluence, "98765", null);
+        var otherSource = new KbSourceConfig(KbSourceType.Website, "https://example.com", null);
+        await projects.UpsertAsync(new Project
+        {
+            Id = "proj1",
+            Name = "Docs Project",
+            Repos = new List<GitHubRepoConfig> { new("acme", "widget-api", "main", null) },
+            KbSources = new List<KbSourceConfig> { matchedSource, otherSource },
+        });
+        SetConfluenceRequest(controller, ConfluencePagePayload);
+
+        var result = await controller.Confluence(secret: ConfluenceSecret, default);
+
+        Assert.IsType<AcceptedResult>(result);
+        var snapshot = Assert.Single(factory.CallsWithProjectSnapshot);
+        Assert.Equal("proj1", snapshot.Id);
+        var source = Assert.Single(snapshot.KbSources);
+        Assert.Equal("98765", source.Location);
+        Assert.Empty(snapshot.Repos); // pseudo-project carries no repos -- a page edit shouldn't re-clone code
+        Assert.True(queue.IsBusy("proj1"));
+
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Confluence_ValidSecret_ProjectAlreadyIngesting_IsSkipped()
+    {
+        var (controller, queue, factory, tempDir) = MakeSut();
+        var projects = new JsonFileProjectRepository(tempDir);
+        await projects.UpsertAsync(new Project
+        {
+            Id = "proj1",
+            Name = "Docs Project",
+            KbSources = new List<KbSourceConfig> { new(KbSourceType.Confluence, "98765", null) },
+        });
+        queue.Enqueue(new NoOpJob("proj1"));
+        SetConfluenceRequest(controller, ConfluencePagePayload);
+
+        var result = await controller.Confluence(secret: ConfluenceSecret, default);
+
+        Assert.IsType<AcceptedResult>(result);
+        Assert.Empty(factory.CallsWithProjectSnapshot);
         Directory.Delete(tempDir, recursive: true);
     }
 }

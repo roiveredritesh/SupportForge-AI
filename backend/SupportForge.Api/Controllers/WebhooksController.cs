@@ -9,9 +9,11 @@ using SupportForge.Ingestion;
 namespace SupportForge.Api.Controllers;
 
 /// <summary>
-/// C4: GitHub push webhook -- closes the "no push-triggered re-ingestion" gap from the Gap Analysis.
-/// Deliberately not [Authorize]: GitHub calls this anonymously and can't attach a bearer token, so
-/// authenticity is verified via the HMAC-SHA256 payload signature GitHub itself computes instead.
+/// C4: push-triggered re-ingestion for sources that support it (GitHub, Confluence) -- closes the
+/// "no push-triggered re-ingestion" gap from the Gap Analysis. Deliberately not [Authorize]: both
+/// providers call these endpoints anonymously and can't attach a bearer token, so authenticity is
+/// verified per-endpoint instead (GitHub's HMAC-SHA256 payload signature; Confluence's shared-secret
+/// query parameter, since its webhook feature has no signing mechanism of its own).
 /// </summary>
 [ApiController]
 [Route("api/webhooks")]
@@ -106,6 +108,79 @@ public class WebhooksController : ControllerBase
 
         _logger.LogInformation(
             "GitHub webhook: {Owner}/{Repo} push enqueued re-ingestion for {Count} project(s)", owner, repoName, enqueued);
+        return Accepted();
+    }
+
+    /// <summary>
+    /// C4 follow-up: Confluence's built-in webhook feature (Cloud admin UI, or a Server/DC plugin)
+    /// has no payload-signing mechanism like GitHub's -- verification is a shared secret passed in
+    /// the URL's query string instead, since that's configurable from Confluence's plain "target URL"
+    /// field without needing custom-header support.
+    /// </summary>
+    [HttpPost("confluence")]
+    public async Task<IActionResult> Confluence([FromQuery] string? secret, CancellationToken ct)
+    {
+        var configuredSecret = _configuration["ConfluenceWebhook:Secret"];
+        if (string.IsNullOrEmpty(configuredSecret))
+        {
+            _logger.LogWarning("Confluence webhook received but ConfluenceWebhook:Secret is not configured -- rejecting");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        if (string.IsNullOrEmpty(secret) ||
+            secret.Length != configuredSecret.Length ||
+            !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(configuredSecret)))
+        {
+            return Unauthorized();
+        }
+
+        JsonElement payload;
+        try
+        {
+            using var reader = new StreamReader(Request.Body, Encoding.UTF8);
+            payload = JsonSerializer.Deserialize<JsonElement>(await reader.ReadToEndAsync(ct));
+        }
+        catch (JsonException)
+        {
+            return BadRequest("Malformed JSON payload.");
+        }
+
+        // "page.id" (Confluence Cloud's shape) or a bare top-level "pageId" (some Server/DC plugin
+        // configurations) -- accept either rather than failing on a shape mismatch.
+        string? pageId = null;
+        if (payload.TryGetProperty("page", out var page) && page.TryGetProperty("id", out var pageIdProp))
+            pageId = pageIdProp.ValueKind == JsonValueKind.String ? pageIdProp.GetString() : pageIdProp.GetRawText();
+        else if (payload.TryGetProperty("pageId", out var topLevelPageIdProp))
+            pageId = topLevelPageIdProp.ValueKind == JsonValueKind.String ? topLevelPageIdProp.GetString() : topLevelPageIdProp.GetRawText();
+
+        if (pageId is null) return Ok();
+
+        var allProjects = await _projects.GetAllAsync(ct);
+        var matches = allProjects
+            .Select(p => (Project: p, Source: p.KbSources.FirstOrDefault(s =>
+                s.Type == KbSourceType.Confluence && s.Location == pageId)))
+            .Where(m => m.Source is not null)
+            .ToList();
+
+        var enqueued = 0;
+        foreach (var (project, matchedSource) in matches)
+        {
+            if (_queue.IsBusy(project.Id))
+            {
+                _logger.LogInformation(
+                    "Confluence webhook: skipping project {ProjectId} for page {PageId} -- ingestion already running", project.Id, pageId);
+                continue;
+            }
+
+            // Only the changed page, not the project's other KB sources or repos.
+            var pseudoProject = new Project { Id = project.Id, Name = project.Name, KbSources = new List<KbSourceConfig> { matchedSource! } };
+            foreach (var factory in _services.GetServices<IIngestionJobFactory>())
+                foreach (var job in factory.CreateJobs(pseudoProject))
+                    _queue.Enqueue(job);
+            enqueued++;
+        }
+
+        _logger.LogInformation("Confluence webhook: page {PageId} update enqueued re-ingestion for {Count} project(s)", pageId, enqueued);
         return Accepted();
     }
 
