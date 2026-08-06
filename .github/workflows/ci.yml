@@ -45,3 +45,66 @@ jobs:
 
       - name: Build image
         run: docker build -t supportforge-api:${{ github.sha }} .
+
+  # C8 (gap-closing-solutions.md Phase C, item 8): packages the artifacts Scripts/Deploy.ps1 expects
+  # (backend publish output + frontend dist, with the SPA-routing web.config already written into
+  # it) and uploads them as a build artifact. This is the automatable half of "deploy" -- actually
+  # pushing to the EC2 host needs real remote-access credentials (WinRM/SSH) this repo doesn't have
+  # configured, so that step stays manual (download the artifact, run Deploy.ps1 -TargetRoot against
+  # a reachable path) rather than faking a step that would fail or silently no-op in CI.
+  package:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Publish backend
+        run: dotnet publish backend/SupportForge.Api -c Release -o publish/api
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Write SPA web.config
+        run: |
+          cat > frontend/dist/web.config << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <system.webServer>
+              <rewrite>
+                <rules>
+                  <rule name="React Routes" stopProcessing="true">
+                    <match url=".*" />
+                    <conditions logicalGrouping="MatchAll">
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+                      <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="/index.html" />
+                  </rule>
+                </rules>
+              </rewrite>
+            </system.webServer>
+          </configuration>
+          EOF
+
+      - name: Upload deploy artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: supportforge-deploy-${{ github.sha }}
+          path: |
+            publish/api
+            frontend/dist
+          retention-days: 14
