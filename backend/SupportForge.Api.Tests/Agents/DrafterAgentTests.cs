@@ -290,6 +290,78 @@ public class DrafterAgentTests
         Assert.True(context.Confidence > 0.0);
     }
 
+    // D3 (gap-closing-solutions.md Phase D, item 3): groundedness check, opt-in via the constructor's
+    // groundednessCheckEnabled param (mirrors Program.cs's Drafter:GroundednessCheckEnabled config).
+    [Fact]
+    public async Task RunAsync_GroundednessCheckDisabledByDefault_JudgeNeverCalled()
+    {
+        const string clean = "This is expected: empty carts are rejected before payment, so nothing was charged.";
+        var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        context.KbVerification.Status = VerificationStatus.Passed;
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(clean);
+
+        // Default constructor (no groundednessCheckEnabled arg) -- same call shape as every other
+        // existing test in this file, confirming the opt-in default doesn't change their behavior.
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>()).RunAsync(context);
+
+        Assert.Equal(DrafterAgent.ComputeConfidence(context), context.Confidence);
+        llm.Verify(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once); // draft only, no judge call
+    }
+
+    [Fact]
+    public async Task RunAsync_GroundednessCheckEnabled_GroundedVerdict_ConfidenceUnaffected()
+    {
+        const string clean = "This is expected: empty carts are rejected before payment, so nothing was charged.";
+        var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        context.KbVerification.Status = VerificationStatus.Passed;
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(clean);
+        llm.Setup(l => l.CompleteAsync(It.Is<string>(s => s.Contains("You judge whether a drafted support answer")), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("grounded");
+
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>(), groundednessCheckEnabled: true).RunAsync(context);
+
+        Assert.Equal(clean, context.Draft);
+        Assert.Equal(DrafterAgent.ComputeConfidence(context), context.Confidence);
+    }
+
+    [Fact]
+    public async Task RunAsync_GroundednessCheckEnabled_UngroundedVerdict_HalvesConfidence_ButKeepsDraft()
+    {
+        const string clean = "This is expected: empty carts are rejected before payment, so nothing was charged.";
+        var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        context.KbVerification.Status = VerificationStatus.Passed;
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(clean);
+        llm.Setup(l => l.CompleteAsync(It.Is<string>(s => s.Contains("You judge whether a drafted support answer")), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("ungrounded");
+
+        var expectedBaseConfidence = DrafterAgent.ComputeConfidence(context);
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>(), groundednessCheckEnabled: true).RunAsync(context);
+
+        // Flagged, not blocked: the draft text itself is unchanged, only confidence is halved.
+        Assert.Equal(clean, context.Draft);
+        Assert.Equal(expectedBaseConfidence * 0.5, context.Confidence);
+    }
+
+    [Fact]
+    public async Task RunAsync_GroundednessCheckEnabled_LeakedDraft_SkipsGroundednessCheck()
+    {
+        var context = new AgentContext { ProjectId = "p", Query = "why does checkout fail" };
+        context.KbVerification.Status = VerificationStatus.Passed;
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("The fix is in OrderService.cs:42."); // triggers the leak guard on every call, including the retry
+
+        await new DrafterAgent(llm.Object, new ListLogger<DrafterAgent>(), groundednessCheckEnabled: true).RunAsync(context);
+
+        Assert.Equal(DrafterAgent.LeakFallback, context.Draft);
+        Assert.Equal(0.0, context.Confidence);
+        // Draft + one leak retry = 2 calls; a groundedness judge call would make this 3.
+        llm.Verify(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
     [Fact]
     public async Task RunAsync_LogsStartAndCompletion()
     {

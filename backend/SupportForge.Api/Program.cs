@@ -160,6 +160,9 @@ builder.Services.AddScoped<VisionAnalyzerVerifier>(sp => new VisionAnalyzerVerif
 // CoordinatorPipeline risk -- see docs/agentic-pipeline.md -- rather than adding a second thing that
 // has to be hand-mirrored there).
 var fallbackProviderConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["Llm:FallbackProvider"]);
+// D3 (gap-closing-solutions.md Phase D, item 3): opt-in, unvalidated against real model output in
+// this session -- see DrafterAgent's own comment on _groundednessCheckEnabled.
+var groundednessCheckEnabled = builder.Configuration.GetValue<bool>("Drafter:GroundednessCheckEnabled");
 builder.Services.AddScoped<DrafterAgent>(sp =>
 {
     var llm = fallbackProviderConfigured
@@ -168,7 +171,7 @@ builder.Services.AddScoped<DrafterAgent>(sp =>
             sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.FallbackTierKey),
             sp.GetRequiredService<ILogger<FallbackLlmChatClient>>())
         : sp.GetRequiredService<ILlmChatClient>();
-    return new DrafterAgent(llm, sp.GetRequiredService<ILogger<DrafterAgent>>());
+    return new DrafterAgent(llm, sp.GetRequiredService<ILogger<DrafterAgent>>(), groundednessCheckEnabled);
 });
 builder.Services.AddScoped<KbSearchTool>();
 builder.Services.AddScoped<VisionAnalysisTool>();
