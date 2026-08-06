@@ -164,11 +164,17 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddSingleton<SupportForge.Agents.Tools.IIngestionActivity>(sp => sp.GetRequiredService<IngestionQueue>());
 builder.Services.AddHostedService<IngestionBackgroundService>();
+// C4 (gap-closing-solutions.md Phase C, item 4): periodic re-sync for KB sources with no push
+// mechanism of their own -- code repos stay webhook-driven (WebhooksController.GitHub) instead.
+builder.Services.AddHostedService<ScheduledKbSyncService>();
 builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
 builder.Services.AddHttpClient<ConfluencePageFetcher>();
 var repoCacheRoot = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos");
 builder.Services.AddSingleton<KbVectorIndexer>();
-builder.Services.AddSingleton<IIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp, repoCacheRoot));
+// Registered under its own concrete type (not just IIngestionJobFactory) so ScheduledKbSyncService
+// can depend on it directly -- same singleton instance backs both registrations.
+builder.Services.AddSingleton<DocumentIngestionJobFactory>(sp => new DocumentIngestionJobFactory(sp, repoCacheRoot));
+builder.Services.AddSingleton<IIngestionJobFactory>(sp => sp.GetRequiredService<DocumentIngestionJobFactory>());
 builder.Services.AddSingleton<GitRepoSyncService>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFactory(sp, repoCacheRoot));
 
