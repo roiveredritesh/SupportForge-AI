@@ -15,6 +15,12 @@ public sealed class CodeAnalyzerVerifier : IAgent
         customer's code-related support question -- not merely names a file or symbol connected to
         the topic.
 
+        This tool exists to answer questions about THIS project's own source code, using ONLY what
+        the retrieved snippets show. It is not a general programming knowledge assistant. If the
+        question is really a general programming/industry concept question and no snippet ties it to
+        this project's actual files or symbols, that is not a match -- answer "none" rather than
+        explaining the general concept.
+
         Each snippet is a structural traversal (NODE/EDGE lines: identifier names, file paths, and
         relationships) -- it does NOT include source text, comments, or literal values. A snippet can
         be squarely on-topic (the right file, the right symbol) while containing nothing that answers

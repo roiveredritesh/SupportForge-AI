@@ -11,3 +11,5 @@ publish/
 App_Data/
 .chroma-data/
 .neo4j-data/
+Scripts/neo4j/
+Scripts/.local-dbs.pids

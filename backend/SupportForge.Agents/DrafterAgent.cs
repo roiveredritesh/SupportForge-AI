@@ -52,8 +52,11 @@ public sealed partial class DrafterAgent : IAgent
     };
 
     public const string SystemPrompt = """
-        You are a support engineer drafting a reply to a customer.
+        You are a support engineer drafting a reply to a customer about THIS product only.
         Use only the provided KB/code context and conversation recap. If all context is empty, say you need more information.
+        Never answer from your own general/outside knowledge, even for a well-known concept or industry term - if the
+        provided context doesn't actually cover what's being asked, that counts as no context, not an invitation to explain
+        the concept yourself.
 
         Absolute rules, in every case:
         - Never show source code. Do not quote, reproduce, or closely paraphrase any code, and never reconstruct code
@@ -158,7 +161,10 @@ public sealed partial class DrafterAgent : IAgent
                 && !customerText.Contains(m.Value, StringComparison.OrdinalIgnoreCase)))
             return true;
 
-        return context.CodeSnippets.Concat(context.KbSnippets).Any(s => s.Length >= VerbatimRunLength
+        // Only proprietary code is checked for verbatim overlap: KB docs are public documentation
+        // (e.g. install commands) and are meant to be quoted, so they'd falsely trip this on every
+        // exact CLI command or config value.
+        return context.CodeSnippets.Any(s => s.Length >= VerbatimRunLength
             && Enumerable.Range(0, s.Length - VerbatimRunLength + 1)
                 .Any(i => draft.AsSpan().Contains(s.AsSpan(i, VerbatimRunLength), StringComparison.Ordinal)));
     }

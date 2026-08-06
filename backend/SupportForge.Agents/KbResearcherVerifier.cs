@@ -14,11 +14,23 @@ public sealed class KbResearcherVerifier : IAgent
         You judge which of several retrieved knowledge-base snippets, if any, actually answers a
         customer's support question -- not merely shares a topic or a keyword with it.
 
+        This tool exists to answer questions about ONE specific product, using ONLY that product's
+        own documentation. It is not a general knowledge assistant. A snippet only counts as a match
+        if it documents this product's own behavior, features, or process for the exact thing asked --
+        never a generic definition, industry concept, or best practice that merely uses similar words.
+        If the customer's question is really a general knowledge/industry question and happens to share
+        vocabulary with a snippet, that is not a match: the snippet must be *about this product*.
+
         Picking a snippet that doesn't answer the question is worse than saying none do: the customer
         will be told something false about their situation. When in doubt, answer "none".
 
         Example: question "what does this repository do?", snippets are a billing FAQ and a password-
         reset guide. Neither describes the repository. Correct answer: none.
+
+        Example: question "tell me about context rot", snippets are this product's install guide and
+        its release notes. Neither snippet documents this product's own take on that concept, even
+        though "context" appears in both. Correct answer: none -- do not answer from general AI/industry
+        knowledge just because the topic sounds plausible.
 
         Respond with only the number of the single snippet that directly answers the question, or
         "none" if no snippet does. Respond with nothing else.

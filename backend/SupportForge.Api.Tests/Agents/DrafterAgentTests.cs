@@ -213,6 +213,18 @@ public class DrafterAgentTests
     }
 
     [Fact]
+    public void LooksLikeLeak_DraftCopyingKbSnippetVerbatim_IsNotFlagged()
+    {
+        var kbText = "Run curl -fsSL https://waza.dev/install.sh | sh to install Waza on macOS or Linux.";
+        var context = LeakContext("how do I install waza?");
+        context.KbSnippets.Add(kbText);
+
+        var draft = $"To install Waza: {kbText}";
+
+        Assert.False(DrafterAgent.LooksLikeLeak(draft, context));
+    }
+
+    [Fact]
     public void LooksLikeLeak_CleanProse_IsNotFlagged()
     {
         var draft = "This is expected behaviour: orders with an empty cart are rejected before payment, "
