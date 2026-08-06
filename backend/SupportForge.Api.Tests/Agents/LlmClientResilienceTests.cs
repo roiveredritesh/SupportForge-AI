@@ -1,5 +1,6 @@
 using System.Net;
 using Amazon.BedrockRuntime;
+using Amazon.BedrockRuntime.Model;
 using Amazon.Runtime;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -195,6 +196,78 @@ public class LlmClientResilienceTests
         Assert.Equal(callsAfterFirstRequest, chatClient.Invocations.Count);
     }
 
+    // ---- Bedrock: Polly pipeline wrapping the call site (C6 -- gap-closing-solutions.md Phase C item 6) ----
+    // Same shape as OpenAI's tests above, just mocking IAmazonBedrockRuntime.InvokeModelAsync directly
+    // instead of IChatClient.
+
+    private static InvokeModelResponse BedrockTextResponse(string text) => new()
+    {
+        Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(
+            """{"content":[{"type":"text","text":"REPLACE_ME"}],"usage":{"input_tokens":1,"output_tokens":1}}""".Replace("REPLACE_ME", text))),
+    };
+
+    private static BedrockLlmClient BuildBedrockClient(Mock<IAmazonBedrockRuntime> bedrock) =>
+        new(bedrock.Object, Microsoft.Extensions.Options.Options.Create(new BedrockOptions()));
+
+    [Fact]
+    public async Task Bedrock_HappyPath_NoRetryOverhead()
+    {
+        var bedrock = new Mock<IAmazonBedrockRuntime>();
+        bedrock.Setup(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BedrockTextResponse("hello"));
+
+        var sut = BuildBedrockClient(bedrock);
+        var result = await sut.CompleteAsync("system", "user");
+
+        Assert.Equal("hello", result);
+        bedrock.Verify(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Bedrock_ThrottlingException_SucceedsOnRetry()
+    {
+        var bedrock = new Mock<IAmazonBedrockRuntime>();
+        bedrock.SetupSequence(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Amazon.BedrockRuntime.Model.ThrottlingException("rate limited"))
+            .ReturnsAsync(BedrockTextResponse("recovered"));
+
+        var sut = BuildBedrockClient(bedrock);
+        var result = await sut.CompleteAsync("system", "user");
+
+        Assert.Equal("recovered", result);
+        bedrock.Verify(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task Bedrock_NonTransientException_PropagatesWithoutRetry()
+    {
+        var bedrock = new Mock<IAmazonBedrockRuntime>();
+        bedrock.Setup(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Amazon.BedrockRuntime.Model.ValidationException("bad request"));
+
+        var sut = BuildBedrockClient(bedrock);
+
+        await Assert.ThrowsAsync<Amazon.BedrockRuntime.Model.ValidationException>(() => sut.CompleteAsync("system", "user"));
+        bedrock.Verify(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Bedrock_CircuitBreaker_OpensAfterSustainedFailure_AndFailsFast()
+    {
+        var bedrock = new Mock<IAmazonBedrockRuntime>();
+        bedrock.Setup(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Amazon.BedrockRuntime.Model.ServiceUnavailableException("overloaded"));
+
+        var sut = BuildBedrockClient(bedrock);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => sut.CompleteAsync("system", "user"));
+        var callsAfterFirstRequest = bedrock.Invocations.Count;
+
+        await Assert.ThrowsAsync<BrokenCircuitException>(() => sut.CompleteAsync("system", "user"));
+
+        Assert.Equal(callsAfterFirstRequest, bedrock.Invocations.Count);
+    }
+
     // ---- Bedrock: AWS SDK's own retry config (RetryMode/MaxErrorRetry), not Polly ----
     // BedrockLlmClient talks to IAmazonBedrockRuntime, an interface the AWS SDK's retry pipeline
     // lives behind (not visible through a mocked IAmazonBedrockRuntime, since retries happen inside
@@ -219,6 +292,8 @@ public class LlmClientResilienceTests
         var bedrockClient = Assert.IsType<AmazonBedrockRuntimeClient>(provider.GetRequiredService<IAmazonBedrockRuntime>());
 
         Assert.Equal(RequestRetryMode.Standard, bedrockClient.Config.RetryMode);
-        Assert.Equal(3, bedrockClient.Config.MaxErrorRetry);
+        // C6: dialed down from 3 to 1 now that BedrockLlmClient wraps calls in its own Polly
+        // retry+circuit-breaker pipeline too -- see LlmServiceCollectionExtensions.EnsureBedrockRuntimeRegistered.
+        Assert.Equal(1, bedrockClient.Config.MaxErrorRetry);
     }
 }

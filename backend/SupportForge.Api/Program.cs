@@ -149,7 +149,23 @@ builder.Services.AddScoped<VisionAnalyzerAgent>();
 builder.Services.AddScoped<VisionAnalyzerVerifier>(sp => new VisionAnalyzerVerifier(
     sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
     sp.GetRequiredService<ILogger<VisionAnalyzerVerifier>>()));
-builder.Services.AddScoped<DrafterAgent>();
+// C6 (gap-closing-solutions.md Phase C, item 6): wraps DrafterAgent's LLM calls with a fallback
+// provider when Llm:FallbackProvider is configured -- opt-in, DrafterAgent gets the plain default
+// client otherwise. Scoped to DrafterAgent's own /query path only (not ChatController.QueryStream's
+// separate inline Drafter completion, which already has its own documented duplication-with-
+// CoordinatorPipeline risk -- see docs/agentic-pipeline.md -- rather than adding a second thing that
+// has to be hand-mirrored there).
+var fallbackProviderConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["Llm:FallbackProvider"]);
+builder.Services.AddScoped<DrafterAgent>(sp =>
+{
+    var llm = fallbackProviderConfigured
+        ? new FallbackLlmChatClient(
+            sp.GetRequiredService<ILlmChatClient>(),
+            sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.FallbackTierKey),
+            sp.GetRequiredService<ILogger<FallbackLlmChatClient>>())
+        : sp.GetRequiredService<ILlmChatClient>();
+    return new DrafterAgent(llm, sp.GetRequiredService<ILogger<DrafterAgent>>());
+});
 builder.Services.AddScoped<KbSearchTool>();
 builder.Services.AddScoped<VisionAnalysisTool>();
 builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(

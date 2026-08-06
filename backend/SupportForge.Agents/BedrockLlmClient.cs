@@ -5,6 +5,9 @@ using Amazon.BedrockRuntime;
 using Amazon.BedrockRuntime.Model;
 using Amazon.Runtime.EventStreams;
 using Microsoft.Extensions.Options;
+using Polly;
+using Polly.CircuitBreaker;
+using Polly.Retry;
 
 namespace SupportForge.Agents;
 
@@ -24,6 +27,39 @@ public class BedrockLlmClient : ILlmClient
     private readonly string _embeddingModelId;
     private readonly int _maxTokens;
 
+    // C6 (gap-closing-solutions.md Phase C, item 6): same retry+circuit-breaker shape as
+    // OpenAiLlmClient's _resilience, so resilience posture is consistent across providers instead of
+    // Bedrock relying solely on the AWS SDK's own (differently-shaped, less observable) retry.
+    // MaxErrorRetry is dialed down in LlmServiceCollectionExtensions.EnsureBedrockRuntimeRegistered
+    // now that this pipeline also retries, to avoid the two layers stacking into ~12 total attempts.
+    private readonly ResiliencePipeline _resilience = new ResiliencePipelineBuilder()
+        .AddRetry(new RetryStrategyOptions
+        {
+            MaxRetryAttempts = 3,
+            BackoffType = DelayBackoffType.Exponential,
+            Delay = TimeSpan.FromSeconds(1),
+            UseJitter = true,
+            ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+        })
+        .AddCircuitBreaker(new CircuitBreakerStrategyOptions
+        {
+            FailureRatio = 0.5,
+            MinimumThroughput = 4,
+            SamplingDuration = TimeSpan.FromSeconds(30),
+            BreakDuration = TimeSpan.FromSeconds(15),
+            ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+        })
+        .Build();
+
+    private static bool IsTransientFailure(Exception ex) => ex switch
+    {
+        ThrottlingException or ServiceUnavailableException or ModelTimeoutException or InternalServerException => true,
+        Amazon.Runtime.AmazonServiceException se => (int)se.StatusCode >= 500,
+        HttpRequestException => true,
+        TimeoutException => true,
+        _ => false,
+    };
+
     public virtual int LastTotalTokens { get; protected set; }
     public virtual bool SupportsVision => true;
 
@@ -38,7 +74,7 @@ public class BedrockLlmClient : ILlmClient
     public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
         var body = BuildMessageBody(systemPrompt, userPrompt);
-        var (text, tokens) = await InvokeAsync(_chatModelId, body, ct);
+        var (text, tokens) = await _resilience.ExecuteAsync(rct => new ValueTask<(string, int)>(InvokeAsync(_chatModelId, body, rct)), ct);
         LastTotalTokens = tokens;
         return text;
     }
@@ -51,7 +87,7 @@ public class BedrockLlmClient : ILlmClient
             new { type = "text", text = prompt },
         };
         var body = BuildMessageBody(systemPrompt: null, content);
-        var (text, tokens) = await InvokeAsync(_chatModelId, body, ct);
+        var (text, tokens) = await _resilience.ExecuteAsync(rct => new ValueTask<(string, int)>(InvokeAsync(_chatModelId, body, rct)), ct);
         LastTotalTokens = tokens;
         return text;
     }
@@ -60,25 +96,28 @@ public class BedrockLlmClient : ILlmClient
     // interface compatibility and otherwise unused here.
     public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query)
     {
-        var body = new { inputText = text };
-        var request = new InvokeModelRequest
+        return await _resilience.ExecuteAsync(async rct =>
         {
-            ModelId = _embeddingModelId,
-            ContentType = "application/json",
-            Accept = "application/json",
-            Body = ToStream(body),
-        };
-        var response = await _bedrock.InvokeModelAsync(request, ct);
+            var body = new { inputText = text };
+            var request = new InvokeModelRequest
+            {
+                ModelId = _embeddingModelId,
+                ContentType = "application/json",
+                Accept = "application/json",
+                Body = ToStream(body),
+            };
+            var response = await _bedrock.InvokeModelAsync(request, rct);
 
-        using var doc = await JsonDocument.ParseAsync(response.Body, cancellationToken: ct);
-        var root = doc.RootElement;
-        var embeddingEl = root.GetProperty("embedding");
-        var vector = new float[embeddingEl.GetArrayLength()];
-        for (var i = 0; i < vector.Length; i++)
-            vector[i] = embeddingEl[i].GetSingle();
+            using var doc = await JsonDocument.ParseAsync(response.Body, cancellationToken: rct);
+            var root = doc.RootElement;
+            var embeddingEl = root.GetProperty("embedding");
+            var vector = new float[embeddingEl.GetArrayLength()];
+            for (var i = 0; i < vector.Length; i++)
+                vector[i] = embeddingEl[i].GetSingle();
 
-        LastTotalTokens = root.TryGetProperty("inputTextTokenCount", out var tokenCount) ? tokenCount.GetInt32() : 0;
-        return vector;
+            LastTotalTokens = root.TryGetProperty("inputTextTokenCount", out var tokenCount) ? tokenCount.GetInt32() : 0;
+            return vector;
+        }, ct);
     }
 
     public virtual async IAsyncEnumerable<string> StreamCompleteAsync(

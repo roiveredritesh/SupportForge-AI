@@ -73,6 +73,38 @@ public class LlmServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddLlmProviders_NoFallbackProviderConfigured_DoesNotRegisterFallbackKey()
+    {
+        var services = new ServiceCollection();
+        var config = BuildConfig(new() { ["Llm:OpenAI:ApiKey"] = "test-key" });
+
+        services.AddLlmProviders(config);
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Null(provider.GetKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.FallbackTierKey));
+    }
+
+    [Fact]
+    public void AddLlmProviders_FallbackProviderConfigured_RegistersKeyedFallbackClient_OfThatProvidersType()
+    {
+        var services = new ServiceCollection();
+        var config = BuildConfig(new()
+        {
+            ["Llm:Provider"] = "OpenAI",
+            ["Llm:OpenAI:ApiKey"] = "test-key",
+            ["Llm:FallbackProvider"] = "Anthropic",
+            ["Llm:Anthropic:ApiKey"] = "fallback-key",
+        });
+
+        services.AddLlmProviders(config);
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<OpenAiLlmClient>(provider.GetRequiredService<ILlmChatClient>()); // primary unchanged
+        var fallback = provider.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.FallbackTierKey);
+        Assert.IsType<AnthropicLlmClient>(fallback);
+    }
+
+    [Fact]
     public void AddLlmProviders_Bedrock_RegistersUnionClient()
     {
         var services = new ServiceCollection();

@@ -30,6 +30,12 @@ public static class LlmServiceCollectionExtensions
     // deployment: registering this key changes nothing until a CheapChatModel is actually configured.
     public const string CheapTierKey = "cheap";
 
+    // C6 (gap-closing-solutions.md Phase C, item 6): the key under which a fallback ILlmChatClient is
+    // registered when Llm:FallbackProvider is configured -- resolve via
+    // sp.GetRequiredKeyedService<ILlmChatClient>(FallbackTierKey) and wrap the default client with
+    // FallbackLlmChatClient. Opt-in: nothing is registered under this key unless FallbackProvider is set.
+    public const string FallbackTierKey = "fallback";
+
     public static IServiceCollection AddLlmProviders(this IServiceCollection services, IConfiguration configuration)
     {
         var chatProvider = NullIfBlank(configuration["Llm:Provider"]) ?? "OpenAI";
@@ -40,6 +46,10 @@ public static class LlmServiceCollectionExtensions
 
         RegisterChatProvider(services, configuration, chatProvider);
         RegisterCheapChatProvider(services, configuration, chatProvider);
+
+        var fallbackProvider = NullIfBlank(configuration["Llm:FallbackProvider"]);
+        if (fallbackProvider is not null)
+            RegisterFallbackChatProvider(services, configuration, fallbackProvider);
 
         if (sameProvider)
         {
@@ -152,6 +162,43 @@ public static class LlmServiceCollectionExtensions
         }
     }
 
+    // Registers a *different* provider (Llm:FallbackProvider) under FallbackTierKey, using that
+    // provider's own normal ChatModel config -- not a cheap-tier override, a genuine second provider
+    // to fail over to. Mirrors RegisterChatProvider's shape rather than RegisterCheapChatProvider's,
+    // since there's no "cheap" concept here, just "a different provider than the primary."
+    private static void RegisterFallbackChatProvider(IServiceCollection services, IConfiguration configuration, string provider)
+    {
+        switch (provider)
+        {
+            case "OpenAI":
+            case "NvidiaNim":
+            case "Ollama":
+                services.AddKeyedSingleton<ILlmChatClient>(FallbackTierKey, (_, _) => BuildOpenAiCompatibleClient(configuration, provider));
+                break;
+            case "Azure":
+                services.AddKeyedSingleton<ILlmChatClient>(FallbackTierKey, (_, _) => BuildAzureClient(configuration));
+                break;
+            case "Anthropic":
+                services.Configure<AnthropicOptions>(configuration.GetSection("Llm:Anthropic"));
+                services.AddHttpClient<AnthropicLlmClient>("Fallback:" + nameof(AnthropicLlmClient), c => c.Timeout = TimeSpan.FromMinutes(5))
+                    .AddResilienceHandler("llm-retry-fallback", AddLlmResilience);
+                services.AddKeyedSingleton<ILlmChatClient>(FallbackTierKey, (sp, _) =>
+                {
+                    var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("Fallback:" + nameof(AnthropicLlmClient));
+                    return new AnthropicLlmClient(http, sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AnthropicOptions>>());
+                });
+                break;
+            case "Bedrock":
+                EnsureBedrockRuntimeRegistered(services, configuration);
+                services.Configure<BedrockOptions>(configuration.GetSection("Llm:Bedrock"));
+                services.AddKeyedSingleton<ILlmChatClient>(FallbackTierKey, (sp, _) =>
+                    new BedrockLlmClient(sp.GetRequiredService<IAmazonBedrockRuntime>(), sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BedrockOptions>>()));
+                break;
+            default:
+                throw new InvalidOperationException($"Llm:FallbackProvider '{provider}' is not recognized. Supported: {string.Join(", ", SupportedProviders)}.");
+        }
+    }
+
     private static void RegisterEmbeddingProvider(IServiceCollection services, IConfiguration configuration, string provider)
     {
         switch (provider)
@@ -181,14 +228,16 @@ public static class LlmServiceCollectionExtensions
         services.AddSingleton<IAmazonBedrockRuntime>(_ =>
         {
             var region = configuration["Llm:Bedrock:Region"] ?? "us-east-1";
-            // The AWS SDK owns its own retry/backoff machinery (RetryMode.Standard = exponential
-            // backoff with jitter) -- Polly doesn't attach here since there's no HttpClient seam,
-            // see KTD2 in the mitigation plan.
+            // C6: BedrockLlmClient now wraps calls in its own Polly retry+circuit-breaker pipeline
+            // (matching OpenAI/Anthropic), so MaxErrorRetry here is dialed down from 3 to 1 -- just
+            // enough for the SDK to absorb a bare connection blip on its own, without the two retry
+            // layers stacking into ~12 total attempts on a sustained outage before Polly's circuit
+            // breaker gets a chance to open.
             var config = new AmazonBedrockRuntimeConfig
             {
                 RegionEndpoint = RegionEndpoint.GetBySystemName(region),
                 RetryMode = Amazon.Runtime.RequestRetryMode.Standard,
-                MaxErrorRetry = 3,
+                MaxErrorRetry = 1,
             };
             return new AmazonBedrockRuntimeClient(config);
         });
