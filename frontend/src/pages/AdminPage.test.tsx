@@ -19,7 +19,30 @@ describe('AdminPage', () => {
     fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: 'Project Two' } });
     fireEvent.click(screen.getByText('Create Project'));
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/projects', expect.objectContaining({ id: 'proj2', name: 'Project Two' })));
+    await waitFor(() =>
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/projects',
+        expect.objectContaining({ id: 'proj2', name: 'Project Two', scheduledSyncIntervalHours: null }),
+      ),
+    );
+  });
+
+  it('submits the scheduled sync interval as a number when set, null when left blank', async () => {
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <AdminPage />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText('Project ID'), { target: { value: 'proj4' } });
+    fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: 'Project Four' } });
+    fireEvent.change(screen.getByLabelText('Scheduled KB sync interval (hours, optional)'), { target: { value: '6' } });
+    fireEvent.click(screen.getByText('Create Project'));
+
+    await waitFor(() =>
+      expect(apiClient.post).toHaveBeenCalledWith('/projects', expect.objectContaining({ scheduledSyncIntervalHours: 6 })),
+    );
   });
 
   it('shows a "crawl linked pages" checkbox only for Website KB sources, and includes it when checked', async () => {

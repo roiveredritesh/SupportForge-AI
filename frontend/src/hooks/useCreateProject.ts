@@ -7,6 +7,7 @@ export interface CreateProjectRequest {
   name: string;
   repos: ProjectRepo[];
   kbSources: ProjectKbSource[];
+  scheduledSyncIntervalHours?: number | null;
 }
 
 export function useCreateProject() {

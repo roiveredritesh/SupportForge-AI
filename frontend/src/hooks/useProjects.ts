@@ -27,6 +27,9 @@ export interface Project {
   name: string;
   repos: ProjectRepo[];
   kbSources: ProjectKbSource[];
+  // Overrides the server's global scheduled-sync cadence for this project's KB sources.
+  // Null/omitted falls back to the server default (Freshness:ScheduledSyncIntervalHours).
+  scheduledSyncIntervalHours?: number | null;
 }
 
 export function useProjects() {

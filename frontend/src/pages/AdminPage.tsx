@@ -44,6 +44,7 @@ export default function AdminPage() {
   const [name, setName] = useState('');
   const [repos, setRepos] = useState<ProjectRepo[]>([]);
   const [kbSources, setKbSources] = useState<ProjectKbSource[]>([]);
+  const [syncIntervalHours, setSyncIntervalHours] = useState('');
 
   const resetForm = () => {
     setEditingId(null);
@@ -51,6 +52,7 @@ export default function AdminPage() {
     setName('');
     setRepos([]);
     setKbSources([]);
+    setSyncIntervalHours('');
   };
 
   const startEdit = (p: Project) => {
@@ -59,6 +61,7 @@ export default function AdminPage() {
     setName(p.name);
     setRepos(p.repos.map((r) => ({ ...r })));
     setKbSources(p.kbSources.map((k) => ({ ...k })));
+    setSyncIntervalHours(p.scheduledSyncIntervalHours != null ? String(p.scheduledSyncIntervalHours) : '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -70,8 +73,15 @@ export default function AdminPage() {
   };
 
   const handleSave = () => {
+    const parsedInterval = syncIntervalHours.trim() === '' ? null : Number(syncIntervalHours);
     saveProject.mutate(
-      { id, name, repos: repos.filter((r) => r.owner && r.repo), kbSources: kbSources.filter((k) => k.location) },
+      {
+        id,
+        name,
+        repos: repos.filter((r) => r.owner && r.repo),
+        kbSources: kbSources.filter((k) => k.location),
+        scheduledSyncIntervalHours: parsedInterval != null && !Number.isNaN(parsedInterval) ? parsedInterval : null,
+      },
       { onSuccess: resetForm },
     );
   };
@@ -219,6 +229,18 @@ export default function AdminPage() {
           ))}
         </div>
 
+        <label className="block text-sm">
+          Scheduled KB sync interval (hours, optional)
+          <input
+            className={inputClass}
+            type="number"
+            min="1"
+            placeholder="Default (server-wide setting)"
+            value={syncIntervalHours}
+            onChange={(e) => setSyncIntervalHours(e.target.value)}
+          />
+        </label>
+
         <button className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700" onClick={handleSave} disabled={saveProject.isPending}>
           {editingId ? 'Save Changes' : 'Create Project'}
         </button>
@@ -273,6 +295,12 @@ export default function AdminPage() {
                       {k.lastSyncedAt ? ` — last synced ${new Date(k.lastSyncedAt).toLocaleString()}` : ' — never synced'}
                     </li>
                   ))}
+                  {p.kbSources.length > 0 && (
+                    <li>
+                      Scheduled sync: every {p.scheduledSyncIntervalHours ?? '(default)'}
+                      {p.scheduledSyncIntervalHours != null ? 'h' : ''}
+                    </li>
+                  )}
                 </ul>
               )}
             </li>
