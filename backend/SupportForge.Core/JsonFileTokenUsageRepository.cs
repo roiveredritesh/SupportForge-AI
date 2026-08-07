@@ -42,6 +42,21 @@ public sealed class JsonFileTokenUsageRepository : ITokenUsageRepository
         finally { _lock.Release(); }
     }
 
+    public async Task<Dictionary<string, int>> GetTotalsBySourceForProjectAsync(string projectId, CancellationToken ct = default)
+    {
+        if (!File.Exists(_filePath)) return new();
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var all = JsonSerializer.Deserialize<List<TokenUsageEntry>>(await File.ReadAllTextAsync(_filePath, ct)) ?? new();
+            return all.Where(e => e.ProjectId == projectId)
+                .GroupBy(e => e.Source)
+                .ToDictionary(g => g.Key, g => g.Sum(e => e.TotalTokens));
+        }
+        finally { _lock.Release(); }
+    }
+
     public async Task DeleteByProjectIdAsync(string projectId, CancellationToken ct = default)
     {
         await _lock.WaitAsync(ct);

@@ -67,6 +67,73 @@ public class ProjectsControllerTests
     }
 
     [Fact]
+    public async Task GetTokenUsage_ReturnsTotalAndBreakdown_ForMemberOfProject()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var tokenUsage = new Mock<ITokenUsageRepository>();
+        tokenUsage.Setup(t => t.GetTotalsBySourceForProjectAsync("proj1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, int> { ["chat"] = 100, ["ingestion"] = 40 });
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            tokenUsage.Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+
+        var result = await controller.GetTokenUsage("proj1");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var summary = Assert.IsType<SupportForge.Api.Contracts.TokenUsageSummary>(ok.Value);
+        Assert.Equal(140, summary.Total);
+        Assert.Equal(100, summary.BySource["chat"]);
+        Assert.Equal(40, summary.BySource["ingestion"]);
+
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task GetTokenUsage_NonMember_ReturnsForbidden()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller, "owner");
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+        SetTestUser(controller, "someone-else");
+
+        var result = await controller.GetTokenUsage("proj1");
+
+        Assert.IsType<ForbidResult>(result.Result);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
     public async Task Delete_RetriesWhenRepoDirFileIsMomentarilyLocked()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

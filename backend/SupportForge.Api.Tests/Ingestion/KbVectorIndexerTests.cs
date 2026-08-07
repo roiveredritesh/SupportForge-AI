@@ -1,6 +1,7 @@
 using Moq;
 using SupportForge.Agents;
 using SupportForge.Core;
+using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Documents;
 using SupportForge.VectorStore;
 using SupportForge.VectorStore.Models;
@@ -19,6 +20,8 @@ public class KbVectorIndexerTests
         return mock.Object;
     }
 
+    private static ITokenUsageRepository NoOpTokenUsage() => new Mock<ITokenUsageRepository>().Object;
+
     [Fact]
     public async Task IndexAsync_ChunksEachDocument_EmbedsEachChunk_ThenUpsertsOnce()
     {
@@ -29,7 +32,7 @@ public class KbVectorIndexerTests
         vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
 
         // 1500 chars > DocumentChunker's default 1000-char budget, so this file alone produces 2+ chunks.
         var longText = string.Join(' ', Enumerable.Repeat("word", 400));
@@ -49,7 +52,7 @@ public class KbVectorIndexerTests
     {
         var llm = new Mock<ILlmEmbeddingClient>(MockBehavior.Strict);
         var vectorStore = new Mock<IVectorStoreService>(MockBehavior.Strict);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
 
         await indexer.IndexAsync("proj1", [], CancellationToken.None);
 
@@ -67,7 +70,7 @@ public class KbVectorIndexerTests
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
 
         await indexer.IndexAsync("proj1", [("a.md", "one", null), ("b.md", "two", null)], CancellationToken.None);
 
@@ -85,7 +88,7 @@ public class KbVectorIndexerTests
         var vectorStore = new Mock<IVectorStoreService>();
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
 
         await indexer.IndexAsync("proj1", [("a.md", "one", null)], CancellationToken.None);
 
@@ -103,7 +106,7 @@ public class KbVectorIndexerTests
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
 
         await indexer.IndexAsync("proj1", [("page-1", "content", "How to Configure Widgets")], CancellationToken.None);
 
@@ -121,7 +124,7 @@ public class KbVectorIndexerTests
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
 
         await indexer.IndexAsync("proj1", [("file.md", "content", null)], CancellationToken.None);
 
@@ -138,7 +141,7 @@ public class KbVectorIndexerTests
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync("proj1", "file.md", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("same content"))));
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, NoOpTokenUsage());
 
         await indexer.IndexAsync("proj1", [("file.md", "same content", null)], CancellationToken.None);
 
@@ -158,12 +161,49 @@ public class KbVectorIndexerTests
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync("proj1", "file.md", It.IsAny<CancellationToken>()))
             .ReturnsAsync("stale-hash-from-a-previous-version-of-the-file");
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, NoOpTokenUsage());
 
         await indexer.IndexAsync("proj1", [("file.md", "new content", null)], CancellationToken.None);
 
         llm.Verify(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()), Times.Once);
         vectorStore.Verify(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()), Times.Once);
         hashes.Verify(h => h.SetHashAsync("proj1", "file.md", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task IndexAsync_SumsEmbeddingTokensAcrossChunks_AndRecordsThemAsIngestionUsage()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
+        llm.SetupSequence(l => l.LastTotalTokens).Returns(10).Returns(15);
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var tokenUsage = new Mock<ITokenUsageRepository>();
+        TokenUsageEntry? recorded = null;
+        tokenUsage.Setup(t => t.AddAsync(It.IsAny<TokenUsageEntry>(), It.IsAny<CancellationToken>()))
+            .Callback<TokenUsageEntry, CancellationToken>((e, _) => recorded = e)
+            .Returns(Task.CompletedTask);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), tokenUsage.Object);
+
+        await indexer.IndexAsync("proj1", [("a.md", "one", null), ("b.md", "two", null)], CancellationToken.None);
+
+        Assert.NotNull(recorded);
+        Assert.Equal("proj1", recorded!.ProjectId);
+        Assert.Equal(25, recorded.TotalTokens);
+        Assert.Equal("ingestion", recorded.Source);
+    }
+
+    [Fact]
+    public async Task IndexAsync_NoDocuments_DoesNotRecordTokenUsage()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>(MockBehavior.Strict);
+        var vectorStore = new Mock<IVectorStoreService>(MockBehavior.Strict);
+        var tokenUsage = new Mock<ITokenUsageRepository>(MockBehavior.Strict);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), tokenUsage.Object);
+
+        await indexer.IndexAsync("proj1", [], CancellationToken.None);
+
+        tokenUsage.VerifyNoOtherCalls();
     }
 }

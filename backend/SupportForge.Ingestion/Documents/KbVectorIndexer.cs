@@ -18,12 +18,15 @@ public sealed class KbVectorIndexer
     private readonly ILlmEmbeddingClient _llm;
     private readonly IVectorStoreService _vectorStore;
     private readonly IContentHashRepository _contentHashes;
+    private readonly ITokenUsageRepository _tokenUsage;
 
-    public KbVectorIndexer(ILlmEmbeddingClient llm, IVectorStoreService vectorStore, IContentHashRepository contentHashes)
+    public KbVectorIndexer(
+        ILlmEmbeddingClient llm, IVectorStoreService vectorStore, IContentHashRepository contentHashes, ITokenUsageRepository tokenUsage)
     {
         _llm = llm;
         _vectorStore = vectorStore;
         _contentHashes = contentHashes;
+        _tokenUsage = tokenUsage;
     }
 
     // D1 (gap-closing-solutions.md Phase D, item 1): Title is optional richer metadata (Confluence
@@ -32,6 +35,7 @@ public sealed class KbVectorIndexer
     public async Task IndexAsync(string projectId, IEnumerable<(string SourceRef, string Text, string? Title)> documents, CancellationToken ct)
     {
         var vectorDocs = new List<VectorDocument>();
+        var tokensUsed = 0;
         foreach (var (sourceRef, text, title) in documents)
         {
             // D1: unchanged content since the last successful index is skipped entirely -- no
@@ -45,6 +49,7 @@ public sealed class KbVectorIndexer
             for (var i = 0; i < chunks.Count; i++)
             {
                 var embedding = await _llm.EmbedAsync(chunks[i], ct, EmbeddingPurpose.Passage);
+                tokensUsed += _llm.LastTotalTokens;
                 var metadata = new Dictionary<string, string> { ["source"] = sourceRef, ["chunk"] = i.ToString() };
                 if (!string.IsNullOrWhiteSpace(title)) metadata["title"] = title;
                 vectorDocs.Add(new VectorDocument(
@@ -59,6 +64,9 @@ public sealed class KbVectorIndexer
 
         if (vectorDocs.Count > 0)
             await _vectorStore.UpsertAsync($"{projectId}-kb", vectorDocs, ct);
+
+        if (tokensUsed > 0)
+            await _tokenUsage.AddAsync(new TokenUsageEntry(projectId, tokensUsed, DateTimeOffset.UtcNow, "ingestion"), ct);
     }
 
     private static string ComputeHash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
