@@ -39,7 +39,7 @@ public class ConfluenceIngestionJobTests
             .Returns(Task.CompletedTask);
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object);
 
         var projects = new Mock<IProjectRepository>();
         var project = new Project

@@ -229,7 +229,7 @@ public class ChatController : ControllerBase
         var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
         var result = await _pipeline.RunAsync(context, ct);
-        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
+        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow, "chat"), ct);
         _logger.LogInformation("TokenUsage project={ProjectId} total={Total} byAgent={ByAgent}",
             request.ProjectId, result.TotalTokensUsed, JsonSerializer.Serialize(result.TokensByAgent));
 
@@ -328,7 +328,7 @@ public class ChatController : ControllerBase
             confidence = leaked ? 0.0 : DrafterAgent.ComputeConfidence(context);
         }
 
-        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow), ct);
+        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow, "chat"), ct);
         _logger.LogInformation("TokenUsage project={ProjectId} total={Total} byAgent={ByAgent}",
             request.ProjectId, context.TotalTokensUsed, JsonSerializer.Serialize(context.TokensByAgent));
 

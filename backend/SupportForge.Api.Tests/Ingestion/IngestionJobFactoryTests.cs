@@ -27,6 +27,7 @@ public class IngestionJobFactoryTests
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
         services.AddSingleton(hashes.Object);
+        services.AddSingleton(new Mock<ITokenUsageRepository>().Object);
         services.AddSingleton<KbVectorIndexer>();
         return services.BuildServiceProvider();
     }

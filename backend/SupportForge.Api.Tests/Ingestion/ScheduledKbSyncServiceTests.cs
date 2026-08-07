@@ -98,6 +98,7 @@ public class ScheduledKbSyncServiceTests
         docServices.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
         docServices.AddSingleton(new Mock<ILlmEmbeddingClient>().Object);
         docServices.AddSingleton(new Mock<IVectorStoreService>().Object);
+        docServices.AddSingleton(new Mock<ITokenUsageRepository>().Object);
         docServices.AddSingleton<KbVectorIndexer>();
         return new DocumentIngestionJobFactory(docServices.BuildServiceProvider(), tempDir);
     }

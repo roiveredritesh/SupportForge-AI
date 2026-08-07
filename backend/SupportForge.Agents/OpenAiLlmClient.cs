@@ -125,6 +125,10 @@ public class OpenAiLlmClient : ILlmClient
         var vector = new float[vectorJson.GetArrayLength()];
         for (var i = 0; i < vector.Length; i++)
             vector[i] = vectorJson[i].GetSingle();
+
+        LastTotalTokens = doc.RootElement.TryGetProperty("usage", out var usage) && usage.TryGetProperty("total_tokens", out var total)
+            ? total.GetInt32()
+            : 0;
         return vector;
     }
 

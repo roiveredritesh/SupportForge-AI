@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Api;
+using SupportForge.Api.Contracts;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion;
@@ -58,6 +59,17 @@ public class ProjectsController : ControllerBase
         var memberProjectIds = await _memberships.GetProjectIdsForUserAsync(this.CurrentUserId(), ct);
         var all = await _repo.GetAllAsync(ct);
         return Ok(all.Where(p => memberProjectIds.Contains(p.Id)).ToList());
+    }
+
+    // Lets the frontend show token spend per project, broken down by where it went -- "chat"
+    // (agent pipeline answering queries) vs "ingestion" (embedding calls during KB register/reindex).
+    [HttpGet("{id}/token-usage")]
+    public async Task<ActionResult<TokenUsageSummary>> GetTokenUsage(string id, CancellationToken ct = default)
+    {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), id, ct)) return Forbid();
+
+        var bySource = await _tokenUsage.GetTotalsBySourceForProjectAsync(id, ct);
+        return Ok(new TokenUsageSummary(bySource.Values.Sum(), bySource));
     }
 
     // B1: project creation stays self-service (agreed design) -- any authenticated user can create a
