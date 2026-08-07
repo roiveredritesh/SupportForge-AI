@@ -82,7 +82,7 @@ public sealed class VisionAnalyzerVerifier : IAgent
             Vision analysis findings: {context.VisionFindings}
             """;
         var verdict = await _llm.CompleteAsync(JudgeSystemPrompt, userPrompt, ct);
-        context.TotalTokensUsed += _llm.LastTotalTokens;
+        context.AddTokens(Name, _llm.LastTotalTokens);
         return verdict.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase);
     }
 }

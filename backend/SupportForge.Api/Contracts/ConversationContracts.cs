@@ -10,7 +10,8 @@ public sealed record ChatMessageDto(
     string Content,
     double? Confidence,
     IReadOnlyList<ChatSource> Sources,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    int? TotalTokensUsed);
 
 public sealed record ConversationDetailDto(
     string Id,

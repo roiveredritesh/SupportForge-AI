@@ -224,12 +224,12 @@ public sealed partial class DrafterAgent : IAgent
 
             var userPrompt = BuildUserPrompt(context);
             var draft = await _llm.CompleteAsync(SystemPrompt, userPrompt, ct);
-            context.TotalTokensUsed += _llm.LastTotalTokens;
+            context.AddTokens(Name, _llm.LastTotalTokens);
             var leaked = LooksLikeLeak(draft, context);
             if (leaked)
             {
                 draft = await _llm.CompleteAsync(SystemPrompt, userPrompt + LeakRetryNote, ct);
-                context.TotalTokensUsed += _llm.LastTotalTokens;
+                context.AddTokens(Name, _llm.LastTotalTokens);
                 leaked = LooksLikeLeak(draft, context);
             }
             context.Draft = leaked ? LeakFallback : draft;
@@ -278,7 +278,7 @@ public sealed partial class DrafterAgent : IAgent
             </retrieved_context>
             """;
         var verdict = await _llm.CompleteAsync(GroundednessJudgeSystemPrompt, userPrompt, ct);
-        context.TotalTokensUsed += _llm.LastTotalTokens;
+        context.AddTokens($"{Name}.Groundedness", _llm.LastTotalTokens);
         return !verdict.Trim().Equals("ungrounded", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -48,7 +48,7 @@ public sealed class CrossReferenceAgent : IAgent
                 Knowledge-base excerpt: {context.KbSnippets[0]}
                 """;
             var terms = await _llm.CompleteAsync(ExtractionSystemPrompt, userPrompt, ct);
-            context.TotalTokensUsed += _llm.LastTotalTokens;
+            context.AddTokens(Name, _llm.LastTotalTokens);
 
             var trimmed = terms.Trim();
             context.CodeQueryAugmentation = trimmed.Equals("none", StringComparison.OrdinalIgnoreCase) ? null : trimmed;

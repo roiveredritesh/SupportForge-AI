@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading;
 using SupportForge.Core;
 
 namespace SupportForge.Agents;
@@ -28,8 +29,19 @@ public sealed class AgentContext
     // concurrent fan-out branches in CoordinatorPipeline.
     public ConcurrentBag<(string Label, string Url)> Sources { get; } = new();
     public double Confidence { get; set; }
-    public int TotalTokensUsed { get; set; }
+    public int TotalTokensUsed => _totalTokensUsed;
     public VerificationResult KbVerification { get; } = new();
     public VerificationResult CodeVerification { get; } = new();
     public VerificationResult VisionVerification { get; } = new();
+
+    // ConcurrentDictionary: written from concurrent fan-out branches (same as Sources above).
+    public ConcurrentDictionary<string, int> TokensByAgent { get; } = new();
+
+    public void AddTokens(string agent, int tokens)
+    {
+        TokensByAgent.AddOrUpdate(agent, tokens, (_, existing) => existing + tokens);
+        Interlocked.Add(ref _totalTokensUsed, tokens);
+    }
+
+    private int _totalTokensUsed;
 }

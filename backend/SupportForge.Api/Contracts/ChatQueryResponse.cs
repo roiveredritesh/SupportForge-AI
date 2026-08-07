@@ -8,4 +8,5 @@ public sealed class ChatQueryResponse
     public required double Confidence { get; init; }
     public required string ConversationId { get; init; }
     public IReadOnlyList<ChatSource> Sources { get; init; } = new List<ChatSource>();
+    public int TotalTokensUsed { get; init; }
 }

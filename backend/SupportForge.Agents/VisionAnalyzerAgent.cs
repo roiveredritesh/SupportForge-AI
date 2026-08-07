@@ -41,7 +41,7 @@ public sealed class VisionAnalyzerAgent : IAgent
             }
 
             context.VisionFindings = await _tool.AnalyzeAsync(context.ScreenshotBase64, context.VisionVerification.Attempts > 0, ct);
-            context.TotalTokensUsed += _tool.LastTotalTokens;
+            context.AddTokens(Name, _tool.LastTotalTokens);
             context.VisionVerification.Attempts++;
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: findings length={FindingsLength}, attempt={Attempt}", Name, sw.ElapsedMilliseconds, context.VisionFindings?.Length ?? 0, context.VisionVerification.Attempts);
             return context;

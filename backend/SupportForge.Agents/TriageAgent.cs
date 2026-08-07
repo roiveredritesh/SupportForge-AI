@@ -47,7 +47,7 @@ public sealed class TriageAgent : IAgent
             // Anything we can't map is treated as "unclear" so the downstream gates no-op and the
             // Drafter asks for clarification, rather than answering from empty retrieval context.
             context.Intent = KnownLabels.Contains(normalized) ? normalized : "unclear";
-            context.TotalTokensUsed += _llm.LastTotalTokens;
+            context.AddTokens(Name, _llm.LastTotalTokens);
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: intent={Intent}", Name, sw.ElapsedMilliseconds, context.Intent);
             return context;
         }

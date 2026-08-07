@@ -8,6 +8,7 @@ interface PendingTurn {
   draft: string;
   confidence?: number;
   sources?: ChatSource[];
+  totalTokensUsed?: number;
   actions?: MessageBubbleActions;
 }
 
@@ -31,6 +32,7 @@ export function MessageThread({ messages, pending, lastAssistantActions }: Props
           content={m.content}
           confidence={m.confidence}
           sources={m.sources}
+          totalTokensUsed={m.totalTokensUsed}
           actions={m.id === lastAssistantId ? lastAssistantActions : undefined}
         />
       ))}
@@ -44,6 +46,7 @@ export function MessageThread({ messages, pending, lastAssistantActions }: Props
               content={pending.draft}
               confidence={pending.confidence}
               sources={pending.sources}
+              totalTokensUsed={pending.totalTokensUsed}
               actions={pending.actions}
             />
           ) : (

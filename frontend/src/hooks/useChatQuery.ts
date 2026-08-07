@@ -18,6 +18,7 @@ export interface ChatQueryResponse {
   confidence: number;
   conversationId: string;
   sources: ChatSource[];
+  totalTokensUsed: number;
 }
 
 export function useChatQuery() {

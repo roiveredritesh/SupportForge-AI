@@ -10,5 +10,8 @@ public sealed class ChatMessage
     // E1 (gap-closing-solutions.md Phase E): only populated on the "assistant" role message, and
     // only for branches whose verifier actually passed -- see ChatController.BuildSources.
     public IReadOnlyList<ChatSource> Sources { get; init; } = new List<ChatSource>();
+    // Only populated on the "assistant" role message -- total LLM tokens spent by the whole
+    // pipeline (Triage + KB/Code/Vision verifiers + Drafter) answering this one turn.
+    public int? TotalTokensUsed { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }

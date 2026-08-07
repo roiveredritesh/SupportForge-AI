@@ -124,7 +124,7 @@ public sealed class KbResearcherVerifier : IAgent
             </retrieved_snippets>
             """;
         var verdict = await _llm.CompleteAsync(JudgeSystemPrompt, userPrompt, ct);
-        context.TotalTokensUsed += _llm.LastTotalTokens;
+        context.AddTokens(Name, _llm.LastTotalTokens);
 
         var trimmed = verdict.Trim();
         if (int.TryParse(trimmed, out var oneBased) && oneBased >= 1 && oneBased <= context.KbSnippets.Count)
