@@ -51,6 +51,12 @@ public class AuthenticationTests : IDisposable
                 services.AddSingleton<IProjectRepository>(new JsonFileProjectRepository(_tempDir));
                 services.AddSingleton<IProjectMembershipRepository>(new JsonFileProjectMembershipRepository(_tempDir));
                 services.AddSingleton<ILlmChatClient>(new FakeLlmClient());
+                // TriageAgent and the verifiers resolve the LLM client via the keyed "cheap" tier
+                // (LlmServiceCollectionExtensions.CheapTierKey), not the plain ILlmChatClient above --
+                // without this, DI falls through to AddLlmProviders' real provider registration, which
+                // throws building an OpenAI-SDK ApiKeyCredential when no ApiKey is configured (as in CI,
+                // which has no local-only appsettings.Development.json overlay).
+                services.AddKeyedSingleton<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey, (_, _) => new FakeLlmClient());
                 extraServices?.Invoke(services);
             });
         });

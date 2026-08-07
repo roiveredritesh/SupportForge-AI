@@ -162,9 +162,14 @@ public class ProjectsControllerTests
         Directory.Delete(tempDir, recursive: true);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Delete_StillRemovesProjectRecord_WhenRepoDirIsPermanentlyLocked()
     {
+        // FileShare.None only blocks deletion of the open file on Windows; on Linux/macOS, POSIX
+        // unlink semantics let Directory.Delete succeed anyway, so this "stuck lock" simulation
+        // can't be reproduced there.
+        Skip.IfNot(OperatingSystem.IsWindows(), "FileShare.None doesn't block deletion on non-Windows OSes");
+
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var repo = new JsonFileProjectRepository(tempDir);
         var env = new Mock<IWebHostEnvironment>();

@@ -15,7 +15,10 @@ public sealed class GitRepoSyncService
             ? null
             : (_url, _user, _cred) => new UsernamePasswordCredentials { Username = _githubToken, Password = string.Empty };
 
-    public void CloneOrPull(string remoteUrl, string localPath, string branch)
+    // branch: null clones whatever the source's HEAD currently points to (its default branch, or --
+    // for a local source repo in detached HEAD -- that exact commit), same as a plain `git clone`
+    // with no -b flag.
+    public void CloneOrPull(string remoteUrl, string localPath, string? branch = null)
     {
         if (!Directory.Exists(Path.Combine(localPath, ".git")))
         {
