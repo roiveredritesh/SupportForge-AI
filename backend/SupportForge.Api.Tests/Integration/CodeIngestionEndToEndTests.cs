@@ -29,7 +29,9 @@ public class CodeIngestionEndToEndTests
         var localClonePath = Path.Combine(Path.GetTempPath(), "supportforge-e2e-clone-" + Guid.NewGuid());
 
         var gitSync = new GitRepoSyncService(new ConfigurationBuilder().Build());
-        gitSync.CloneOrPull(repoRoot, localClonePath, "worktree-e2e-run");
+        // No branch pinned -- clone whatever this checkout currently has HEAD on (varies by dev
+        // machine/CI run; a hardcoded branch name only exists in whichever worktree wrote this test).
+        gitSync.CloneOrPull(repoRoot, localClonePath);
 
         var graph = CodeGraphExtractor.Extract(Path.Combine(localClonePath, "backend"));
 
