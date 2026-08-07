@@ -21,6 +21,7 @@ export interface ChatMessage {
   confidence?: number;
   sources?: ChatSource[];
   createdAt: string;
+  totalTokensUsed?: number;
 }
 
 export interface ConversationDetail extends ConversationSummary {

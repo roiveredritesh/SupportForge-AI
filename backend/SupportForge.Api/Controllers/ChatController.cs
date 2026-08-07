@@ -174,7 +174,8 @@ public class ChatController : ControllerBase
     }
 
     private async Task RecordTurnAsync(
-        Conversation conversation, string query, string answer, double confidence, IReadOnlyList<ChatSource> sources, CancellationToken ct)
+        Conversation conversation, string query, string answer, double confidence, IReadOnlyList<ChatSource> sources,
+        int totalTokensUsed, CancellationToken ct)
     {
         await _messages.AddAsync(new ChatMessage
         {
@@ -192,6 +193,7 @@ public class ChatController : ControllerBase
             Content = answer,
             Confidence = confidence,
             Sources = sources,
+            TotalTokensUsed = totalTokensUsed,
         }, ct);
 
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
@@ -228,9 +230,11 @@ public class ChatController : ControllerBase
 
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow, "chat"), ct);
+        _logger.LogInformation("TokenUsage project={ProjectId} total={Total} byAgent={ByAgent}",
+            request.ProjectId, result.TotalTokensUsed, JsonSerializer.Serialize(result.TokensByAgent));
 
         var sources = BuildSources(result);
-        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, ct);
+        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, result.TotalTokensUsed, ct);
 
         return Ok(new ChatQueryResponse
         {
@@ -238,6 +242,7 @@ public class ChatController : ControllerBase
             Confidence = result.Confidence,
             ConversationId = conversation.Id,
             Sources = sources,
+            TotalTokensUsed = result.TotalTokensUsed,
         });
     }
 
@@ -307,7 +312,7 @@ public class ChatController : ControllerBase
                 var sb = new StringBuilder();
                 await foreach (var token in _llm.StreamCompleteAsync(DrafterAgent.SystemPrompt, prompt, ct))
                     sb.Append(token);
-                context.TotalTokensUsed += _llm.LastTotalTokens;
+                context.AddTokens(DrafterName, _llm.LastTotalTokens);
                 return sb.ToString();
             }
 
@@ -324,6 +329,8 @@ public class ChatController : ControllerBase
         }
 
         await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow, "chat"), ct);
+        _logger.LogInformation("TokenUsage project={ProjectId} total={Total} byAgent={ByAgent}",
+            request.ProjectId, context.TotalTokensUsed, JsonSerializer.Serialize(context.TokensByAgent));
 
         _logger.LogInformation(
             "{Agent} completed in {ElapsedMs}ms: leaked={Leaked} confidence={Confidence}", DrafterName, sw.ElapsedMilliseconds, leaked, confidence);
@@ -337,13 +344,14 @@ public class ChatController : ControllerBase
         }
 
         var sources = BuildSources(context);
-        await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, ct);
+        await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, ct);
 
         var done = JsonSerializer.Serialize(new
         {
             confidence,
             conversationId = conversation.Id,
             sources = sources.Select(s => new { label = s.Label, url = s.Url }),
+            totalTokensUsed = context.TotalTokensUsed,
         });
         await Response.WriteAsync($"event: done\ndata: {done}\n\n", ct);
         await Response.Body.FlushAsync(ct);

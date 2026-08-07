@@ -35,7 +35,7 @@ public sealed class KbResearcherAgent : IAgent
             foreach (var (text, source) in results)
             {
                 context.KbSnippets.Add(text);
-                context.Sources.Add(($"KB: {Path.GetFileName(source)}", source));
+                context.Sources.Add(($"KB: {DescribeSource(source)}", source));
             }
             context.KbVerification.Attempts++;
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: retrieved {SnippetCount} snippets, attempt={Attempt}", Name, sw.ElapsedMilliseconds, context.KbSnippets.Count, context.KbVerification.Attempts);
@@ -46,5 +46,19 @@ public sealed class KbResearcherAgent : IAgent
             _logger.LogError(ex, "{Agent} failed after {ElapsedMs}ms", Name, sw.ElapsedMilliseconds);
             throw;
         }
+    }
+
+    // Path.GetFileName assumes a filesystem path; a Website KB source is a URL, and doc sites almost
+    // always use trailing-slash routes (e.g. ".../getting-started/"), which GetFileName treats as "no
+    // filename" and returns "" for -- producing a blank "KB: " label. Use the last non-empty URL segment
+    // instead, falling back to the host for a bare "https://example.com/" source.
+    private static string DescribeSource(string source)
+    {
+        if (Uri.TryCreate(source, UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https"))
+        {
+            var last = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+            return last ?? uri.Host;
+        }
+        return Path.GetFileName(source);
     }
 }

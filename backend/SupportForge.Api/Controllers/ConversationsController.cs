@@ -85,5 +85,6 @@ public class ConversationsController : ControllerBase
         m.Content,
         m.Confidence,
         m.Sources,
-        m.CreatedAt);
+        m.CreatedAt,
+        m.TotalTokensUsed);
 }
