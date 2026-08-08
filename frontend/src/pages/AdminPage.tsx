@@ -75,7 +75,7 @@ function OrgsSection() {
 
   const handleCreateOrg = () => {
     saveOrg.mutate(
-      { id: orgId, name: orgName, githubAccessToken: orgToken || null },
+      { id: orgId, name: orgName, gitHubAccessToken: orgToken || null },
       {
         onSuccess: () => {
           setOrgId('');
@@ -110,7 +110,7 @@ function OrgsSection() {
       <ul className="space-y-1 text-sm">
         {orgs?.map((o) => (
           <li key={o.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
-            {o.name} ({o.id}) — {o.githubAccessToken ? 'PAT configured' : 'No PAT set'}
+            {o.name} ({o.id}) — {o.gitHubAccessToken ? 'PAT configured' : 'No PAT set'}
           </li>
         ))}
       </ul>

@@ -4,7 +4,7 @@ import { apiClient } from '../lib/apiClient';
 export interface CreateOrgRequest {
   id: string;
   name: string;
-  githubAccessToken?: string | null;
+  gitHubAccessToken?: string | null;
 }
 
 export function useCreateOrg() {

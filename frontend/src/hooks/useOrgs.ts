@@ -4,7 +4,7 @@ import { apiClient } from '../lib/apiClient';
 export interface Org {
   id: string;
   name: string;
-  githubAccessToken?: string | null;
+  gitHubAccessToken?: string | null;
 }
 
 export function useOrgs() {
