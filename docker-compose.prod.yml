@@ -11,6 +11,8 @@ services:
     environment:
       - VectorStore__Chroma__BaseUrl=http://chroma:8000
       - Neo4j__Uri=bolt://neo4j:7687
+    volumes:
+      - api-data:/app/App_Data
     depends_on:
       - chroma
       - neo4j
@@ -38,5 +40,6 @@ services:
       - neo4j-data:/data
 
 volumes:
+  api-data:
   chroma-data:
   neo4j-data:
