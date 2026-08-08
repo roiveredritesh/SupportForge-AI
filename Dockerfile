@@ -12,6 +12,7 @@ COPY backend/SupportForge.Ingestion/*.csproj ./backend/SupportForge.Ingestion/
 COPY backend/SupportForge.VectorStore/*.csproj ./backend/SupportForge.VectorStore/
 COPY backend/SupportForge.Common/*.csproj ./backend/SupportForge.Common/
 COPY backend/SupportForge.Api.Tests/*.csproj ./backend/SupportForge.Api.Tests/
+COPY backend/SupportForge.Evals/*.csproj ./backend/SupportForge.Evals/
 RUN dotnet restore backend/SupportForge.Backend.sln
 
 COPY backend/ ./backend/
