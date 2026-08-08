@@ -1,0 +1,432 @@
+<title>SupportForge AI — Project Overview</title>
+<style>
+  @font-face {
+    font-family: 'Cambria';
+    src: local('Cambria'), local('Georgia');
+  }
+
+  :root {
+    --bg: #f5f4ef;
+    --bg-raised: #ffffff;
+    --ink: #1c2430;
+    --ink-soft: #3c4551;
+    --muted: #5b6570;
+    --line: #dad6cb;
+    --accent: #2e6e62;
+    --accent-ink: #17332d;
+    --accent-soft: #e4ede9;
+    --accent-soft-line: #c7d9d3;
+    --amber: #a5691f;
+    --amber-soft: #f4e8d6;
+    --radius: 6px;
+    --slide-pad: clamp(2.2rem, 5vw, 5.5rem);
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #14181d;
+    --bg-raised: #1b2128;
+    --ink: #eef0ef;
+    --ink-soft: #cfd5d6;
+    --muted: #8d979a;
+    --line: #2b333b;
+    --accent: #5fb3a0;
+    --accent-ink: #d7ece6;
+    --accent-soft: #1e2c29;
+    --accent-soft-line: #2c4640;
+    --amber: #d9a55c;
+    --amber-soft: #302a1e;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181d;
+      --bg-raised: #1b2128;
+      --ink: #eef0ef;
+      --ink-soft: #cfd5d6;
+      --muted: #8d979a;
+      --line: #2b333b;
+      --accent: #5fb3a0;
+      --accent-ink: #d7ece6;
+      --accent-soft: #1e2c29;
+      --accent-soft-line: #2c4640;
+      --amber: #d9a55c;
+      --amber-soft: #302a1e;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    scroll-snap-type: y proximity;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3 { font-family: Cambria, Georgia, "Times New Roman", serif; font-weight: 600; text-wrap: balance; margin: 0; }
+
+  .slide {
+    min-height: 100dvh;
+    width: 100%;
+    padding: var(--slide-pad);
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    border-bottom: 1px solid var(--line);
+  }
+  .slide:last-of-type { border-bottom: none; }
+
+  .eyebrow {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 0.9rem;
+  }
+
+  .slide-num {
+    position: absolute;
+    top: var(--slide-pad);
+    right: var(--slide-pad);
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+  }
+
+  .navdots {
+    position: fixed;
+    right: 1.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    z-index: 20;
+  }
+  .navdots a {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--line);
+    display: block;
+    border: 1px solid transparent;
+    transition: background 0.15s ease;
+  }
+  .navdots a:hover, .navdots a.active { background: var(--accent); }
+
+  @media (max-width: 720px) { .navdots { display: none; } }
+
+  p { color: var(--ink-soft); line-height: 1.6; }
+
+  /* ---------- Slide 1: Cover ---------- */
+  .cover { justify-content: space-between; background: var(--bg); }
+  .cover-top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .mark {
+    display: flex; align-items: center; gap: 0.6rem;
+    font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+  .mark-dot { width: 10px; height: 10px; border-radius: 2px; background: var(--accent); }
+  .cover-mid { max-width: 46rem; }
+  .cover-mid h1 { font-size: clamp(2.6rem, 6vw, 4.6rem); line-height: 1.04; }
+  .cover-mid .sub { font-size: clamp(1.05rem, 2vw, 1.3rem); color: var(--ink-soft); margin-top: 1.1rem; max-width: 34rem; }
+  .cover-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 2rem; }
+  .tag {
+    font-size: 0.76rem; padding: 0.32rem 0.7rem; border-radius: 999px;
+    background: var(--accent-soft); border: 1px solid var(--accent-soft-line); color: var(--accent-ink);
+    font-weight: 600; letter-spacing: 0.02em;
+  }
+  .cover-bottom {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-top: 1px solid var(--line); padding-top: 1.4rem; font-size: 0.82rem; color: var(--muted);
+  }
+  .cover-bottom .field { display: flex; flex-direction: column; gap: 0.2rem; }
+  .cover-bottom .field b { color: var(--ink); font-weight: 600; font-size: 0.86rem; }
+
+  /* ---------- Shared bits ---------- */
+  .kicker-title { font-size: clamp(1.8rem, 3.4vw, 2.6rem); max-width: 40rem; }
+  .lede { font-size: 1.02rem; max-width: 42rem; margin-top: 0.8rem; }
+
+  /* ---------- Slide 2: Problem/Objectives ---------- */
+  .split { display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(2rem, 4vw, 4rem); margin-top: 2.4rem; align-items: start; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  .problem-block { background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.6rem 1.8rem; }
+  .problem-block h3 { font-size: 1.05rem; margin-bottom: 0.6rem; }
+  .problem-block p { font-size: 0.94rem; margin: 0; }
+  .obj-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+  .obj-list li { display: grid; grid-template-columns: auto 1fr; gap: 0.9rem; align-items: baseline; }
+  .obj-metric { font-family: Cambria, Georgia, serif; font-size: 1.5rem; color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.6rem; }
+  .obj-list span.desc { font-size: 0.94rem; color: var(--ink-soft); }
+  .personas { margin-top: 2.2rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  @media (max-width: 900px) { .personas { grid-template-columns: 1fr; } }
+  .persona { border-left: 3px solid var(--accent); padding: 0.3rem 0 0.3rem 0.9rem; }
+  .persona b { font-size: 0.88rem; display: block; }
+  .persona span { font-size: 0.82rem; color: var(--muted); }
+
+  /* ---------- Slide 3: Pipeline ---------- */
+  .pipeline-wrap { margin-top: 2rem; overflow-x: auto; padding-bottom: 0.5rem; }
+  .pipeline { display: flex; flex-direction: column; gap: 0; min-width: 760px; }
+  .stage-row { display: flex; align-items: stretch; gap: 0; }
+  .node {
+    background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 0.7rem 0.9rem; font-size: 0.82rem; font-weight: 600; color: var(--ink);
+    display: flex; align-items: center; justify-content: center; text-align: center; min-height: 3rem;
+  }
+  .node.accent { border-color: var(--accent-soft-line); background: var(--accent-soft); color: var(--accent-ink); }
+  .node.terminal { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  :root[data-theme="dark"] .node.terminal, @media (prefers-color-scheme: dark) { }
+  .arrow { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 1rem; padding: 0 0.4rem; min-width: 1.6rem; }
+  .lane { display: flex; flex-direction: column; gap: 0.55rem; flex: 1; }
+  .lane-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.1rem; }
+  .verify-chip { font-size: 0.68rem; color: var(--muted); text-align: center; }
+  .retry { font-size: 0.66rem; color: var(--amber); text-align: center; font-style: italic; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+  .fanwrap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.1rem; margin: 0.9rem 0; }
+  .funnel { display: flex; justify-content: center; margin: 0.6rem 0; color: var(--muted); font-size: 0.78rem; }
+  .legend { display: flex; gap: 1.4rem; margin-top: 1.4rem; font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  /* ---------- Slide 4: Stack ---------- */
+  .stack-grid { margin-top: 2.2rem; display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem 1.6rem; }
+  @media (max-width: 900px) { .stack-grid { grid-template-columns: 1fr; } }
+  .stack-card { background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.2rem 1.4rem; }
+  .stack-card h3 { font-size: 0.98rem; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: baseline; }
+  .stack-card h3 small { font-family: "Segoe UI", sans-serif; font-weight: 600; font-size: 0.7rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stack-card ul { margin: 0; padding-left: 1.1rem; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.7; }
+  .stack-card ul li b { color: var(--ink); }
+
+  /* ---------- Slide 5: Roadmap ---------- */
+  .timeline { margin-top: 2.2rem; display: flex; flex-direction: column; gap: 0; }
+  .phase { display: grid; grid-template-columns: 7rem 1fr; gap: 1.4rem; padding: 1rem 0; border-top: 1px solid var(--line); }
+  .phase:first-child { border-top: none; }
+  .phase-tag { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); padding-top: 0.2rem; }
+  .phase-status { display: inline-block; font-size: 0.66rem; padding: 0.15rem 0.5rem; border-radius: 999px; margin-left: 0; margin-top: 0.35rem; font-weight: 600; letter-spacing: 0.03em; }
+  .phase-status.done { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-soft-line); }
+  .phase-status.next { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber); }
+  .phase-title { font-size: 0.98rem; font-weight: 600; margin-bottom: 0.35rem; }
+  .phase-desc { font-size: 0.86rem; color: var(--ink-soft); margin: 0; max-width: 44rem; }
+  ::selection { background: var(--accent); color: var(--bg-raised); }
+
+  @media print {
+    .navdots { display: none; }
+    .slide { min-height: auto; page-break-after: always; border-bottom: none; }
+  }
+</style>
+
+<div class="navdots">
+  <a href="#s1" class="active" aria-label="Slide 1"></a>
+  <a href="#s2" aria-label="Slide 2"></a>
+  <a href="#s3" aria-label="Slide 3"></a>
+  <a href="#s4" aria-label="Slide 4"></a>
+  <a href="#s5" aria-label="Slide 5"></a>
+</div>
+
+<!-- SLIDE 1 — COVER -->
+<section class="slide cover" id="s1">
+  <div class="cover-top">
+    <div class="mark"><span class="mark-dot"></span> SupportForge AI</div>
+    <div class="slide-num" style="position:static;">01 / 05</div>
+  </div>
+  <div class="cover-mid">
+    <h1>A plug-and-play AI agent pipeline for support resolution.</h1>
+    <p class="sub">One multi-agent system, deployed once, that any product team can onboard to answer customer tickets from their own knowledge base, codebase, and screenshots — with cited, verified answers.</p>
+    <div class="cover-tags">
+      <span class="tag">Multi-Agent Pipeline</span>
+      <span class="tag">Multi-Project</span>
+      <span class="tag">Cited &amp; Verified Answers</span>
+      <span class="tag">.NET + React</span>
+    </div>
+  </div>
+  <div class="cover-bottom">
+    <div class="field"><b>Version 1.0 — MVP, in active extension</b>Internal engineering &amp; support platform</div>
+    <div class="field" style="text-align:right;"><b>Prepared for engineering leadership</b>SupportForge AI project review</div>
+  </div>
+</section>
+
+<!-- SLIDE 2 — PROBLEM & OBJECTIVES -->
+<section class="slide" id="s2">
+  <div class="slide-num">02 / 05</div>
+  <div class="eyebrow">Why we're building this</div>
+  <h2 class="kicker-title">Support engineers answer the same class of question across many projects, from scattered sources.</h2>
+  <p class="lede">Every new project means re-learning its docs, its repos, and its recurring errors from scratch. SupportForge AI centralizes that retrieval and reasoning into one reusable pipeline, so onboarding a project is a config change, not a new build.</p>
+
+  <div class="split">
+    <div>
+      <ul class="obj-list">
+        <li><span class="obj-metric">40–60%</span><span class="desc">reduction targeted in average ticket resolution time</span></li>
+        <li><span class="obj-metric">10+</span><span class="desc">projects supported concurrently on one shared pipeline</span></li>
+        <li><span class="obj-metric">1</span><span class="desc">config-driven onboarding flow — no per-project code fork</span></li>
+        <li><span class="obj-metric">&lt;12s</span><span class="desc">target end-to-end response time for most queries</span></li>
+      </ul>
+      <div class="personas">
+        <div class="persona"><b>Support Engineer</b><span>Primary daily user, asks questions, gets cited answers</span></div>
+        <div class="persona"><b>Support Lead / Admin</b><span>Configures projects, monitors freshness &amp; usage</span></div>
+        <div class="persona"><b>Engineering Contributor</b><span>Feeds KB and code sources into the index</span></div>
+      </div>
+    </div>
+    <div class="problem-block">
+      <h3>What "plug-and-play" means here</h3>
+      <p>Each project registers its GitHub repos, KB sources (Confluence, docs, websites), and access rules through the Admin UI. The same six-agent pipeline then serves every project — retrieval is scoped by project, not rebuilt per project. Ingestion runs continuously in the background so answers stay current as repos and docs change.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 3 — AGENT PIPELINE -->
+<section class="slide" id="s3">
+  <div class="slide-num">03 / 05</div>
+  <div class="eyebrow">How a query gets answered</div>
+  <h2 class="kicker-title">A verified, branching agent workflow — not a single prompt.</h2>
+  <p class="lede">Built as a Microsoft Agent Framework workflow. Each specialist agent is checked by its own verifier before its result is trusted; failed checks trigger one bounded retry before the branch is allowed to proceed.</p>
+
+  <div class="pipeline-wrap">
+    <div class="pipeline">
+      <div class="stage-row" style="align-items:center;">
+        <div class="node">Triage<br><span style="font-weight:400;">classify intent</span></div>
+        <div class="arrow">→</div>
+        <div class="node accent">Freshness Gate<br><span style="font-weight:400;">flags stale sources</span></div>
+        <div class="arrow">→</div>
+        <div class="node" style="background:var(--amber-soft); border-color:var(--amber); color:var(--amber);">fan out</div>
+      </div>
+
+      <div class="fanwrap" style="margin-top:1rem;">
+        <div class="col">
+          <div class="lane-label">KB branch</div>
+          <div class="node">KB Researcher</div>
+          <div class="verify-chip">↓ KB Verifier</div>
+          <div class="retry">↺ retry on fail</div>
+          <div class="node accent">Cross-Reference</div>
+          <div class="verify-chip">extracts code terms from KB findings</div>
+        </div>
+        <div class="col">
+          <div class="lane-label">Code branch</div>
+          <div class="node" style="opacity:0.55;">— starts after Cross-Reference —</div>
+          <div class="node">Code Analyzer</div>
+          <div class="verify-chip">↓ Code Verifier</div>
+          <div class="retry">↺ retry on fail</div>
+        </div>
+        <div class="col">
+          <div class="lane-label">Vision branch</div>
+          <div class="node">Vision Analyzer</div>
+          <div class="verify-chip">↓ Vision Verifier</div>
+          <div class="retry">↺ retry on fail</div>
+          <div class="node" style="opacity:0.55;">runs in parallel from the start</div>
+        </div>
+      </div>
+
+      <div class="funnel">three verified branches fan back in →</div>
+      <div class="stage-row" style="justify-content:center; align-items:center;">
+        <div class="node accent">Merge<br><span style="font-weight:400;">fan-in barrier</span></div>
+        <div class="arrow">→</div>
+        <div class="node terminal">Drafter<br><span style="font-weight:400; opacity:0.75;">grounded, cited answer</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--accent);"></span>Gating / merge step</span>
+    <span><span class="swatch" style="background:var(--amber);"></span>Retry / fan-out control</span>
+    <span><span class="swatch" style="background:var(--ink);"></span>Final output to user</span>
+  </div>
+</section>
+
+<!-- SLIDE 4 — TECH STACK -->
+<section class="slide" id="s4">
+  <div class="slide-num">04 / 05</div>
+  <div class="eyebrow">What it's built on</div>
+  <h2 class="kicker-title">A resilient platform, not a single-vendor prototype.</h2>
+  <p class="lede">The MVP shipped on one LLM and one vector store; both are now abstracted so the platform can fail over or be re-priced without a rewrite.</p>
+
+  <div class="stack-grid">
+    <div class="stack-card">
+      <h3>Frontend <small>React</small></h3>
+      <ul>
+        <li><b>React 18 + TypeScript + Vite</b>, Tailwind / shadcn UI</li>
+        <li>Query page with streaming (SSE) status: Triage → Research → Drafting</li>
+        <li>Cited sources rendered inline with the answer</li>
+        <li>Admin views for project, KB source, and repo configuration</li>
+      </ul>
+    </div>
+    <div class="stack-card">
+      <h3>Backend <small>.NET</small></h3>
+      <ul>
+        <li><b>.NET 8/9 + ASP.NET Core</b> on IIS, deploy scripted for CI</li>
+        <li><b>Microsoft Agent Framework</b> drives the verified workflow</li>
+        <li>Project-membership access control on every API route</li>
+        <li>Metrics pipeline with optional Application Insights / Azure Monitor export</li>
+      </ul>
+    </div>
+    <div class="stack-card">
+      <h3>Model Layer <small>Multi-provider</small></h3>
+      <ul>
+        <li>Anthropic, OpenAI, and Bedrock clients behind one interface</li>
+        <li><b>Ollama</b> supported for self-hosted / open-source models</li>
+        <li>Automatic fallback chain if a provider fails or rate-limits</li>
+        <li>Optional model tiering — cheaper models for Triage &amp; verifiers</li>
+      </ul>
+    </div>
+    <div class="stack-card">
+      <h3>Data &amp; Freshness <small>Chroma / Pinecone</small></h3>
+      <ul>
+        <li><b>Chroma</b> locally, <b>Pinecone</b> in production, behind <code>IVectorStoreService</code></li>
+        <li>GitHub webhooks + scheduled resync keep the code index current</li>
+        <li>Confluence webhook for push-triggered KB re-sync</li>
+        <li>Dead-letter visibility for ingestion jobs that permanently fail</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 5 — STATUS / ROADMAP -->
+<section class="slide" id="s5">
+  <div class="slide-num">05 / 05</div>
+  <div class="eyebrow">Where we are</div>
+  <h2 class="kicker-title">Past MVP — hardening, trust, and cost control are shipping now.</h2>
+
+  <div class="timeline">
+    <div class="phase">
+      <div><div class="phase-tag">MVP</div><span class="phase-status done">Shipped</span></div>
+      <div><div class="phase-title">Core pipeline &amp; UI</div><p class="phase-desc">Six-agent workflow, KB + code ingestion, screenshot analysis, React query flow, EC2 + IIS deployment.</p></div>
+    </div>
+    <div class="phase">
+      <div><div class="phase-tag">Phase A–B</div><span class="phase-status done">Shipped</span></div>
+      <div><div class="phase-title">Trust &amp; access control</div><p class="phase-desc">Offline eval harness for the LLM-judge verifiers; project-membership access control enforced on every route.</p></div>
+    </div>
+    <div class="phase">
+      <div><div class="phase-tag">Phase C</div><span class="phase-status done">Shipped</span></div>
+      <div><div class="phase-title">Resilience &amp; freshness automation</div><p class="phase-desc">Pinecone as a second vector store, Ollama support, model tiering, GitHub/Confluence webhooks, dead-letter visibility, scripted IIS deploys, metrics pipeline.</p></div>
+    </div>
+    <div class="phase">
+      <div><div class="phase-tag">Phase D</div><span class="phase-status done">Shipped</span></div>
+      <div><div class="phase-title">Answer quality</div><p class="phase-desc">Chunk overlap + content-hash skip on ingestion, structural prompt-injection defenses, opt-in groundedness check on drafted answers.</p></div>
+    </div>
+    <div class="phase">
+      <div><div class="phase-tag">Phase E</div><span class="phase-status next">In progress</span></div>
+      <div><div class="phase-title">Trust surface in the UI</div><p class="phase-desc">Cited sources now shown in the chat UI; SSE hook and auth-store test coverage wired into CI. Next: admin analytics (token usage, staleness alerts), Slack/Teams integration.</p></div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const dots = document.querySelectorAll('.navdots a');
+  const slides = document.querySelectorAll('.slide');
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        const idx = [...slides].indexOf(e.target);
+        dots.forEach((d) => d.classList.remove('active'));
+        if (dots[idx]) dots[idx].classList.add('active');
+      }
+    });
+  }, { threshold: 0.5 });
+  slides.forEach((s) => io.observe(s));
+</script>
