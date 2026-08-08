@@ -88,8 +88,7 @@ public class GitHubFolderIngestionJobTests
 
             var projects = new Mock<IProjectRepository>();
             var location = "https://github.com/acme/widgets/tree/master/docs";
-            var project = new Project
-            {
+            var project = new Project { OrgId = "test-org",
                 Id = "proj1",
                 Name = "Test",
                 KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, location, null) },

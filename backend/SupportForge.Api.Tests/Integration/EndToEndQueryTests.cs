@@ -39,8 +39,7 @@ public class EndToEndQueryTests : IClassFixture<WebApplicationFactory<Program>>
         var accessToken = (await tokenResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("accessToken").GetString();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "e2e-proj",
             Name = "E2E Project",
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, kbPath, null) },

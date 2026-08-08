@@ -7,7 +7,6 @@ export interface ProjectRepo {
   owner: string;
   repo: string;
   defaultBranch: string;
-  accessTokenSecretName?: string | null;
   lastSyncedAt?: string | null;
 }
 
@@ -25,6 +24,7 @@ export interface ProjectKbSource {
 export interface Project {
   id: string;
   name: string;
+  orgId: string;
   repos: ProjectRepo[];
   kbSources: ProjectKbSource[];
   // Overrides the server's global scheduled-sync cadence for this project's KB sources.

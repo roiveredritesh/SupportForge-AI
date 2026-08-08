@@ -30,6 +30,7 @@ public class ProjectAccessTests
         var controller = new ProjectsController(
             new JsonFileProjectRepository(tempDir),
             memberships,
+            Mock.Of<IOrgMembershipRepository>(o => o.IsMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()) == Task.FromResult(true)),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -49,7 +50,7 @@ public class ProjectAccessTests
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var controller = MakeProjectsController(tempDir, "alice", out var memberships);
 
-        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Alice's Project" });
+        await controller.CreateOrUpdate(new Project { OrgId = "test-org", Id = "proj1", Name = "Alice's Project" });
 
         Assert.True(await memberships.IsMemberAsync("alice", "proj1"));
         Directory.Delete(tempDir, recursive: true);
@@ -60,10 +61,10 @@ public class ProjectAccessTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var aliceController = MakeProjectsController(tempDir, "alice", out _);
-        await aliceController.CreateOrUpdate(new Project { Id = "proj-alice", Name = "Alice's Project" });
+        await aliceController.CreateOrUpdate(new Project { OrgId = "test-org", Id = "proj-alice", Name = "Alice's Project" });
 
         var bobController = MakeProjectsController(tempDir, "bob", out _);
-        await bobController.CreateOrUpdate(new Project { Id = "proj-bob", Name = "Bob's Project" });
+        await bobController.CreateOrUpdate(new Project { OrgId = "test-org", Id = "proj-bob", Name = "Bob's Project" });
 
         var bobList = await bobController.GetAll();
         var bobOk = Assert.IsType<OkObjectResult>(bobList.Result);
@@ -80,10 +81,10 @@ public class ProjectAccessTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var aliceController = MakeProjectsController(tempDir, "alice", out _);
-        await aliceController.CreateOrUpdate(new Project { Id = "proj-alice", Name = "Original Name" });
+        await aliceController.CreateOrUpdate(new Project { OrgId = "test-org", Id = "proj-alice", Name = "Original Name" });
 
         var bobController = MakeProjectsController(tempDir, "bob", out _);
-        var result = await bobController.CreateOrUpdate(new Project { Id = "proj-alice", Name = "Hijacked Name" });
+        var result = await bobController.CreateOrUpdate(new Project { OrgId = "test-org", Id = "proj-alice", Name = "Hijacked Name" });
 
         Assert.IsType<ForbidResult>(result.Result);
         Directory.Delete(tempDir, recursive: true);
@@ -94,7 +95,7 @@ public class ProjectAccessTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var aliceController = MakeProjectsController(tempDir, "alice", out var memberships);
-        await aliceController.CreateOrUpdate(new Project { Id = "proj-alice", Name = "Alice's Project" });
+        await aliceController.CreateOrUpdate(new Project { OrgId = "test-org", Id = "proj-alice", Name = "Alice's Project" });
 
         var bobController = MakeProjectsController(tempDir, "bob", out _);
         var result = await bobController.Delete("proj-alice");
@@ -104,4 +105,32 @@ public class ProjectAccessTests
         Directory.Delete(tempDir, recursive: true);
     }
 
+    [Fact]
+    public async Task NonOrgMember_CannotCreateProjectUnderThatOrg()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var orgMemberships = new JsonFileOrgMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            new JsonFileProjectRepository(tempDir),
+            new JsonFileProjectMembershipRepository(tempDir),
+            orgMemberships,
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = UserPrincipal("mallory") } };
+
+        // mallory is never added to "acme"'s org membership.
+        var result = await controller.CreateOrUpdate(new Project { OrgId = "acme", Id = "proj-new", Name = "Should Not Exist" });
+
+        Assert.IsType<ForbidResult>(result.Result);
+        Directory.Delete(tempDir, recursive: true);
+    }
 }

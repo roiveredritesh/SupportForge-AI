@@ -42,6 +42,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             memberships,
+            Mock.Of<IOrgMembershipRepository>(o => o.IsMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()) == Task.FromResult(true)),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -53,7 +54,7 @@ public class ProjectsControllerTests
             Mock.Of<ILogger<ProjectsController>>());
         SetTestUser(controller);
 
-        var project = new Project { Id = "proj1", Name = "Test Project" };
+        var project = new Project { OrgId = "test-org", Id = "proj1", Name = "Test Project" };
         await controller.CreateOrUpdate(project);
 
         var result = await controller.GetAll();
@@ -80,6 +81,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             memberships,
+            Mock.Of<IOrgMembershipRepository>(o => o.IsMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()) == Task.FromResult(true)),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             tokenUsage.Object,
@@ -90,7 +92,7 @@ public class ProjectsControllerTests
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
         SetTestUser(controller);
-        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+        await controller.CreateOrUpdate(new Project { OrgId = "test-org", Id = "proj1", Name = "Test Project" });
 
         var result = await controller.GetTokenUsage("proj1");
 
@@ -114,6 +116,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             memberships,
+            Mock.Of<IOrgMembershipRepository>(o => o.IsMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()) == Task.FromResult(true)),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -124,7 +127,7 @@ public class ProjectsControllerTests
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
         SetTestUser(controller, "owner");
-        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+        await controller.CreateOrUpdate(new Project { OrgId = "test-org", Id = "proj1", Name = "Test Project" });
         SetTestUser(controller, "someone-else");
 
         var result = await controller.GetTokenUsage("proj1");
@@ -143,6 +146,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             new JsonFileProjectMembershipRepository(tempDir),
+            Mock.Of<IOrgMembershipRepository>(o => o.IsMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()) == Task.FromResult(true)),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -154,7 +158,7 @@ public class ProjectsControllerTests
             Mock.Of<ILogger<ProjectsController>>());
         SetTestUser(controller);
 
-        var project = new Project { Id = "proj-locked", Name = "Locked Repo Project" };
+        var project = new Project { OrgId = "test-org", Id = "proj-locked", Name = "Locked Repo Project" };
         await controller.CreateOrUpdate(project);
 
         var repoDir = Path.Combine(tempDir, "App_Data", "repos", project.Id);
@@ -190,6 +194,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             new JsonFileProjectMembershipRepository(tempDir),
+            Mock.Of<IOrgMembershipRepository>(o => o.IsMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()) == Task.FromResult(true)),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -201,7 +206,7 @@ public class ProjectsControllerTests
             Mock.Of<ILogger<ProjectsController>>());
         SetTestUser(controller);
 
-        var project = new Project { Id = "proj-ingesting", Name = "Ingesting Project" };
+        var project = new Project { OrgId = "test-org", Id = "proj-ingesting", Name = "Ingesting Project" };
         await controller.CreateOrUpdate(project);
 
         var repoDir = Path.Combine(tempDir, "App_Data", "repos", project.Id);
@@ -244,6 +249,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             new JsonFileProjectMembershipRepository(tempDir),
+            Mock.Of<IOrgMembershipRepository>(o => o.IsMemberAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()) == Task.FromResult(true)),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -255,7 +261,7 @@ public class ProjectsControllerTests
             Mock.Of<ILogger<ProjectsController>>());
         SetTestUser(controller);
 
-        var project = new Project { Id = "proj-stuck-lock", Name = "Stuck Lock Project" };
+        var project = new Project { OrgId = "test-org", Id = "proj-stuck-lock", Name = "Stuck Lock Project" };
         await controller.CreateOrUpdate(project);
 
         var repoDir = Path.Combine(tempDir, "App_Data", "repos", project.Id);
@@ -291,9 +297,13 @@ public class ProjectsControllerTests
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             // ProjectsController now requires [Authorize] (U4) -- isolate the user store from the
-            // real App_Data and seed a test user rather than touch it.
+            // real App_Data and seed a test user rather than touch it. Same for org membership
+            // (ProjectsController.CreateOrUpdate now requires it for new projects).
             builder.ConfigureServices(services =>
-                services.AddSingleton<IUserRepository>(new JsonFileUserRepository(tempDir)));
+            {
+                services.AddSingleton<IUserRepository>(new JsonFileUserRepository(tempDir));
+                services.AddSingleton<IOrgMembershipRepository>(new JsonFileOrgMembershipRepository(tempDir));
+            });
         });
         var client = factory.CreateClient();
 
@@ -303,6 +313,8 @@ public class ProjectsControllerTests
             var user = new AppUser { Id = "test-user", UserName = "tester" };
             var created = await userManager.CreateAsync(user, "Test-Password-123!");
             Assert.True(created.Succeeded, string.Join(", ", created.Errors.Select(e => e.Description)));
+
+            await scope.ServiceProvider.GetRequiredService<IOrgMembershipRepository>().AddAsync("test-user", "test-org");
         }
 
         var tokenResponse = await client.PostAsJsonAsync("/api/auth/token", new { UserName = "tester", Password = "Test-Password-123!" });
@@ -315,6 +327,7 @@ public class ProjectsControllerTests
             {
                 Id = "proj-with-kb",
                 Name = "Project With KB",
+                OrgId = "test-org",
                 KbSources = new[] { new { Type = "Documents", Location = "docs/", LastSyncedAt = (DateTimeOffset?)null } },
             }),
         };

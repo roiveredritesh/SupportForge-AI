@@ -5,6 +5,7 @@ import type { ProjectKbSource, ProjectRepo } from './useProjects';
 export interface CreateProjectRequest {
   id: string;
   name: string;
+  orgId: string;
   repos: ProjectRepo[];
   kbSources: ProjectKbSource[];
   scheduledSyncIntervalHours?: number | null;

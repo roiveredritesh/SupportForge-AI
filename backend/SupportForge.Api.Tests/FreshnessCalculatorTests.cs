@@ -9,8 +9,7 @@ public class FreshnessCalculatorTests
     [Fact]
     public void Calculate_ReturnsStale_WhenAnySourceOlderThan7Days()
     {
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             KbSources = new List<KbSourceConfig>
@@ -28,8 +27,7 @@ public class FreshnessCalculatorTests
     [Fact]
     public void Calculate_ReturnsFresh_WhenAllSourcesWithin7Days()
     {
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "docs/", DateTimeOffset.UtcNow.AddDays(-1)) },
@@ -44,8 +42,7 @@ public class FreshnessCalculatorTests
     [Fact]
     public void Calculate_ReturnsStale_WhenCodeRepoOlderThan7Days()
     {
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null, DateTimeOffset.UtcNow.AddDays(-10)) },
@@ -60,8 +57,7 @@ public class FreshnessCalculatorTests
     [Fact]
     public void Calculate_ReturnsStale_WhenCodeRepoNeverSynced()
     {
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null, null) },
@@ -77,8 +73,7 @@ public class FreshnessCalculatorTests
     public void Calculate_Sources_IncludesLastSyncedAtForEverySource()
     {
         var syncedAt = DateTimeOffset.UtcNow.AddDays(-1);
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "docs/", syncedAt) },

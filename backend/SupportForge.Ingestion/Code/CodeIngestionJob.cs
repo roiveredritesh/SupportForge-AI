@@ -12,11 +12,14 @@ public sealed class CodeIngestionJob : IIngestionJob
     private readonly string _repoName;
     private readonly GitRepoSyncService _gitSync;
     private readonly IProjectRepository _projects;
+    private readonly IOrgRepository? _orgs;
+    private readonly string? _orgId;
 
     public string ProjectId { get; }
 
     public CodeIngestionJob(string projectId, string repoUrl, string branch, string localCachePath,
-        string repoOwner, string repoName, GitRepoSyncService gitSync, IProjectRepository projects)
+        string repoOwner, string repoName, GitRepoSyncService gitSync, IProjectRepository projects,
+        IOrgRepository? orgs = null, string? orgId = null)
     {
         ProjectId = projectId;
         _repoUrl = repoUrl;
@@ -26,11 +29,16 @@ public sealed class CodeIngestionJob : IIngestionJob
         _repoName = repoName;
         _gitSync = gitSync;
         _projects = projects;
+        _orgs = orgs;
+        _orgId = orgId;
     }
 
     public async Task RunAsync(CancellationToken ct)
     {
-        _gitSync.CloneOrPull(_repoUrl, _localCachePath, _branch);
+        var githubToken = _orgId != null && _orgs != null
+            ? (await _orgs.GetByIdAsync(_orgId, ct))?.GitHubAccessToken
+            : null;
+        _gitSync.CloneOrPull(_repoUrl, _localCachePath, _branch, githubToken);
         Directory.CreateDirectory(_localCachePath);
 
         // GraphImportJobFactory reads this same path (<repo>/code-graph/graph.json) and loads it into

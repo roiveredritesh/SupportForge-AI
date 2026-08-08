@@ -14,6 +14,7 @@ public class FreshnessGateAgentTests
     {
         Id = "p",
         Name = "p",
+        OrgId = "test-org",
         KbSources = [new KbSourceConfig(KbSourceType.Documents, "docs/", DateTimeOffset.UtcNow)],
         Repos = [],
     };

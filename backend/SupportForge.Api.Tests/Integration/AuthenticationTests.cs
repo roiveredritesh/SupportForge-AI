@@ -135,7 +135,7 @@ public class AuthenticationTests : IDisposable
         using (var scope = factory.Services.CreateScope())
         {
             var projects = scope.ServiceProvider.GetRequiredService<IProjectRepository>();
-            await projects.UpsertAsync(new Project { Id = "proj-auth-test", Name = "Auth Test Project" });
+            await projects.UpsertAsync(new Project { OrgId = "test-org", Id = "proj-auth-test", Name = "Auth Test Project" });
             var memberships = scope.ServiceProvider.GetRequiredService<IProjectMembershipRepository>();
             await memberships.AddAsync(userId, "proj-auth-test");
         }

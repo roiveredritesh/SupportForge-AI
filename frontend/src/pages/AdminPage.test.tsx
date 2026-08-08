@@ -6,7 +6,10 @@ import { apiClient } from '../lib/apiClient';
 
 vi.mock('../lib/apiClient', () => ({
   apiClient: {
-    get: vi.fn().mockResolvedValue({ data: [] }),
+    get: vi.fn().mockImplementation((url: string) => {
+      if (url === '/orgs') return Promise.resolve({ data: [{ id: 'test-org', name: 'Test Org' }] });
+      return Promise.resolve({ data: [] });
+    }),
     post: vi.fn().mockResolvedValue({ data: {} }),
     delete: vi.fn().mockResolvedValue({ data: {} }),
   },
@@ -23,6 +26,8 @@ describe('AdminPage', () => {
 
     fireEvent.change(screen.getByLabelText('Project ID'), { target: { value: 'proj2' } });
     fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: 'Project Two' } });
+    await screen.findByRole('option', { name: 'Test Org (test-org)' });
+    fireEvent.change(screen.getByLabelText('Organization'), { target: { value: 'test-org' } });
     fireEvent.click(screen.getByText('Create Project'));
 
     await waitFor(() =>
@@ -43,6 +48,8 @@ describe('AdminPage', () => {
 
     fireEvent.change(screen.getByLabelText('Project ID'), { target: { value: 'proj4' } });
     fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: 'Project Four' } });
+    await screen.findByRole('option', { name: 'Test Org (test-org)' });
+    fireEvent.change(screen.getByLabelText('Organization'), { target: { value: 'test-org' } });
     fireEvent.change(screen.getByLabelText('Scheduled KB sync interval (hours, optional)'), { target: { value: '6' } });
     fireEvent.click(screen.getByText('Create Project'));
 
@@ -61,14 +68,17 @@ describe('AdminPage', () => {
 
     fireEvent.change(screen.getByLabelText('Project ID'), { target: { value: 'proj3' } });
     fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: 'Project Three' } });
+    await screen.findByRole('option', { name: 'Test Org (test-org)' });
+    fireEvent.change(screen.getByLabelText('Organization'), { target: { value: 'test-org' } });
     fireEvent.click(screen.getByText('+ Add source'));
 
     // Defaults to "Documents" -- no crawl-linked-pages checkbox until the type is Website.
     expect(screen.queryByRole('checkbox')).toBeNull();
 
-    // First combobox is the KB source type selector; a second (repo-association) combobox only
-    // appears while type === 'Documents', which is the default this test starts from.
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'Website' } });
+    // First combobox is the Organization selector, second is the KB source type selector; a
+    // third (repo-association) combobox only appears while type === 'Documents', which is the
+    // default this test starts from.
+    fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'Website' } });
     fireEvent.change(screen.getByPlaceholderText('Website URL'), { target: { value: 'https://example.com/docs' } });
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByText('Create Project'));

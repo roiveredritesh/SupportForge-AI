@@ -144,8 +144,7 @@ public class WebhooksControllerTests
         var projects = new JsonFileProjectRepository(tempDir);
         var pushedRepo = new GitHubRepoConfig("acme", "widget-api", "main", null);
         var otherRepo = new GitHubRepoConfig("acme", "other-repo", "main", null);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Widget Project",
             Repos = new List<GitHubRepoConfig> { pushedRepo, otherRepo },
@@ -171,8 +170,7 @@ public class WebhooksControllerTests
     {
         var (controller, queue, factory, tempDir) = MakeSut();
         var projects = new JsonFileProjectRepository(tempDir);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Widget Project",
             Repos = new List<GitHubRepoConfig> { new("acme", "widget-api", "main", null) },
@@ -254,8 +252,7 @@ public class WebhooksControllerTests
         var projects = new JsonFileProjectRepository(tempDir);
         var matchedSource = new KbSourceConfig(KbSourceType.Confluence, "98765", null);
         var otherSource = new KbSourceConfig(KbSourceType.Website, "https://example.com", null);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Docs Project",
             Repos = new List<GitHubRepoConfig> { new("acme", "widget-api", "main", null) },
@@ -281,8 +278,7 @@ public class WebhooksControllerTests
     {
         var (controller, queue, factory, tempDir) = MakeSut();
         var projects = new JsonFileProjectRepository(tempDir);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Docs Project",
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Confluence, "98765", null) },

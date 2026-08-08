@@ -48,8 +48,7 @@ public class DocumentIngestionJobTests
                 .Returns(Task.CompletedTask);
 
             var projects = new Mock<IProjectRepository>();
-            var project = new Project
-            {
+            var project = new Project { OrgId = "test-org",
                 Id = "proj1",
                 Name = "Test",
                 KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "docs/", null) },

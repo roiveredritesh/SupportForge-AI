@@ -16,6 +16,7 @@ public class ProjectsController : ControllerBase
 {
     private readonly IProjectRepository _repo;
     private readonly IProjectMembershipRepository _memberships;
+    private readonly IOrgMembershipRepository _orgMemberships;
     private readonly IVectorStoreService _vectorStore;
     private readonly IFeedbackRepository _feedback;
     private readonly ITokenUsageRepository _tokenUsage;
@@ -29,6 +30,7 @@ public class ProjectsController : ControllerBase
     public ProjectsController(
         IProjectRepository repo,
         IProjectMembershipRepository memberships,
+        IOrgMembershipRepository orgMemberships,
         IVectorStoreService vectorStore,
         IFeedbackRepository feedback,
         ITokenUsageRepository tokenUsage,
@@ -41,6 +43,7 @@ public class ProjectsController : ControllerBase
     {
         _repo = repo;
         _memberships = memberships;
+        _orgMemberships = orgMemberships;
         _vectorStore = vectorStore;
         _feedback = feedback;
         _tokenUsage = tokenUsage;
@@ -82,6 +85,8 @@ public class ProjectsController : ControllerBase
         var userId = this.CurrentUserId();
         var existing = await _repo.GetByIdAsync(project.Id, ct);
         if (existing is not null && !await _memberships.IsMemberAsync(userId, project.Id, ct))
+            return Forbid();
+        if (existing is null && !await _orgMemberships.IsMemberAsync(userId, project.OrgId, ct))
             return Forbid();
 
         await _repo.UpsertAsync(project, ct);

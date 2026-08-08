@@ -5,6 +5,8 @@ import { useTriggerIngestion } from '../hooks/useTriggerIngestion';
 import { useDeleteProject } from '../hooks/useDeleteProject';
 import { useFreshness } from '../hooks/useFreshness';
 import { useDeadLetters, useDismissDeadLetter } from '../hooks/useDeadLetters';
+import { useOrgs } from '../hooks/useOrgs';
+import { useCreateOrg } from '../hooks/useCreateOrg';
 import { useAppStore } from '../store/useAppStore';
 
 function FreshnessBadge({ projectId }: { projectId: string }) {
@@ -58,14 +60,67 @@ function DeadLetterList({ projectId }: { projectId: string }) {
   );
 }
 
-const emptyRepo: ProjectRepo = { owner: '', repo: '', defaultBranch: 'main', accessTokenSecretName: '' };
+const emptyRepo: ProjectRepo = { owner: '', repo: '', defaultBranch: 'main' };
 const emptyKbSource: ProjectKbSource = { type: 'Documents', location: '' };
 
 const inputClass =
   'mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900';
 
+function OrgsSection() {
+  const { data: orgs } = useOrgs();
+  const saveOrg = useCreateOrg();
+  const [orgId, setOrgId] = useState('');
+  const [orgName, setOrgName] = useState('');
+  const [orgToken, setOrgToken] = useState('');
+
+  const handleCreateOrg = () => {
+    saveOrg.mutate(
+      { id: orgId, name: orgName, githubAccessToken: orgToken || null },
+      {
+        onSuccess: () => {
+          setOrgId('');
+          setOrgName('');
+          setOrgToken('');
+        },
+      },
+    );
+  };
+
+  return (
+    <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
+      <h2 className="font-medium">Organizations</h2>
+      <div className="grid grid-cols-3 gap-2">
+        <input className={inputClass} placeholder="Org ID" value={orgId} onChange={(e) => setOrgId(e.target.value)} />
+        <input className={inputClass} placeholder="Org Name" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
+        <input
+          className={inputClass}
+          type="password"
+          placeholder="GitHub access token (PAT)"
+          value={orgToken}
+          onChange={(e) => setOrgToken(e.target.value)}
+        />
+      </div>
+      <button
+        className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
+        onClick={handleCreateOrg}
+        disabled={saveOrg.isPending || !orgId || !orgName}
+      >
+        Add Organization
+      </button>
+      <ul className="space-y-1 text-sm">
+        {orgs?.map((o) => (
+          <li key={o.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
+            {o.name} ({o.id}) — {o.githubAccessToken ? 'PAT configured' : 'No PAT set'}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default function AdminPage() {
   const { data: projects } = useProjects();
+  const { data: orgs } = useOrgs();
   const saveProject = useCreateProject();
   const triggerIngestion = useTriggerIngestion();
   const deleteProject = useDeleteProject();
@@ -74,6 +129,7 @@ export default function AdminPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [id, setId] = useState('');
   const [name, setName] = useState('');
+  const [orgId, setOrgId] = useState('');
   const [repos, setRepos] = useState<ProjectRepo[]>([]);
   const [kbSources, setKbSources] = useState<ProjectKbSource[]>([]);
   const [syncIntervalHours, setSyncIntervalHours] = useState('');
@@ -82,6 +138,7 @@ export default function AdminPage() {
     setEditingId(null);
     setId('');
     setName('');
+    setOrgId('');
     setRepos([]);
     setKbSources([]);
     setSyncIntervalHours('');
@@ -91,6 +148,7 @@ export default function AdminPage() {
     setEditingId(p.id);
     setId(p.id);
     setName(p.name);
+    setOrgId(p.orgId);
     setRepos(p.repos.map((r) => ({ ...r })));
     setKbSources(p.kbSources.map((k) => ({ ...k })));
     setSyncIntervalHours(p.scheduledSyncIntervalHours != null ? String(p.scheduledSyncIntervalHours) : '');
@@ -110,6 +168,7 @@ export default function AdminPage() {
       {
         id,
         name,
+        orgId,
         repos: repos.filter((r) => r.owner && r.repo),
         kbSources: kbSources.filter((k) => k.location),
         scheduledSyncIntervalHours: parsedInterval != null && !Number.isNaN(parsedInterval) ? parsedInterval : null,
@@ -130,6 +189,8 @@ export default function AdminPage() {
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <h1 className="text-xl font-semibold">Project Administration</h1>
 
+      <OrgsSection />
+
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">{editingId ? `Edit Project (${editingId})` : 'Add Project'}</h2>
@@ -148,6 +209,17 @@ export default function AdminPage() {
           Project Name
           <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
         </label>
+        <label className="block text-sm">
+          Organization
+          <select className={inputClass} value={orgId} onChange={(e) => setOrgId(e.target.value)}>
+            <option value="">Select an organization</option>
+            {orgs?.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name} ({o.id})
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -165,20 +237,12 @@ export default function AdminPage() {
                 <input className={inputClass} placeholder="Owner" value={r.owner} onChange={(e) => updateRepo(i, { owner: e.target.value })} />
                 <input className={inputClass} placeholder="Repo" value={r.repo} onChange={(e) => updateRepo(i, { repo: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  className={inputClass}
-                  placeholder="Default branch"
-                  value={r.defaultBranch}
-                  onChange={(e) => updateRepo(i, { defaultBranch: e.target.value })}
-                />
-                <input
-                  className={inputClass}
-                  placeholder="Access token secret name (optional, private repos)"
-                  value={r.accessTokenSecretName ?? ''}
-                  onChange={(e) => updateRepo(i, { accessTokenSecretName: e.target.value })}
-                />
-              </div>
+              <input
+                className={inputClass}
+                placeholder="Default branch"
+                value={r.defaultBranch}
+                onChange={(e) => updateRepo(i, { defaultBranch: e.target.value })}
+              />
               <button
                 className="text-sm text-red-600 hover:underline dark:text-red-400"
                 onClick={() => setRepos((prev) => prev.filter((_, idx) => idx !== i))}
@@ -273,7 +337,7 @@ export default function AdminPage() {
           />
         </label>
 
-        <button className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700" onClick={handleSave} disabled={saveProject.isPending}>
+        <button className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700" onClick={handleSave} disabled={saveProject.isPending || !orgId}>
           {editingId ? 'Save Changes' : 'Create Project'}
         </button>
       </section>
@@ -285,7 +349,7 @@ export default function AdminPage() {
             <li key={p.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2">
-                  {p.name} ({p.id})
+                  {p.name} ({p.id}) — {orgs?.find((o) => o.id === p.orgId)?.name ?? p.orgId}
                   <FreshnessBadge projectId={p.id} />
                 </span>
                 <div className="flex gap-2">

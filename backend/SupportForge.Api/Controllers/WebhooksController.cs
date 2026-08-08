@@ -99,7 +99,7 @@ public class WebhooksController : ControllerBase
 
             // Only the pushed repo, not the project's other repos/KB sources -- a code push
             // shouldn't also re-run an unrelated Confluence/Website sync for the same project.
-            var pseudoProject = new Project { Id = project.Id, Name = project.Name, Repos = new List<GitHubRepoConfig> { matchedRepo! } };
+            var pseudoProject = new Project { Id = project.Id, Name = project.Name, OrgId = project.OrgId, Repos = new List<GitHubRepoConfig> { matchedRepo! } };
             foreach (var factory in _services.GetServices<IIngestionJobFactory>())
                 foreach (var job in factory.CreateJobs(pseudoProject))
                     _queue.Enqueue(job);
@@ -173,7 +173,7 @@ public class WebhooksController : ControllerBase
             }
 
             // Only the changed page, not the project's other KB sources or repos.
-            var pseudoProject = new Project { Id = project.Id, Name = project.Name, KbSources = new List<KbSourceConfig> { matchedSource! } };
+            var pseudoProject = new Project { Id = project.Id, Name = project.Name, OrgId = project.OrgId, KbSources = new List<KbSourceConfig> { matchedSource! } };
             foreach (var factory in _services.GetServices<IIngestionJobFactory>())
                 foreach (var job in factory.CreateJobs(pseudoProject))
                     _queue.Enqueue(job);

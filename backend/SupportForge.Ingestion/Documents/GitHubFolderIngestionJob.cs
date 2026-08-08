@@ -20,12 +20,15 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
     private readonly GitRepoSyncService _gitSync;
     private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
+    private readonly IOrgRepository? _orgs;
+    private readonly string? _orgId;
 
     public string ProjectId { get; }
 
     public GitHubFolderIngestionJob(
         string projectId, string repoUrl, string branch, string localRepoPath, string subPath, string sourceLocation,
-        GitRepoSyncService gitSync, KbVectorIndexer indexer, IProjectRepository projects)
+        GitRepoSyncService gitSync, KbVectorIndexer indexer, IProjectRepository projects,
+        IOrgRepository? orgs = null, string? orgId = null)
     {
         ProjectId = projectId;
         _repoUrl = repoUrl;
@@ -36,12 +39,17 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
         _gitSync = gitSync;
         _indexer = indexer;
         _projects = projects;
+        _orgs = orgs;
+        _orgId = orgId;
     }
 
     public async Task RunAsync(CancellationToken ct)
     {
         Directory.CreateDirectory(_localRepoPath);
-        _gitSync.CloneOrPull(_repoUrl, _localRepoPath, _branch);
+        var githubToken = _orgId != null && _orgs != null
+            ? (await _orgs.GetByIdAsync(_orgId, ct))?.GitHubAccessToken
+            : null;
+        _gitSync.CloneOrPull(_repoUrl, _localRepoPath, _branch, githubToken);
 
         var folderPath = string.IsNullOrEmpty(_subPath) ? _localRepoPath : Path.Combine(_localRepoPath, _subPath);
         if (!Directory.Exists(folderPath))

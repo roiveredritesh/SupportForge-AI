@@ -19,6 +19,7 @@ public class IngestionJobFactoryTests
         var services = new ServiceCollection();
         services.AddHttpClient();
         services.AddSingleton<IProjectRepository>(new Mock<IProjectRepository>().Object);
+        services.AddSingleton<IOrgRepository>(new Mock<IOrgRepository>().Object);
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton<GitRepoSyncService>();
         services.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
@@ -37,8 +38,7 @@ public class IngestionJobFactoryTests
     {
         using var provider = BuildProvider();
         var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             Repos = new List<GitHubRepoConfig>
@@ -65,8 +65,7 @@ public class IngestionJobFactoryTests
     {
         using var provider = BuildProvider();
         var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             Repos = new List<GitHubRepoConfig> { new("owner", "repo-a", "main", null) },
@@ -84,8 +83,7 @@ public class IngestionJobFactoryTests
     {
         using var provider = BuildProvider();
         var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             Repos = new List<GitHubRepoConfig> { new("owner", "repo-a", "main", null) },
@@ -105,8 +103,7 @@ public class IngestionJobFactoryTests
     {
         using var provider = BuildProvider();
         var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             KbSources = new List<KbSourceConfig>
@@ -126,8 +123,7 @@ public class IngestionJobFactoryTests
         // "subpath inside that repo's own clone" -- only a standalone Location gets URL-parsed.
         using var provider = BuildProvider();
         var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             Repos = new List<GitHubRepoConfig> { new("owner", "repo-a", "main", null) },
@@ -145,8 +141,7 @@ public class IngestionJobFactoryTests
     {
         using var provider = BuildProvider();
         var factory = new DocumentIngestionJobFactory(provider, Path.GetTempPath());
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             KbSources = new List<KbSourceConfig>
@@ -167,8 +162,7 @@ public class IngestionJobFactoryTests
     {
         using var provider = BuildProvider();
         var factory = new CodeIngestionJobFactory(provider, Path.GetTempPath());
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             Repos = new List<GitHubRepoConfig>

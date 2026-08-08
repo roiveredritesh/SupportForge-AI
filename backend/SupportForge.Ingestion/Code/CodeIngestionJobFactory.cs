@@ -19,6 +19,7 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
     {
         var gitSync = _services.GetRequiredService<GitRepoSyncService>();
         var projects = _services.GetRequiredService<IProjectRepository>();
+        var orgs = _services.GetRequiredService<IOrgRepository>();
 
         return project.Repos.Select(r => new CodeIngestionJob(
             project.Id,
@@ -27,6 +28,6 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
             Path.Combine(_cacheRoot, project.Id, r.Repo),
             r.Owner,
             r.Repo,
-            gitSync, projects)).ToList();
+            gitSync, projects, orgs, project.OrgId)).ToList();
     }
 }

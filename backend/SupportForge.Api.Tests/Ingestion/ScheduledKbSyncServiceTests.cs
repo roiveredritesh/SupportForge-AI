@@ -34,7 +34,7 @@ public class ScheduledKbSyncServiceTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var projects = new JsonFileProjectRepository(tempDir);
-        await projects.UpsertAsync(new Project { Id = "proj1", Name = "No KB sources" });
+        await projects.UpsertAsync(new Project { OrgId = "test-org", Id = "proj1", Name = "No KB sources" });
         var queue = new IngestionQueue();
 
         await MakeSut(projects, queue, UnusableFactory()).RunOnceAsync(default);
@@ -48,8 +48,7 @@ public class ScheduledKbSyncServiceTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var projects = new JsonFileProjectRepository(tempDir);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Busy Project",
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Website, "https://example.com", null) },
@@ -70,8 +69,7 @@ public class ScheduledKbSyncServiceTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var projects = new JsonFileProjectRepository(tempDir);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Website KB",
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Website, "https://example.com", null) },
@@ -90,6 +88,7 @@ public class ScheduledKbSyncServiceTests
         var docServices = new ServiceCollection();
         docServices.AddHttpClient();
         docServices.AddSingleton(projects);
+        docServices.AddSingleton<IOrgRepository>(new Mock<IOrgRepository>().Object);
         docServices.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         docServices.AddSingleton<GitRepoSyncService>();
         var hashes = new Mock<IContentHashRepository>();
@@ -108,8 +107,7 @@ public class ScheduledKbSyncServiceTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var projects = new JsonFileProjectRepository(tempDir);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Custom Interval, Recently Synced",
             ScheduledSyncIntervalHours = 48, // due only after 48h
@@ -133,8 +131,7 @@ public class ScheduledKbSyncServiceTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var projects = new JsonFileProjectRepository(tempDir);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Custom Interval, Due",
             ScheduledSyncIntervalHours = 2, // due after just 2h
@@ -157,8 +154,7 @@ public class ScheduledKbSyncServiceTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var projects = new JsonFileProjectRepository(tempDir);
-        await projects.UpsertAsync(new Project
-        {
+        await projects.UpsertAsync(new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "No Override, Recently Synced",
             // No ScheduledSyncIntervalHours set -- falls back to the global default (24h).

@@ -21,6 +21,7 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
         var confluence = _services.GetRequiredService<ConfluencePageFetcher>();
         var projects = _services.GetRequiredService<IProjectRepository>();
         var gitSync = _services.GetRequiredService<GitRepoSyncService>();
+        var orgs = _services.GetRequiredService<IOrgRepository>();
         var indexer = _services.GetRequiredService<KbVectorIndexer>();
         var httpClientFactory = _services.GetRequiredService<IHttpClientFactory>();
 
@@ -49,7 +50,7 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
                 var localRepoPath = Path.Combine(_repoCacheRoot, project.Id, "kb-github", ghUrl!.Owner, ghUrl.Repo);
                 return new GitHubFolderIngestionJob(
                     project.Id, $"https://github.com/{ghUrl.Owner}/{ghUrl.Repo}.git", ghUrl.Branch,
-                    localRepoPath, ghUrl.SubPath, s.Location, gitSync, indexer, projects);
+                    localRepoPath, ghUrl.SubPath, s.Location, gitSync, indexer, projects, orgs, project.OrgId);
             }
 
             return new DocumentIngestionJob(project.Id, ResolveDocumentFolderPath(s), s.Location, indexer, projects);

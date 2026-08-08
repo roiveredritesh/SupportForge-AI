@@ -42,8 +42,7 @@ public class ConfluenceIngestionJobTests
         var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object);
 
         var projects = new Mock<IProjectRepository>();
-        var project = new Project
-        {
+        var project = new Project { OrgId = "test-org",
             Id = "proj1",
             Name = "Test",
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Confluence, "12345", null) },

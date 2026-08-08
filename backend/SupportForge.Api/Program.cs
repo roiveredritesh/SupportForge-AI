@@ -60,6 +60,10 @@ builder.Services.AddSingleton<IProjectRepository>(
     new JsonFileProjectRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IProjectMembershipRepository>(
     new JsonFileProjectMembershipRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IOrgRepository>(
+    new JsonFileOrgRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IOrgMembershipRepository>(
+    new JsonFileOrgMembershipRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IFeedbackRepository>(
     new JsonFileFeedbackRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IDeadLetterRepository>(
@@ -264,6 +268,9 @@ builder.Services.AddOpenTelemetry()
     });
 
 var app = builder.Build();
+
+await SupportForge.Api.ProjectOrgMigration.RunAsync(
+    Path.Combine(app.Environment.ContentRootPath, "App_Data"), app.Configuration["GitHub:Token"]);
 
 if (app.Environment.IsDevelopment())
 {

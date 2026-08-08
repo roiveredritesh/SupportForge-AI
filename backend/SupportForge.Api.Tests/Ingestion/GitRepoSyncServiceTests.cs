@@ -38,4 +38,40 @@ public class GitRepoSyncServiceTests
         try { Directory.Delete(localDir, recursive: true); } catch { }
         try { Directory.Delete(seedDir, recursive: true); } catch { }
     }
+
+    [Fact]
+    public void CredentialsProviderFor_PerCallToken_TakesPrecedenceOverDeploymentDefault()
+    {
+        var configWithDefault = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["GitHub:Token"] = "default-token" })
+            .Build();
+        var sut = new GitRepoSyncService(configWithDefault);
+
+        var provider = sut.CredentialsProviderFor("org-specific-token");
+        var credentials = Assert.IsType<UsernamePasswordCredentials>(provider!("url", "user", SupportedCredentialTypes.UsernamePassword));
+
+        Assert.Equal("org-specific-token", credentials.Username);
+    }
+
+    [Fact]
+    public void CredentialsProviderFor_NoPerCallToken_FallsBackToDeploymentDefault()
+    {
+        var configWithDefault = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["GitHub:Token"] = "default-token" })
+            .Build();
+        var sut = new GitRepoSyncService(configWithDefault);
+
+        var provider = sut.CredentialsProviderFor(null);
+        var credentials = Assert.IsType<UsernamePasswordCredentials>(provider!("url", "user", SupportedCredentialTypes.UsernamePassword));
+
+        Assert.Equal("default-token", credentials.Username);
+    }
+
+    [Fact]
+    public void CredentialsProviderFor_NoTokenAnywhere_ReturnsNull()
+    {
+        var sut = new GitRepoSyncService(new ConfigurationBuilder().Build());
+
+        Assert.Null(sut.CredentialsProviderFor(null));
+    }
 }
