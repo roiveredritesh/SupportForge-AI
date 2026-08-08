@@ -1,0 +1,42 @@
+# Production stack for the Oracle VM. Only the frontend port is published;
+# api/chroma/neo4j stay on the internal compose network. Images are pulled
+# from GHCR (built by .github/workflows/ci.yml) — this file never builds.
+# Secrets/config come from ./.env (see .env.prod.example), using the
+# double-underscore ASP.NET Core convention (Llm__OpenAI__ApiKey etc).
+services:
+  api:
+    image: ghcr.io/${GHCR_OWNER}/supportforge-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - VectorStore__Chroma__BaseUrl=http://chroma:8000
+      - Neo4j__Uri=bolt://neo4j:7687
+    depends_on:
+      - chroma
+      - neo4j
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER}/supportforge-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+  chroma:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    volumes:
+      - chroma-data:/data
+
+  neo4j:
+    image: neo4j:5.26-community
+    restart: unless-stopped
+    environment:
+      - NEO4J_AUTH=none
+    volumes:
+      - neo4j-data:/data
+
+volumes:
+  chroma-data:
+  neo4j-data:
