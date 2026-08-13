@@ -11,11 +11,11 @@ namespace SupportForge.Api.Tests.VectorStore;
 
 public class PineconeVectorStoreServiceTests
 {
-    private static (Mock<HttpMessageHandler> handler, PineconeVectorStoreService sut) MakeSut()
+    private static (Mock<HttpMessageHandler> handler, PineconeVectorStoreService sut) MakeSut(float? minScore = null)
     {
         var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
         var client = new HttpClient(handler.Object) { BaseAddress = new Uri("https://test-index.pinecone.io") };
-        var options = Options.Create(new PineconeOptions { Host = "https://test-index.pinecone.io", ApiKey = "test-key" });
+        var options = Options.Create(new PineconeOptions { Host = "https://test-index.pinecone.io", ApiKey = "test-key", MinScore = minScore });
         return (handler, new PineconeVectorStoreService(client, options));
     }
 
@@ -70,6 +70,59 @@ public class PineconeVectorStoreServiceTests
         Assert.Equal("hello world", results[0].Text);
         Assert.Equal("kb/x.md", results[0].Metadata["source"]);
         Assert.False(results[0].Metadata.ContainsKey("_text"));
+    }
+
+    private static void SetupQueryResponse(Mock<HttpMessageHandler> handler)
+    {
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.RequestUri!.AbsolutePath.EndsWith("/query")),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                {
+                  "matches": [
+                    { "id": "doc-1", "score": 0.87, "metadata": { "_text": "hello world", "source": "kb/x.md" } },
+                    { "id": "doc-2", "score": 0.20, "metadata": { "_text": "goodbye world", "source": "kb/y.md" } }
+                  ]
+                }
+                """)
+            });
+    }
+
+    [Fact]
+    public async Task QueryAsync_ReturnsAllTopKMatches_WhenMinScoreUnset()
+    {
+        var (handler, sut) = MakeSut(minScore: null);
+        SetupQueryResponse(handler);
+
+        var results = await sut.QueryAsync("proj1-kb", new float[] { 0.1f, 0.2f }, topK: 2);
+
+        Assert.Equal(2, results.Count);
+    }
+
+    [Fact]
+    public async Task QueryAsync_ExcludesMatchesBelowMinScore()
+    {
+        var (handler, sut) = MakeSut(minScore: 0.5f);
+        SetupQueryResponse(handler);
+
+        var results = await sut.QueryAsync("proj1-kb", new float[] { 0.1f, 0.2f }, topK: 2);
+
+        Assert.Single(results);
+        Assert.Equal("doc-1", results[0].Id);
+    }
+
+    [Fact]
+    public async Task QueryAsync_ReturnsEmptyList_WhenNoMatchQualifiesUnderMinScore()
+    {
+        var (handler, sut) = MakeSut(minScore: 0.95f);
+        SetupQueryResponse(handler);
+
+        var results = await sut.QueryAsync("proj1-kb", new float[] { 0.1f, 0.2f }, topK: 2);
+
+        Assert.Empty(results);
     }
 
     [Fact]

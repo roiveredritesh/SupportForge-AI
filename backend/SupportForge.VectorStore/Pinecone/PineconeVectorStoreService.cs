@@ -18,6 +18,7 @@ public sealed class PineconeVectorStoreService : IVectorStoreService
     private const string TextMetadataKey = "_text";
 
     private readonly HttpClient _http;
+    private readonly float? _minScore;
 
     public PineconeVectorStoreService(HttpClient http, IOptions<PineconeOptions> options)
     {
@@ -25,6 +26,7 @@ public sealed class PineconeVectorStoreService : IVectorStoreService
         _http.BaseAddress ??= new Uri(options.Value.Host);
         if (!_http.DefaultRequestHeaders.Contains("Api-Key"))
             _http.DefaultRequestHeaders.Add("Api-Key", options.Value.ApiKey);
+        _minScore = options.Value.MinScore;
     }
 
     public async Task UpsertAsync(string collection, IReadOnlyList<VectorDocument> documents, CancellationToken ct = default)
@@ -62,7 +64,11 @@ public sealed class PineconeVectorStoreService : IVectorStoreService
         var body = await response.Content.ReadFromJsonAsync<PineconeQueryResponse>(cancellationToken: ct)
                    ?? throw new InvalidOperationException("Empty Pinecone response");
 
-        return body.Matches.Select(m =>
+        var matches = _minScore is { } minScore
+            ? body.Matches.Where(m => m.Score >= minScore)
+            : body.Matches;
+
+        return matches.Select(m =>
         {
             var metadata = m.Metadata ?? new Dictionary<string, string>();
             metadata.Remove(TextMetadataKey, out var text);
