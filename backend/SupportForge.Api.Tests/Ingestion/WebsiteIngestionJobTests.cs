@@ -42,7 +42,8 @@ public class WebsiteIngestionJobTests
     }
 
     private static WebsiteIngestionJob CreateJob(
-        string url, HttpMessageHandler? handler = null, IVectorStoreService? vectorStore = null, bool crawlLinkedPages = false)
+        string url, HttpMessageHandler? handler = null, IVectorStoreService? vectorStore = null, bool crawlLinkedPages = false,
+        IngestionImageCaptioner? captioner = null)
     {
         var llm = new Mock<ILlmEmbeddingClient>();
         llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
@@ -51,8 +52,12 @@ public class WebsiteIngestionJobTests
         var indexer = new KbVectorIndexer(
             llm.Object, vectorStore ?? new Mock<IVectorStoreService>().Object, hashes.Object, new Mock<ITokenUsageRepository>().Object,
             NullLogger<KbVectorIndexer>.Instance);
+        // Default captioner has SupportsVision: false, so CaptionAsync short-circuits to a placeholder
+        // without ever calling back into the HTTP handler to fetch image bytes -- tests that care about
+        // the image-fetch/caption path pass their own captioner explicitly.
         return new WebsiteIngestionJob(
-            "proj1", url, new HttpClient(handler ?? new ThrowingHandler()), indexer, new Mock<IProjectRepository>().Object, crawlLinkedPages);
+            "proj1", url, new HttpClient(handler ?? new ThrowingHandler()), indexer, new Mock<IProjectRepository>().Object,
+            captioner ?? new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object), crawlLinkedPages);
     }
 
     [Theory]
@@ -208,5 +213,150 @@ public class WebsiteIngestionJobTests
             if (url == _okUrl) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(_okHtml) });
             throw new InvalidOperationException($"Unexpected request to {url}");
         }
+    }
+
+    // Routes by exact URL to either an HTML string response or a raw byte response, for tests that
+    // fetch both a page (HTML) and an image (bytes) through the same HttpClient.
+    private sealed class ImageAwareStubHandler : HttpMessageHandler
+    {
+        private readonly Dictionary<string, string> _htmlByUrl;
+        private readonly Dictionary<string, byte[]> _bytesByUrl;
+        private readonly HashSet<string> _failingUrls;
+        public ImageAwareStubHandler(Dictionary<string, string> htmlByUrl, Dictionary<string, byte[]>? bytesByUrl = null, HashSet<string>? failingUrls = null)
+        {
+            _htmlByUrl = htmlByUrl;
+            _bytesByUrl = bytesByUrl ?? new();
+            _failingUrls = failingUrls ?? new();
+        }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri!.ToString();
+            if (_failingUrls.Contains(url)) throw new HttpRequestException("simulated image fetch failure");
+            if (_htmlByUrl.TryGetValue(url, out var html))
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(html) });
+            if (_bytesByUrl.TryGetValue(url, out var bytes))
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+            throw new InvalidOperationException($"Unexpected request to {url}");
+        }
+    }
+
+    private static readonly byte[] PngMagicBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    private static Mock<ILlmChatClient> VisionLlm(string caption)
+    {
+        var llm = new Mock<ILlmChatClient>();
+        llm.Setup(l => l.SupportsVision).Returns(true);
+        llm.Setup(l => l.AnalyzeImageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(caption);
+        return llm;
+    }
+
+    [Fact]
+    public async Task RunAsync_HtmlTable_ProducesMarkdownTable_NotFlattenedText()
+    {
+        const string root = "http://93.184.216.34/page";
+        var html = "<html><body><table><tr><th>Name</th><th>Value</th></tr><tr><td>A</td><td>1</td></tr></table></body></html>";
+        var vectorStore = new Mock<IVectorStoreService>();
+        var upserted = new List<VectorDocument>();
+        vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted.AddRange(docs))
+            .Returns(Task.CompletedTask);
+
+        var job = CreateJob(root, new StubHandler(html), vectorStore.Object);
+        await job.RunAsync(CancellationToken.None);
+
+        Assert.Contains(upserted, d => d.Text.Contains("| Name | Value |") && d.Text.Contains("| A | 1 |"));
+    }
+
+    [Fact]
+    public async Task RunAsync_ImgWithAlt_ProducesCaptionText_NotDroppedAltText()
+    {
+        const string root = "http://93.184.216.34/page";
+        const string image = "http://93.184.216.34/img.png";
+        var html = $"<html><body><p>Intro.</p><img src=\"{image}\" alt=\"a diagram\" /></body></html>";
+        var vectorStore = new Mock<IVectorStoreService>();
+        var upserted = new List<VectorDocument>();
+        vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted.AddRange(docs))
+            .Returns(Task.CompletedTask);
+
+        var handler = new ImageAwareStubHandler(new() { [root] = html }, new() { [image] = PngMagicBytes });
+        var captioner = new IngestionImageCaptioner(VisionLlm("A bar chart showing values.").Object);
+        var job = CreateJob(root, handler, vectorStore.Object, captioner: captioner);
+
+        await job.RunAsync(CancellationToken.None);
+
+        Assert.Contains(upserted, d => d.Text.Contains("[image: A bar chart showing values.]"));
+        Assert.DoesNotContain(upserted, d => d.Text.Contains("{{IMAGE:"));
+    }
+
+    [Fact]
+    public async Task RunAsync_ImageUrlResolvesToPrivateAddress_RejectedBySsrfGuard_FallsBackToPlaceholder()
+    {
+        const string root = "http://93.184.216.34/page";
+        const string image = "http://127.0.0.1/img.png";
+        var html = $"<html><body><img src=\"{image}\" alt=\"internal diagram\" /></body></html>";
+        var vectorStore = new Mock<IVectorStoreService>();
+        var upserted = new List<VectorDocument>();
+        vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted.AddRange(docs))
+            .Returns(Task.CompletedTask);
+
+        // Only the root page is stubbed -- if the SSRF guard didn't reject the image URl before
+        // fetching, ImageAwareStubHandler would throw "Unexpected request" for the private address.
+        var handler = new ImageAwareStubHandler(new() { [root] = html });
+        var visionLlm = VisionLlm("should never be used");
+        var captioner = new IngestionImageCaptioner(visionLlm.Object);
+        var job = CreateJob(root, handler, vectorStore.Object, captioner: captioner);
+
+        await job.RunAsync(CancellationToken.None);
+
+        Assert.Single(upserted);
+        Assert.Contains("[image: internal diagram]", upserted[0].Text);
+        visionLlm.Verify(l => l.AnalyzeImageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunAsync_ImageFetchFails_FallsBackToPlaceholder_WithoutFailingTheWholePage()
+    {
+        const string root = "http://93.184.216.34/page";
+        const string image = "http://93.184.216.34/broken.png";
+        var html = $"<html><body><p>Intro.</p><img src=\"{image}\" alt=\"a diagram\" /></body></html>";
+        var vectorStore = new Mock<IVectorStoreService>();
+        var upserted = new List<VectorDocument>();
+        vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted.AddRange(docs))
+            .Returns(Task.CompletedTask);
+
+        var handler = new ImageAwareStubHandler(new() { [root] = html }, failingUrls: new() { image });
+        var captioner = new IngestionImageCaptioner(VisionLlm("unused").Object);
+        var job = CreateJob(root, handler, vectorStore.Object, captioner: captioner);
+
+        await job.RunAsync(CancellationToken.None);
+
+        Assert.Single(upserted);
+        Assert.Contains("Intro.", upserted[0].Text);
+        Assert.Contains("[image: a diagram]", upserted[0].Text);
+    }
+
+    [Fact]
+    public async Task RunAsync_CrawlLinkedPagesTrue_LinkedPagesAlsoGetTableAndImageConversion()
+    {
+        const string root = "http://93.184.216.34/";
+        const string linked = "http://93.184.216.34/docs";
+        var rootHtml = "<html><body><p>Root content.</p><a href=\"/docs\">Docs</a></body></html>";
+        var linkedHtml = "<html><body><table><tr><th>K</th></tr><tr><td>V</td></tr></table></body></html>";
+        var vectorStore = new Mock<IVectorStoreService>();
+        var upserted = new List<VectorDocument>();
+        vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted.AddRange(docs))
+            .Returns(Task.CompletedTask);
+
+        var handler = new MultiUrlStubHandler(new() { [root] = rootHtml, [linked] = linkedHtml });
+        var job = CreateJob(root, handler, vectorStore.Object, crawlLinkedPages: true);
+
+        await job.RunAsync(CancellationToken.None);
+
+        Assert.Equal(2, upserted.Count);
+        Assert.Contains(upserted, d => d.Text.Contains("| K |") && d.Text.Contains("| V |"));
     }
 }

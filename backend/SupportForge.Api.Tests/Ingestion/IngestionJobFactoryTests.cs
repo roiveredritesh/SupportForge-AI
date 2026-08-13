@@ -23,6 +23,7 @@ public class IngestionJobFactoryTests
         services.AddSingleton<GitRepoSyncService>();
         var httpClientFactory = new Mock<IHttpClientFactory>();
         httpClientFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient());
+        services.AddSingleton(new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object));
         services.AddSingleton(new ConfluencePageFetcher(
             new HttpClient(), Options.Create(new ConfluenceOptions()),
             new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object), httpClientFactory.Object));

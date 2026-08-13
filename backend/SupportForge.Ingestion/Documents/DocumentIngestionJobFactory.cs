@@ -24,6 +24,7 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
         var gitSync = _services.GetRequiredService<GitRepoSyncService>();
         var indexer = _services.GetRequiredService<KbVectorIndexer>();
         var httpClientFactory = _services.GetRequiredService<IHttpClientFactory>();
+        var captioner = _services.GetRequiredService<IngestionImageCaptioner>();
 
         // A Documents source declares which repo it belongs to via RepoOwner/RepoName -- no more
         // silently resolving against project.Repos.FirstOrDefault(), which was wrong the moment a
@@ -62,7 +63,7 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
         return project.KbSources.Select(s => (IIngestionJob)(s.Type switch
         {
             KbSourceType.Documents => BuildDocumentsJob(s),
-            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects, s.CrawlLinkedPages),
+            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects, captioner, s.CrawlLinkedPages),
             KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, confluence, indexer, projects),
             _ => throw new NotSupportedException($"KB source type '{s.Type}' is not supported."),
         })).ToList();

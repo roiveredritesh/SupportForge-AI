@@ -97,6 +97,7 @@ public class ScheduledKbSyncServiceTests
         docServices.AddSingleton(hashes.Object);
         var httpClientFactory = new Mock<IHttpClientFactory>();
         httpClientFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient());
+        docServices.AddSingleton(new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object));
         docServices.AddSingleton(new ConfluencePageFetcher(
             new HttpClient(), Options.Create(new ConfluenceOptions()),
             new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object), httpClientFactory.Object));
