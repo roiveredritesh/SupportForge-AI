@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SupportForge.Agents;
 using SupportForge.Core;
@@ -18,7 +19,8 @@ public class DocumentIngestionJobTests
         var vectorStore = new Mock<IVectorStoreService>();
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
-        return (llm, vectorStore, new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object));
+        return (llm, vectorStore, new KbVectorIndexer(
+            llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object, NullLogger<KbVectorIndexer>.Instance));
     }
 
     [Fact]
