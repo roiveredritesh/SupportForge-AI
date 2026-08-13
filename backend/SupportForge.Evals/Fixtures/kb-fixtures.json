@@ -173,5 +173,33 @@
   },
 
   { "id": "empty-01", "domain": "empty-result", "expectPass": false, "query": "how do I export a Waza order history CSV?", "snippets": [] },
-  { "id": "empty-02", "domain": "empty-result", "expectPass": false, "query": "does Pulsely support custom dashboards?", "snippets": [] }
+  { "id": "empty-02", "domain": "empty-result", "expectPass": false, "query": "does Pulsely support custom dashboards?", "snippets": [] },
+
+  {
+    "id": "waza-table-01", "domain": "waza (e-commerce API)", "expectPass": true,
+    "note": "U11: intact Markdown table (post-U5 table-aware chunking) directly answers a pricing question",
+    "query": "how much does the Waza Pro plan cost per month?",
+    "snippets": [
+      "| Plan | Price/mo | API calls/mo |\n| --- | --- | --- |\n| Starter | $0 | 1,000 |\n| Pro | $49 | 50,000 |\n| Enterprise | Custom | Unlimited |",
+      "Waza's checkout widget supports Apple Pay and Google Pay out of the box."
+    ]
+  },
+  {
+    "id": "waza-caption-01", "domain": "waza (e-commerce API)", "expectPass": true,
+    "note": "U11: vision-generated diagram caption (U2/U3/U4 output shape) directly answers a question about the documented flow",
+    "query": "what happens after a customer submits a refund request in Waza?",
+    "snippets": [
+      "[diagram: Refund flow -- customer submits request, Waza validates the order state, on success the refund is queued for the original payment method and the customer receives a confirmation email; on failure the request is routed to manual review.]",
+      "Waza's install guide: curl -fsSL https://waza.dev/install.sh | sh"
+    ]
+  },
+  {
+    "id": "waza-boundary-01", "domain": "waza (e-commerce API)", "expectPass": false,
+    "note": "U11: simulates a pre-U5 bad chunk split -- table header survived the boundary but its data rows did not, so the snippet carries no actual answer",
+    "query": "how much does the Waza Pro plan cost per month?",
+    "snippets": [
+      "| Plan | Price/mo | API calls/mo |\n| --- | --- | --- |",
+      "Waza's refund API returns a 409 if the order was already refunded."
+    ]
+  }
 ]
