@@ -21,7 +21,11 @@ public class IngestionJobFactoryTests
         services.AddSingleton<IProjectRepository>(new Mock<IProjectRepository>().Object);
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton<GitRepoSyncService>();
-        services.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient());
+        services.AddSingleton(new ConfluencePageFetcher(
+            new HttpClient(), Options.Create(new ConfluenceOptions()),
+            new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object), httpClientFactory.Object));
         services.AddSingleton(new Mock<ILlmEmbeddingClient>().Object);
         services.AddSingleton(new Mock<IVectorStoreService>().Object);
         var hashes = new Mock<IContentHashRepository>();

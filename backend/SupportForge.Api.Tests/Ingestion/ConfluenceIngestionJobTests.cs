@@ -28,8 +28,13 @@ public class ConfluenceIngestionJobTests
         var json = """
             { "title": "Runbook", "body": { "storage": { "value": "<p>Restart the service.</p>" } } }
             """;
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient());
         var fetcher = new ConfluencePageFetcher(
-            new HttpClient(new StubHandler(json)), Options.Create(new ConfluenceOptions { BaseUrl = "http://confluence.example.com" }));
+            new HttpClient(new StubHandler(json)),
+            Options.Create(new ConfluenceOptions { BaseUrl = "http://confluence.example.com" }),
+            new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object),
+            httpClientFactory.Object);
 
         var llm = new Mock<ILlmEmbeddingClient>();
         llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });

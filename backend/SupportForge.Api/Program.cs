@@ -193,6 +193,14 @@ builder.Services.AddHostedService<IngestionBackgroundService>();
 // mechanism of their own -- code repos stay webhook-driven (WebhooksController.GitHub) instead.
 builder.Services.AddHostedService<ScheduledKbSyncService>();
 builder.Services.Configure<ConfluenceOptions>(builder.Configuration.GetSection("Confluence"));
+// Singleton, not scoped: AddHttpClient<ConfluencePageFetcher>()'s typed-client factory resolves its
+// constructor dependencies from the root provider, which cannot see scoped services and throws
+// "Cannot resolve scoped service from root provider" at request time. IngestionImageCaptioner holds
+// only an ILlmChatClient (itself singleton), so it has no scoped state to lose.
+builder.Services.AddSingleton<IngestionImageCaptioner>();
+// Credential-free client for editor-supplied external image/diagram URLs (KTD10) -- must never carry
+// the Confluence bearer token set on the AddHttpClient<ConfluencePageFetcher> client below.
+builder.Services.AddHttpClient("ConfluenceExternalImages");
 builder.Services.AddHttpClient<ConfluencePageFetcher>();
 var repoCacheRoot = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "repos");
 builder.Services.AddSingleton<KbVectorIndexer>();
