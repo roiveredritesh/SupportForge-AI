@@ -276,6 +276,9 @@ public static class LlmServiceCollectionExtensions
         if (cheapTier) chatModel = section["CheapChatModel"] ?? chatModel;
         var embeddingModel = section["EmbeddingModel"] ?? (isOllama ? "nomic-embed-text" : "text-embedding-3-small");
         var embeddingInputType = section["EmbeddingInputType"];
+        // U8/KTD7: optional override for OpenAiLlmClient's deterministic-completion seed; unset/unparseable
+        // falls back to OpenAiLlmClient.DefaultSeed.
+        var seed = long.TryParse(section["Seed"], out var configuredSeed) ? configuredSeed : (long?)null;
 
         var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
         // Ollama's server ignores the Authorization header entirely (no auth), but the OpenAI SDK's
@@ -286,7 +289,8 @@ public static class LlmServiceCollectionExtensions
             new OpenAI.Chat.ChatClient(chatModel, credential, options).AsIChatClient(),
             new OpenAI.Embeddings.EmbeddingClient(embeddingModel, credential, options),
             embeddingModel,
-            embeddingInputType);
+            embeddingInputType,
+            seed: seed);
     }
 
     private static OpenAiLlmClient BuildAzureClient(IConfiguration configuration, bool cheapTier = false)
@@ -304,12 +308,15 @@ public static class LlmServiceCollectionExtensions
         if (cheapTier) chatDeployment = section["CheapChatModel"] ?? chatDeployment;
         var embeddingDeployment = section["EmbeddingModel"] ?? throw new InvalidOperationException("Llm:Azure:EmbeddingModel (the embedding deployment name) is required.");
         var embeddingInputType = section["EmbeddingInputType"];
+        // U8/KTD7: see BuildOpenAiCompatibleClient's Seed comment.
+        var seed = long.TryParse(section["Seed"], out var configuredSeed) ? configuredSeed : (long?)null;
 
         var azureClient = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey ?? string.Empty));
         return new OpenAiLlmClient(
             azureClient.GetChatClient(chatDeployment).AsIChatClient(),
             azureClient.GetEmbeddingClient(embeddingDeployment),
             embeddingDeployment,
-            embeddingInputType);
+            embeddingInputType,
+            seed: seed);
     }
 }

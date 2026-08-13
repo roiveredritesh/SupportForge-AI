@@ -89,4 +89,44 @@ public class BedrockLlmClientTests
         var client = new BedrockLlmClient(new Mock<IAmazonBedrockRuntime>().Object, Options.Create(BuildOptions()));
         Assert.True(client.SupportsVision);
     }
+
+    [Fact]
+    public async Task CompleteAsync_SendsTemperatureZero()
+    {
+        var bedrock = new Mock<IAmazonBedrockRuntime>();
+        InvokeModelRequest? captured = null;
+        bedrock.Setup(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<InvokeModelRequest, CancellationToken>((req, _) => captured = req)
+            .ReturnsAsync(new InvokeModelResponse
+            {
+                Body = ToStream("""{"content":[{"type":"text","text":"Hello there"}],"usage":{"input_tokens":10,"output_tokens":5}}"""),
+            });
+
+        var client = new BedrockLlmClient(bedrock.Object, Options.Create(BuildOptions()));
+
+        await client.CompleteAsync("system prompt", "user prompt", CancellationToken.None);
+
+        var body = new StreamReader(captured!.Body).ReadToEnd();
+        Assert.Contains("\"temperature\":0", body);
+    }
+
+    [Fact]
+    public async Task AnalyzeImageAsync_DoesNotSendTemperature()
+    {
+        var bedrock = new Mock<IAmazonBedrockRuntime>();
+        InvokeModelRequest? captured = null;
+        bedrock.Setup(b => b.InvokeModelAsync(It.IsAny<InvokeModelRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<InvokeModelRequest, CancellationToken>((req, _) => captured = req)
+            .ReturnsAsync(new InvokeModelResponse
+            {
+                Body = ToStream("""{"content":[{"type":"text","text":"a screenshot"}],"usage":{"input_tokens":20,"output_tokens":8}}"""),
+            });
+
+        var client = new BedrockLlmClient(bedrock.Object, Options.Create(BuildOptions()));
+
+        await client.AnalyzeImageAsync("YmFzZTY0", "describe this", CancellationToken.None);
+
+        var body = new StreamReader(captured!.Body).ReadToEnd();
+        Assert.DoesNotContain("\"temperature\"", body);
+    }
 }

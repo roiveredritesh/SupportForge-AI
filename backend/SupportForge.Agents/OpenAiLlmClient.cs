@@ -10,10 +10,15 @@ namespace SupportForge.Agents;
 
 public class OpenAiLlmClient : ILlmClient
 {
+    // KTD7/U8: fixed fallback so CompleteAsync is deterministic even when no Seed is configured;
+    // any configured value (LlmServiceCollectionExtensions reads "Llm:{Provider}:Seed") overrides it.
+    private const long DefaultSeed = 42;
+
     private readonly IChatClient _chatClient;
     private readonly EmbeddingClient _embeddingClient;
     private readonly string _embeddingModel;
     private readonly string? _embeddingInputType;
+    private readonly long _seed;
 
     // The raw OpenAI.Chat.ChatClient (and its Azure/NIM variants) is built inline by
     // LlmServiceCollectionExtensions with no HttpClient seam to attach a Polly DelegatingHandler to
@@ -58,21 +63,28 @@ public class OpenAiLlmClient : ILlmClient
         EmbeddingClient embeddingClient,
         string embeddingModel,
         string? embeddingInputType = null,
-        bool supportsVision = true)
+        bool supportsVision = true,
+        long? seed = null)
     {
         _chatClient = chatClient;
         _embeddingClient = embeddingClient;
         _embeddingModel = embeddingModel;
         _embeddingInputType = embeddingInputType;
         SupportsVision = supportsVision;
+        _seed = seed ?? DefaultSeed;
     }
 
     public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
+        // KTD7/U8: judge/drafter completions must be deterministic across runs on the same input,
+        // so temperature is pinned to 0 and a seed is always passed (StreamCompleteAsync/AnalyzeImageAsync
+        // are out of scope -- they weren't flagged as flaky).
+        var options = new ChatOptions { Temperature = 0f, Seed = _seed };
         var response = await _resilience.ExecuteAsync(
             callback: rct => new ValueTask<ChatResponse>(_chatClient.GetResponseAsync(
                 [new ChatMessage(ChatRole.System, systemPrompt), new ChatMessage(ChatRole.User, userPrompt)],
-                cancellationToken: rct)),
+                options,
+                rct)),
             cancellationToken: ct);
         LastTotalTokens = (int)(response.Usage?.TotalTokenCount ?? 0);
         return response.Text.Trim();
