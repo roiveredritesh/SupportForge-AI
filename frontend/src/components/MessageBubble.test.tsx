@@ -17,6 +17,15 @@ describe('MessageBubble', () => {
     expect(screen.queryByText('Sources:')).not.toBeInTheDocument();
   });
 
+  it('renders a GFM Markdown table as an actual table, not literal pipe text', () => {
+    const table = '| Plan | Price |\n| --- | --- |\n| Pro | $49 |';
+    render(<MessageBubble role="assistant" content={table} />);
+
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Price')).toBeInTheDocument();
+    expect(screen.getByText('$49')).toBeInTheDocument();
+  });
+
   it('renders user messages as plain text without markdown or confidence', () => {
     render(<MessageBubble role="user" content="Why is the server down?" />);
 

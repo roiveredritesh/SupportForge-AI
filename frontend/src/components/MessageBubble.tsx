@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import type { ChatSource } from '../hooks/useChatQuery';
 
@@ -38,7 +39,7 @@ export function MessageBubble({ role, content, confidence, sources, totalTokensU
         {confidence !== undefined && <ConfidenceBadge confidence={confidence} />}
 
         <div className="prose prose-sm max-w-none dark:prose-invert">
-          <ReactMarkdown>{content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         </div>
 
         {((sources && sources.length > 0) || totalTokensUsed !== undefined) && (
