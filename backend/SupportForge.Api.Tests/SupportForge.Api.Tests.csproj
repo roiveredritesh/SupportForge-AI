@@ -26,4 +26,8 @@
     <ProjectReference Include="..\SupportForge.Api\SupportForge.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Ingestion\Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

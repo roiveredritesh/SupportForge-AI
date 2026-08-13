@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using SupportForge.Core;
 using SupportForge.Ingestion.Code;
 
@@ -10,7 +11,7 @@ namespace SupportForge.Ingestion.Documents;
 /// </summary>
 public sealed class GitHubFolderIngestionJob : IIngestionJob
 {
-    private static readonly string[] SupportedExtensions = [".md", ".txt"];
+    private static readonly string[] SupportedExtensions = [".md", ".txt", ".pdf", ".docx", ".pptx"];
 
     private readonly string _repoUrl;
     private readonly string _branch;
@@ -20,12 +21,14 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
     private readonly GitRepoSyncService _gitSync;
     private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
+    private readonly ILogger<GitHubFolderIngestionJob> _logger;
 
     public string ProjectId { get; }
 
     public GitHubFolderIngestionJob(
         string projectId, string repoUrl, string branch, string localRepoPath, string subPath, string sourceLocation,
-        GitRepoSyncService gitSync, KbVectorIndexer indexer, IProjectRepository projects)
+        GitRepoSyncService gitSync, KbVectorIndexer indexer, IProjectRepository projects,
+        ILogger<GitHubFolderIngestionJob> logger)
     {
         ProjectId = projectId;
         _repoUrl = repoUrl;
@@ -36,6 +39,7 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
         _gitSync = gitSync;
         _indexer = indexer;
         _projects = projects;
+        _logger = logger;
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -53,7 +57,29 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
 
         var documents = new List<(string SourceRef, string Text, string? Title)>();
         foreach (var file in files)
-            documents.Add((file, await File.ReadAllTextAsync(file, ct), null));
+        {
+            string text;
+            try
+            {
+                text = Path.GetExtension(file).ToLowerInvariant() switch
+                {
+                    ".md" or ".txt" => await File.ReadAllTextAsync(file, ct),
+                    _ => await DocumentTextExtractor.ExtractAsync(file, ct),
+                };
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // U10: a file that fails to parse (corrupt/unsupported content) is logged and skipped
+                // for that one file, not fatal to the whole folder walk.
+                _logger.LogWarning(ex, "Failed to extract text from '{File}'; skipping file", file);
+                continue;
+            }
+            documents.Add((file, text, null));
+        }
 
         await _indexer.IndexAsync(ProjectId, documents, ct);
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _sourceLocation, ct);

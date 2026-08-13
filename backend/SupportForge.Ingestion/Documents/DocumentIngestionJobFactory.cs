@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Code;
@@ -49,10 +50,13 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
                 var localRepoPath = Path.Combine(_repoCacheRoot, project.Id, "kb-github", ghUrl!.Owner, ghUrl.Repo);
                 return new GitHubFolderIngestionJob(
                     project.Id, $"https://github.com/{ghUrl.Owner}/{ghUrl.Repo}.git", ghUrl.Branch,
-                    localRepoPath, ghUrl.SubPath, s.Location, gitSync, indexer, projects);
+                    localRepoPath, ghUrl.SubPath, s.Location, gitSync, indexer, projects,
+                    _services.GetRequiredService<ILogger<GitHubFolderIngestionJob>>());
             }
 
-            return new DocumentIngestionJob(project.Id, ResolveDocumentFolderPath(s), s.Location, indexer, projects);
+            return new DocumentIngestionJob(
+                project.Id, ResolveDocumentFolderPath(s), s.Location, indexer, projects,
+                _services.GetRequiredService<ILogger<DocumentIngestionJob>>());
         }
 
         return project.KbSources.Select(s => (IIngestionJob)(s.Type switch
