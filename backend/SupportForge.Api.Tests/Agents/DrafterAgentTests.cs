@@ -134,6 +134,37 @@ public class DrafterAgentTests
         Assert.Contains("citation or evidence", DrafterAgent.SystemPrompt);
     }
 
+    // U9: the no-quote rule for KB prose gets an explicit carve-out for table-shaped data, since
+    // LooksLikeLeak never checked KbSnippets for verbatim overlap in the first place (KTD8) -- the
+    // rule against quoting KB text was purely a prompt instruction, and this loosens that instruction.
+    [Fact]
+    public void SystemPrompt_PermitsVerbatimTableReproductionFromKb()
+    {
+        Assert.Contains("Markdown table", DrafterAgent.SystemPrompt);
+        Assert.Contains("may be reproduced verbatim", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
+    public void SystemPrompt_StillForbidsCodeAndFileCitation_DespiteTableException()
+    {
+        Assert.Contains("Never show source code", DrafterAgent.SystemPrompt);
+        Assert.Contains("closely paraphrase any code", DrafterAgent.SystemPrompt);
+        Assert.Contains("Never mention a file name, path, line number", DrafterAgent.SystemPrompt);
+    }
+
+    [Fact]
+    public void LooksLikeLeak_KbSnippetContainingTable_IsNotFlagged()
+    {
+        var kbTable = "| Tier | Price | Limit |\n| --- | --- | --- |\n| Free | $0 | 100 req/day |\n"
+                      + "| Pro | $49 | 100000 req/day |\n| Enterprise | Custom | Unlimited |";
+        var context = LeakContext("what are the pricing tiers?");
+        context.KbSnippets.Add(kbTable);
+
+        var draft = $"Here are the pricing tiers:\n\n{kbTable}";
+
+        Assert.False(DrafterAgent.LooksLikeLeak(draft, context));
+    }
+
     [Fact]
     public void SystemPrompt_DescribesThreeWayCodeIssueClassification()
     {

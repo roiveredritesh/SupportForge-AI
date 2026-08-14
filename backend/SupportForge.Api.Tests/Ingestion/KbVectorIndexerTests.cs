@@ -1,5 +1,8 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SupportForge.Agents;
+using SupportForge.Api.Tests.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Documents;
@@ -22,6 +25,8 @@ public class KbVectorIndexerTests
 
     private static ITokenUsageRepository NoOpTokenUsage() => new Mock<ITokenUsageRepository>().Object;
 
+    private static NullLogger<KbVectorIndexer> NoOpLogger() => NullLogger<KbVectorIndexer>.Instance;
+
     [Fact]
     public async Task IndexAsync_ChunksEachDocument_EmbedsEachChunk_ThenUpsertsOnce()
     {
@@ -32,7 +37,7 @@ public class KbVectorIndexerTests
         vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
 
         // 1500 chars > DocumentChunker's default 1000-char budget, so this file alone produces 2+ chunks.
         var longText = string.Join(' ', Enumerable.Repeat("word", 400));
@@ -52,7 +57,7 @@ public class KbVectorIndexerTests
     {
         var llm = new Mock<ILlmEmbeddingClient>(MockBehavior.Strict);
         var vectorStore = new Mock<IVectorStoreService>(MockBehavior.Strict);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
 
         await indexer.IndexAsync("proj1", [], CancellationToken.None);
 
@@ -70,7 +75,7 @@ public class KbVectorIndexerTests
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
 
         await indexer.IndexAsync("proj1", [("a.md", "one", null), ("b.md", "two", null)], CancellationToken.None);
 
@@ -88,7 +93,7 @@ public class KbVectorIndexerTests
         var vectorStore = new Mock<IVectorStoreService>();
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
 
         await indexer.IndexAsync("proj1", [("a.md", "one", null)], CancellationToken.None);
 
@@ -106,7 +111,7 @@ public class KbVectorIndexerTests
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
 
         await indexer.IndexAsync("proj1", [("page-1", "content", "How to Configure Widgets")], CancellationToken.None);
 
@@ -124,7 +129,7 @@ public class KbVectorIndexerTests
         vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
             .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
 
         await indexer.IndexAsync("proj1", [("file.md", "content", null)], CancellationToken.None);
 
@@ -141,7 +146,7 @@ public class KbVectorIndexerTests
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync("proj1", "file.md", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("same content"))));
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, NoOpTokenUsage());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, NoOpTokenUsage(), NoOpLogger());
 
         await indexer.IndexAsync("proj1", [("file.md", "same content", null)], CancellationToken.None);
 
@@ -161,7 +166,7 @@ public class KbVectorIndexerTests
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync("proj1", "file.md", It.IsAny<CancellationToken>()))
             .ReturnsAsync("stale-hash-from-a-previous-version-of-the-file");
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, NoOpTokenUsage());
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, NoOpTokenUsage(), NoOpLogger());
 
         await indexer.IndexAsync("proj1", [("file.md", "new content", null)], CancellationToken.None);
 
@@ -184,7 +189,7 @@ public class KbVectorIndexerTests
         tokenUsage.Setup(t => t.AddAsync(It.IsAny<TokenUsageEntry>(), It.IsAny<CancellationToken>()))
             .Callback<TokenUsageEntry, CancellationToken>((e, _) => recorded = e)
             .Returns(Task.CompletedTask);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), tokenUsage.Object);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), tokenUsage.Object, NoOpLogger());
 
         await indexer.IndexAsync("proj1", [("a.md", "one", null), ("b.md", "two", null)], CancellationToken.None);
 
@@ -200,10 +205,152 @@ public class KbVectorIndexerTests
         var llm = new Mock<ILlmEmbeddingClient>(MockBehavior.Strict);
         var vectorStore = new Mock<IVectorStoreService>(MockBehavior.Strict);
         var tokenUsage = new Mock<ITokenUsageRepository>(MockBehavior.Strict);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), tokenUsage.Object);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), tokenUsage.Object, NoOpLogger());
 
         await indexer.IndexAsync("proj1", [], CancellationToken.None);
 
         tokenUsage.VerifyNoOtherCalls();
+    }
+
+    // U6: a single chunk's embedding failure is logged and skipped, not fatal to the whole indexing run.
+    [Fact]
+    public async Task IndexAsync_MiddleChunkEmbedFails_StillUpsertsOtherChunks_AndDoesNotThrow()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        // Calls happen in per-chunk order, so the 2nd call corresponds to the 2nd chunk (index 1).
+        llm.SetupSequence(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ReturnsAsync(new float[] { 0.1f })
+            .ThrowsAsync(new InvalidOperationException("embedding service unavailable"))
+            .ReturnsAsync(new float[] { 0.1f })
+            .ReturnsAsync(new float[] { 0.1f });
+        var vectorStore = new Mock<IVectorStoreService>();
+        IReadOnlyList<VectorDocument>? upserted = null;
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
+            .Returns(Task.CompletedTask);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
+
+        var longText = string.Join(' ', Enumerable.Repeat("word", 700));
+        var chunks = DocumentChunker.Chunk(longText);
+        Assert.True(chunks.Count >= 3, "test needs a document that chunks into at least 3 pieces");
+
+        await indexer.IndexAsync("proj1", [("file-a.md", longText, null)], CancellationToken.None);
+
+        Assert.NotNull(upserted);
+        Assert.Equal(chunks.Count - 1, upserted!.Count);
+        Assert.DoesNotContain(upserted, d => d.Metadata["chunk"] == "1");
+        Assert.Contains(upserted, d => d.Metadata["chunk"] == "0");
+    }
+
+    // U6: a document that has at least one successfully-embedded chunk still gets its hash set, even
+    // if another chunk in the same document failed.
+    [Fact]
+    public async Task IndexAsync_MiddleChunkEmbedFails_StillSetsHash_ForPartiallySuccessfulDocument()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.SetupSequence(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ReturnsAsync(new float[] { 0.1f })
+            .ThrowsAsync(new InvalidOperationException("boom"))
+            .ReturnsAsync(new float[] { 0.1f })
+            .ReturnsAsync(new float[] { 0.1f });
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var hashes = new Mock<IContentHashRepository>();
+        hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, NoOpTokenUsage(), NoOpLogger());
+
+        var longText = string.Join(' ', Enumerable.Repeat("word", 700));
+        await indexer.IndexAsync("proj1", [("file-a.md", longText, null)], CancellationToken.None);
+
+        hashes.Verify(h => h.SetHashAsync("proj1", "file-a.md", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // U6: zero successfully-embedded chunks means the document's hash is not updated, so it retries
+    // on the next sync -- but a sibling document that fully succeeds still gets its hash set and upserted.
+    [Fact]
+    public async Task IndexAsync_DocumentWithAllChunksFailing_SkipsSetHashAsync_ButSiblingDocumentStillSucceeds()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync("fail content", It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        llm.Setup(l => l.EmbedAsync("ok content", It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ReturnsAsync(new float[] { 0.1f });
+        var vectorStore = new Mock<IVectorStoreService>();
+        IReadOnlyList<VectorDocument>? upserted = null;
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
+            .Returns(Task.CompletedTask);
+        var hashes = new Mock<IContentHashRepository>();
+        hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, NoOpTokenUsage(), NoOpLogger());
+
+        await indexer.IndexAsync(
+            "proj1", [("fail.md", "fail content", null), ("ok.md", "ok content", null)], CancellationToken.None);
+
+        hashes.Verify(h => h.SetHashAsync("proj1", "fail.md", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        hashes.Verify(h => h.SetHashAsync("proj1", "ok.md", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.NotNull(upserted);
+        Assert.Single(upserted!);
+        Assert.Equal("ok.md", upserted![0].Metadata["source"]);
+    }
+
+    // U6: cancellation is not a skippable per-chunk failure -- it must still propagate out of IndexAsync.
+    [Fact]
+    public async Task IndexAsync_OperationCanceledDuringEmbed_PropagatesOutOfIndexAsync()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ThrowsAsync(new OperationCanceledException());
+        var vectorStore = new Mock<IVectorStoreService>(MockBehavior.Strict);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            indexer.IndexAsync("proj1", [("file.md", "content", null)], CancellationToken.None));
+    }
+
+    // U6: one document entirely failing doesn't prevent other documents in the same call from being indexed.
+    [Fact]
+    public async Task IndexAsync_OneDocumentFullyFailing_DoesNotBlockOtherDocumentsInSameCall()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync("fail content", It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        llm.Setup(l => l.EmbedAsync("ok content", It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ReturnsAsync(new float[] { 0.1f });
+        var vectorStore = new Mock<IVectorStoreService>();
+        IReadOnlyList<VectorDocument>? upserted = null;
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
+            .Returns(Task.CompletedTask);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
+
+        var exception = await Record.ExceptionAsync(() => indexer.IndexAsync(
+            "proj1", [("fail.md", "fail content", null), ("ok.md", "ok content", null)], CancellationToken.None));
+
+        Assert.Null(exception);
+        Assert.NotNull(upserted);
+        Assert.Contains(upserted, d => d.Metadata["source"] == "ok.md");
+    }
+
+    // U6: the warning logged on a caught per-chunk embedding failure carries the source ref and chunk index.
+    [Fact]
+    public async Task IndexAsync_ChunkEmbedFails_LogsWarning_WithSourceRefAndChunkIndex()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ThrowsAsync(new InvalidOperationException("embedding service unavailable"));
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var logger = new ListLogger<KbVectorIndexer>();
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), logger);
+
+        await indexer.IndexAsync("proj1", [("file.md", "some content", null)], CancellationToken.None);
+
+        var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains("file.md", warning.Message);
+        Assert.Contains("0", warning.Message);
+        Assert.NotNull(warning.Exception);
     }
 }

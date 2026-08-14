@@ -16,23 +16,46 @@ public class IngestionControllerTests
     private static ClaimsPrincipal UserPrincipal(string userId) =>
         new(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, userId) }, "TestAuth"));
 
-    private static (IngestionController controller, JsonFileProjectMembershipRepository memberships, JsonFileDeadLetterRepository deadLetters, string tempDir) MakeSut(string userId = "alice")
+    private sealed class RecordingJobFactory : IIngestionJobFactory
+    {
+        public List<Project> CallsWithProjectSnapshot { get; } = new();
+        public IEnumerable<IIngestionJob> CreateJobs(Project project)
+        {
+            CallsWithProjectSnapshot.Add(project);
+            yield return new NoOpJob(project.Id);
+        }
+    }
+
+    private sealed class NoOpJob : IIngestionJob
+    {
+        public NoOpJob(string projectId) => ProjectId = projectId;
+        public string ProjectId { get; }
+        public Task RunAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private static (IngestionController controller, JsonFileProjectRepository projects, JsonFileProjectMembershipRepository memberships,
+        JsonFileDeadLetterRepository deadLetters, JsonFileContentHashRepository contentHashes, IngestionQueue queue, RecordingJobFactory factory, string tempDir)
+        MakeSut(string userId = "alice")
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         var projects = new JsonFileProjectRepository(tempDir);
         var memberships = new JsonFileProjectMembershipRepository(tempDir);
         var deadLetters = new JsonFileDeadLetterRepository(tempDir);
-        var services = new ServiceCollection().BuildServiceProvider();
+        var contentHashes = new JsonFileContentHashRepository(tempDir);
+        var queue = new IngestionQueue();
+        var factory = new RecordingJobFactory();
+        var services = new ServiceCollection();
+        services.AddSingleton<IIngestionJobFactory>(factory);
 
-        var controller = new IngestionController(new IngestionQueue(), projects, memberships, deadLetters, services);
+        var controller = new IngestionController(queue, projects, memberships, deadLetters, contentHashes, services.BuildServiceProvider());
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = UserPrincipal(userId) } };
-        return (controller, memberships, deadLetters, tempDir);
+        return (controller, projects, memberships, deadLetters, contentHashes, queue, factory, tempDir);
     }
 
     [Fact]
     public async Task GetDeadLetters_NonMember_ReturnsForbid()
     {
-        var (controller, _, _, tempDir) = MakeSut();
+        var (controller, _, _, _, _, _, _, tempDir) = MakeSut();
 
         var result = await controller.GetDeadLetters("proj1", default);
 
@@ -43,7 +66,7 @@ public class IngestionControllerTests
     [Fact]
     public async Task GetDeadLetters_Member_ReturnsOnlyThatProjectsEntries()
     {
-        var (controller, memberships, deadLetters, tempDir) = MakeSut();
+        var (controller, _, memberships, deadLetters, _, _, _, tempDir) = MakeSut();
         await memberships.AddAsync("alice", "proj1");
         await deadLetters.AddAsync(new DeadLetterEntry("dl1", "proj1", "WebsiteIngestionJob", "boom", DateTimeOffset.UtcNow));
         await deadLetters.AddAsync(new DeadLetterEntry("dl2", "proj-other", "CodeIngestionJob", "boom2", DateTimeOffset.UtcNow));
@@ -61,7 +84,7 @@ public class IngestionControllerTests
     [Fact]
     public async Task DismissDeadLetter_NonMember_ReturnsForbid_AndDoesNotDelete()
     {
-        var (controller, memberships, deadLetters, tempDir) = MakeSut(userId: "bob");
+        var (controller, _, memberships, deadLetters, _, _, _, tempDir) = MakeSut(userId: "bob");
         await memberships.AddAsync("alice", "proj1"); // bob is not a member
         await deadLetters.AddAsync(new DeadLetterEntry("dl1", "proj1", "WebsiteIngestionJob", "boom", DateTimeOffset.UtcNow));
 
@@ -75,7 +98,7 @@ public class IngestionControllerTests
     [Fact]
     public async Task DismissDeadLetter_Member_DeletesEntry()
     {
-        var (controller, memberships, deadLetters, tempDir) = MakeSut();
+        var (controller, _, memberships, deadLetters, _, _, _, tempDir) = MakeSut();
         await memberships.AddAsync("alice", "proj1");
         await deadLetters.AddAsync(new DeadLetterEntry("dl1", "proj1", "WebsiteIngestionJob", "boom", DateTimeOffset.UtcNow));
 
@@ -89,11 +112,131 @@ public class IngestionControllerTests
     [Fact]
     public async Task DismissDeadLetter_UnknownId_ReturnsNotFound()
     {
-        var (controller, _, _, tempDir) = MakeSut();
+        var (controller, _, _, _, _, _, _, tempDir) = MakeSut();
 
         var result = await controller.DismissDeadLetter("does-not-exist", default);
 
         Assert.IsType<NotFoundResult>(result);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    // U12 (rag-pipeline-reliability-plan): Trigger's own behavior, kept as a regression guard for the
+    // shared-helper extraction done to add ForceReindex below.
+    [Fact]
+    public async Task Trigger_NonMember_ReturnsForbid()
+    {
+        var (controller, projects, _, _, _, _, factory, tempDir) = MakeSut();
+        await projects.UpsertAsync(new Project { Id = "proj1", Name = "P1" });
+
+        var result = await controller.Trigger(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Empty(factory.CallsWithProjectSnapshot);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Trigger_UnknownProject_ReturnsNotFound()
+    {
+        var (controller, _, memberships, _, _, _, factory, tempDir) = MakeSut();
+        await memberships.AddAsync("alice", "proj1");
+
+        var result = await controller.Trigger(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.IsType<NotFoundResult>(result);
+        Assert.Empty(factory.CallsWithProjectSnapshot);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Trigger_AlreadyBusy_ReturnsConflict()
+    {
+        var (controller, projects, memberships, _, _, queue, factory, tempDir) = MakeSut();
+        await memberships.AddAsync("alice", "proj1");
+        await projects.UpsertAsync(new Project { Id = "proj1", Name = "P1" });
+        queue.Enqueue(new NoOpJob("proj1"));
+
+        var result = await controller.Trigger(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.IsType<ConflictObjectResult>(result);
+        Assert.Empty(factory.CallsWithProjectSnapshot);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Trigger_ValidProject_EnqueuesJobsFromEveryFactory_AndDoesNotClearHashes()
+    {
+        var (controller, projects, memberships, _, contentHashes, _, factory, tempDir) = MakeSut();
+        await memberships.AddAsync("alice", "proj1");
+        await projects.UpsertAsync(new Project { Id = "proj1", Name = "P1" });
+        await contentHashes.SetHashAsync("proj1", "src1", "hash1");
+
+        var result = await controller.Trigger(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.IsType<AcceptedResult>(result);
+        var snapshot = Assert.Single(factory.CallsWithProjectSnapshot);
+        Assert.Equal("proj1", snapshot.Id);
+        Assert.Equal("hash1", await contentHashes.GetHashAsync("proj1", "src1"));
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task ForceReindex_NonMember_ReturnsForbid()
+    {
+        var (controller, projects, _, _, _, _, factory, tempDir) = MakeSut();
+        await projects.UpsertAsync(new Project { Id = "proj1", Name = "P1" });
+
+        var result = await controller.ForceReindex(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Empty(factory.CallsWithProjectSnapshot);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task ForceReindex_UnknownProject_ReturnsNotFound()
+    {
+        var (controller, _, memberships, _, _, _, factory, tempDir) = MakeSut();
+        await memberships.AddAsync("alice", "proj1");
+
+        var result = await controller.ForceReindex(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.IsType<NotFoundResult>(result);
+        Assert.Empty(factory.CallsWithProjectSnapshot);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task ForceReindex_AlreadyBusy_ReturnsConflict()
+    {
+        var (controller, projects, memberships, _, _, queue, factory, tempDir) = MakeSut();
+        await memberships.AddAsync("alice", "proj1");
+        await projects.UpsertAsync(new Project { Id = "proj1", Name = "P1" });
+        queue.Enqueue(new NoOpJob("proj1"));
+
+        var result = await controller.ForceReindex(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.IsType<ConflictObjectResult>(result);
+        Assert.Empty(factory.CallsWithProjectSnapshot);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task ForceReindex_ValidProject_ClearsContentHashes_AndEnqueuesJobsFromEveryFactory()
+    {
+        var (controller, projects, memberships, _, contentHashes, _, factory, tempDir) = MakeSut();
+        await memberships.AddAsync("alice", "proj1");
+        await projects.UpsertAsync(new Project { Id = "proj1", Name = "P1" });
+        await contentHashes.SetHashAsync("proj1", "src1", "hash1");
+        await contentHashes.SetHashAsync("proj-other", "src2", "hash2");
+
+        var result = await controller.ForceReindex(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.IsType<AcceptedResult>(result);
+        var snapshot = Assert.Single(factory.CallsWithProjectSnapshot);
+        Assert.Equal("proj1", snapshot.Id);
+        Assert.Null(await contentHashes.GetHashAsync("proj1", "src1"));
+        Assert.Equal("hash2", await contentHashes.GetHashAsync("proj-other", "src2"));
         Directory.Delete(tempDir, recursive: true);
     }
 }

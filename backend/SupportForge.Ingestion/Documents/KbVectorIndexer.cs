@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using SupportForge.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -19,14 +20,17 @@ public sealed class KbVectorIndexer
     private readonly IVectorStoreService _vectorStore;
     private readonly IContentHashRepository _contentHashes;
     private readonly ITokenUsageRepository _tokenUsage;
+    private readonly ILogger<KbVectorIndexer> _logger;
 
     public KbVectorIndexer(
-        ILlmEmbeddingClient llm, IVectorStoreService vectorStore, IContentHashRepository contentHashes, ITokenUsageRepository tokenUsage)
+        ILlmEmbeddingClient llm, IVectorStoreService vectorStore, IContentHashRepository contentHashes,
+        ITokenUsageRepository tokenUsage, ILogger<KbVectorIndexer> logger)
     {
         _llm = llm;
         _vectorStore = vectorStore;
         _contentHashes = contentHashes;
         _tokenUsage = tokenUsage;
+        _logger = logger;
     }
 
     // D1 (gap-closing-solutions.md Phase D, item 1): Title is optional richer metadata (Confluence
@@ -46,9 +50,27 @@ public sealed class KbVectorIndexer
             if (previousHash == hash) continue;
 
             var chunks = DocumentChunker.Chunk(text);
+            var anyChunkEmbedded = false;
             for (var i = 0; i < chunks.Count; i++)
             {
-                var embedding = await _llm.EmbedAsync(chunks[i], ct, EmbeddingPurpose.Passage);
+                float[] embedding;
+                try
+                {
+                    embedding = await _llm.EmbedAsync(chunks[i], ct, EmbeddingPurpose.Passage);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // U6: a single chunk's embedding failure is logged and skipped, not fatal to the
+                    // whole indexing run -- other chunks/documents in this batch still get indexed.
+                    _logger.LogWarning(ex, "Failed to embed chunk {ChunkIndex} of {SourceRef}; skipping chunk", i, sourceRef);
+                    continue;
+                }
+
+                anyChunkEmbedded = true;
                 tokensUsed += _llm.LastTotalTokens;
                 var metadata = new Dictionary<string, string> { ["source"] = sourceRef, ["chunk"] = i.ToString() };
                 if (!string.IsNullOrWhiteSpace(title)) metadata["title"] = title;
@@ -59,7 +81,11 @@ public sealed class KbVectorIndexer
                     Metadata: metadata));
             }
 
-            await _contentHashes.SetHashAsync(projectId, sourceRef, hash, ct);
+            // U6: don't mark a document as synced if zero chunks succeeded -- a transient failure
+            // should retry next sync, not be silently accepted as "done". A document with no chunks
+            // at all (empty text) still counts as fully processed since there was nothing to embed.
+            if (chunks.Count == 0 || anyChunkEmbedded)
+                await _contentHashes.SetHashAsync(projectId, sourceRef, hash, ct);
         }
 
         if (vectorDocs.Count > 0)

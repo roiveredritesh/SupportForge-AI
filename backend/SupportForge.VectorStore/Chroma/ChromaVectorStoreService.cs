@@ -9,12 +9,14 @@ public sealed class ChromaVectorStoreService : IVectorStoreService
 {
     private readonly HttpClient _http;
     private readonly string _collectionsPath;
+    private readonly float? _maxDistance;
 
     public ChromaVectorStoreService(HttpClient http, IOptions<ChromaOptions> options)
     {
         _http = http;
         _http.BaseAddress ??= new Uri(options.Value.BaseUrl);
         _collectionsPath = $"/api/v2/tenants/{options.Value.Tenant}/databases/{options.Value.Database}/collections";
+        _maxDistance = options.Value.MaxDistance;
     }
 
     public async Task UpsertAsync(string collection, IReadOnlyList<VectorDocument> documents, CancellationToken ct = default)
@@ -64,6 +66,9 @@ public sealed class ChromaVectorStoreService : IVectorStoreService
                 body.Distances[0][i],
                 body.Metadatas[0][i]));
         }
+
+        if (_maxDistance is { } maxDistance)
+            results = results.Where(r => r.Score <= maxDistance).ToList();
 
         return results;
     }

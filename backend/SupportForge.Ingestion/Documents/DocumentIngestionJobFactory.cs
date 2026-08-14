@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion.Code;
@@ -23,6 +24,7 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
         var gitSync = _services.GetRequiredService<GitRepoSyncService>();
         var indexer = _services.GetRequiredService<KbVectorIndexer>();
         var httpClientFactory = _services.GetRequiredService<IHttpClientFactory>();
+        var captioner = _services.GetRequiredService<IngestionImageCaptioner>();
 
         // A Documents source declares which repo it belongs to via RepoOwner/RepoName -- no more
         // silently resolving against project.Repos.FirstOrDefault(), which was wrong the moment a
@@ -49,16 +51,19 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
                 var localRepoPath = Path.Combine(_repoCacheRoot, project.Id, "kb-github", ghUrl!.Owner, ghUrl.Repo);
                 return new GitHubFolderIngestionJob(
                     project.Id, $"https://github.com/{ghUrl.Owner}/{ghUrl.Repo}.git", ghUrl.Branch,
-                    localRepoPath, ghUrl.SubPath, s.Location, gitSync, indexer, projects);
+                    localRepoPath, ghUrl.SubPath, s.Location, gitSync, indexer, projects,
+                    _services.GetRequiredService<ILogger<GitHubFolderIngestionJob>>());
             }
 
-            return new DocumentIngestionJob(project.Id, ResolveDocumentFolderPath(s), s.Location, indexer, projects);
+            return new DocumentIngestionJob(
+                project.Id, ResolveDocumentFolderPath(s), s.Location, indexer, projects,
+                _services.GetRequiredService<ILogger<DocumentIngestionJob>>());
         }
 
         return project.KbSources.Select(s => (IIngestionJob)(s.Type switch
         {
             KbSourceType.Documents => BuildDocumentsJob(s),
-            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects, s.CrawlLinkedPages),
+            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects, captioner, s.CrawlLinkedPages),
             KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, confluence, indexer, projects),
             _ => throw new NotSupportedException($"KB source type '{s.Type}' is not supported."),
         })).ToList();

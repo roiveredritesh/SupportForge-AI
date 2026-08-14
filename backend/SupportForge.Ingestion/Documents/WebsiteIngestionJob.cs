@@ -23,11 +23,13 @@ public sealed class WebsiteIngestionJob : IIngestionJob
     private readonly HttpClient _httpClient;
     private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
+    private readonly IngestionImageCaptioner _captioner;
 
     public string ProjectId { get; }
 
     public WebsiteIngestionJob(
-        string projectId, string url, HttpClient httpClient, KbVectorIndexer indexer, IProjectRepository projects, bool crawlLinkedPages = false)
+        string projectId, string url, HttpClient httpClient, KbVectorIndexer indexer, IProjectRepository projects,
+        IngestionImageCaptioner captioner, bool crawlLinkedPages = false)
     {
         ProjectId = projectId;
         _url = url;
@@ -35,6 +37,7 @@ public sealed class WebsiteIngestionJob : IIngestionJob
         _httpClient = httpClient;
         _indexer = indexer;
         _projects = projects;
+        _captioner = captioner;
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -42,7 +45,7 @@ public sealed class WebsiteIngestionJob : IIngestionJob
         EnsurePublicHttpUrl(_url);
 
         var rootDoc = await FetchAsync(_url, ct);
-        var pages = new List<(string SourceRef, string Text, string? Title)> { (_url, ExtractVisibleText(rootDoc), ExtractTitle(rootDoc)) };
+        var pages = new List<(string SourceRef, string Text, string? Title)> { (_url, await ExtractContentAsync(rootDoc, ct), ExtractTitle(rootDoc)) };
 
         if (_crawlLinkedPages)
         {
@@ -54,7 +57,7 @@ public sealed class WebsiteIngestionJob : IIngestionJob
                 {
                     EnsurePublicHttpUrl(link);
                     var linkedDoc = await FetchAsync(link, ct);
-                    pages.Add((link, ExtractVisibleText(linkedDoc), ExtractTitle(linkedDoc)));
+                    pages.Add((link, await ExtractContentAsync(linkedDoc, ct), ExtractTitle(linkedDoc)));
                 }
                 catch (Exception ex) when (ex is HttpRequestException or ArgumentException or TaskCanceledException)
                 {
@@ -76,13 +79,41 @@ public sealed class WebsiteIngestionJob : IIngestionJob
         return doc;
     }
 
-    private static string ExtractVisibleText(HtmlDocument doc)
+    // Converts the page body to Markdown (tables, images -- see HtmlToMarkdownConverter) instead of
+    // flattening it to InnerText (R2/R3). Converted separately from a body-only sub-document (rather
+    // than the whole HtmlDocument) so <title>/<head> text -- already captured by ExtractTitle -- isn't
+    // also walked into the indexed body content.
+    private async Task<string> ExtractContentAsync(HtmlDocument doc, CancellationToken ct)
     {
-        foreach (var node in doc.DocumentNode.SelectNodes("//script|//style")?.ToList() ?? [])
-            node.Remove();
-
         var body = doc.DocumentNode.SelectSingleNode("//body") ?? doc.DocumentNode;
-        return WebUtility.HtmlDecode(body.InnerText).Trim();
+        var bodyDoc = new HtmlDocument();
+        bodyDoc.LoadHtml(body.InnerHtml);
+
+        var converted = HtmlToMarkdownConverter.Convert(bodyDoc);
+        var markdown = converted.Markdown;
+        foreach (var token in converted.Images)
+        {
+            var caption = await _captioner.CaptionAsync(token, resolveCt => ResolveImageBytesAsync(token, resolveCt), ct);
+            markdown = markdown.Replace(ImageToken(token), caption);
+        }
+
+        return WebUtility.HtmlDecode(markdown).Trim();
+    }
+
+    // Must exactly match HtmlToMarkdownConverter's private FormatImageToken so the substring
+    // substitution above actually finds the token it's replacing.
+    private static string ImageToken(ImageCaptionCandidate token) =>
+        "{{IMAGE:" + (token.Kind == ImageSourceKind.Attachment ? "attachment" : "external") + ":" + token.SourceRef + "|" + (token.AltOrName ?? token.SourceRef) + "}}";
+
+    // Every image token this job ever sees is External (plain <img src>) -- SSRF-checked with the
+    // same guard already applied to crawled page links, then fetched through this job's own
+    // HttpClient before any bytes reach the captioner.
+    private async Task<byte[]> ResolveImageBytesAsync(ImageCaptionCandidate token, CancellationToken ct)
+    {
+        EnsurePublicHttpUrl(token.SourceRef);
+        var response = await _httpClient.GetAsync(token.SourceRef, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
     // D1 (gap-closing-solutions.md Phase D, item 1): <title> was already being parsed away as part

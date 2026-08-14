@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useProjects, type Project, type ProjectKbSource, type ProjectRepo, type KbSourceType } from '../hooks/useProjects';
 import { useCreateProject } from '../hooks/useCreateProject';
 import { useTriggerIngestion } from '../hooks/useTriggerIngestion';
+import { useForceReindex } from '../hooks/useForceReindex';
 import { useDeleteProject } from '../hooks/useDeleteProject';
 import { useFreshness } from '../hooks/useFreshness';
 import { useDeadLetters, useDismissDeadLetter } from '../hooks/useDeadLetters';
@@ -68,6 +69,7 @@ export default function AdminPage() {
   const { data: projects } = useProjects();
   const saveProject = useCreateProject();
   const triggerIngestion = useTriggerIngestion();
+  const forceReindex = useForceReindex();
   const deleteProject = useDeleteProject();
   const { selectedProjectId, setSelectedProjectId } = useAppStore();
 
@@ -95,6 +97,14 @@ export default function AdminPage() {
     setKbSources(p.kbSources.map((k) => ({ ...k })));
     setSyncIntervalHours(p.scheduledSyncIntervalHours != null ? String(p.scheduledSyncIntervalHours) : '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Distinct from Re-index: also clears the project's content-hash cache first, so sources whose
+  // *text* hasn't changed since the last sync still re-chunk under updated ingestion logic instead
+  // of being skipped by KbVectorIndexer's unchanged-content short-circuit.
+  const handleForceReindex = (projectId: string) => {
+    if (!window.confirm('Force a full reindex? This clears the sync cache for every source on this project, so everything re-chunks and re-embeds even if unchanged. Use this after an ingestion logic update; a plain Re-index is enough otherwise.')) return;
+    forceReindex.mutate(projectId);
   };
 
   const handleDelete = (projectId: string) => {
@@ -301,6 +311,14 @@ export default function AdminPage() {
                     disabled={triggerIngestion.isPending}
                   >
                     Re-index
+                  </button>
+                  <button
+                    className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                    onClick={() => handleForceReindex(p.id)}
+                    disabled={forceReindex.isPending}
+                    title="Clears the sync cache first, so unchanged sources re-chunk too -- use after an ingestion logic update"
+                  >
+                    Force Reindex
                   </button>
                   <button
                     className="rounded-lg border border-red-300 px-3 py-1 text-sm text-red-600 hover:bg-red-50 dark:border-red-700 dark:hover:bg-red-950"

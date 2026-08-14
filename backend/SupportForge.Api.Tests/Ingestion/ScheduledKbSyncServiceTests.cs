@@ -95,7 +95,12 @@ public class ScheduledKbSyncServiceTests
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
         docServices.AddSingleton(hashes.Object);
-        docServices.AddSingleton(new ConfluencePageFetcher(new HttpClient(), Options.Create(new ConfluenceOptions())));
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient());
+        docServices.AddSingleton(new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object));
+        docServices.AddSingleton(new ConfluencePageFetcher(
+            new HttpClient(), Options.Create(new ConfluenceOptions()),
+            new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object), httpClientFactory.Object));
         docServices.AddSingleton(new Mock<ILlmEmbeddingClient>().Object);
         docServices.AddSingleton(new Mock<IVectorStoreService>().Object);
         docServices.AddSingleton(new Mock<ITokenUsageRepository>().Object);

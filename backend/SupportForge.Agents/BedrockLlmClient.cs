@@ -73,7 +73,10 @@ public class BedrockLlmClient : ILlmClient
 
     public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
-        var body = BuildMessageBody(systemPrompt, userPrompt);
+        // KTD7/U8: judge/drafter completions must be deterministic; temperature=0 only (Bedrock's
+        // Claude Messages format has no seed param). StreamCompleteAsync/AnalyzeImageAsync are out
+        // of scope -- see U8.
+        var body = BuildMessageBody(systemPrompt, userPrompt, temperature: 0);
         var (text, tokens) = await _resilience.ExecuteAsync(rct => new ValueTask<(string, int)>(InvokeAsync(_chatModelId, body, rct)), ct);
         LastTotalTokens = tokens;
         return text;
@@ -196,9 +199,15 @@ public class BedrockLlmClient : ILlmClient
         LastTotalTokens = inputTokens + outputTokens;
     }
 
-    private object BuildMessageBody(string? systemPrompt, object content)
+    private object BuildMessageBody(string? systemPrompt, object content, int? temperature = null)
     {
         var messages = new[] { new { role = "user", content } };
+        if (temperature is { } t)
+        {
+            return systemPrompt is null
+                ? new { anthropic_version = AnthropicBedrockVersion, max_tokens = _maxTokens, temperature = t, messages }
+                : new { anthropic_version = AnthropicBedrockVersion, max_tokens = _maxTokens, temperature = t, system = systemPrompt, messages };
+        }
         return systemPrompt is null
             ? new { anthropic_version = AnthropicBedrockVersion, max_tokens = _maxTokens, messages }
             : new { anthropic_version = AnthropicBedrockVersion, max_tokens = _maxTokens, system = systemPrompt, messages };

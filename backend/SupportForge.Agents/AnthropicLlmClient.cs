@@ -42,7 +42,9 @@ public class AnthropicLlmClient : ILlmChatClient
 
     public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
-        var payload = BuildRequestBody(systemPrompt, UserTextContent(userPrompt), stream: false);
+        // KTD7/U8: judge/drafter completions must be deterministic; temperature=0 only (Anthropic
+        // has no seed param). StreamCompleteAsync/AnalyzeImageAsync are out of scope -- see U8.
+        var payload = BuildRequestBody(systemPrompt, UserTextContent(userPrompt), stream: false, temperature: 0);
         using var response = await _http.PostAsJsonAsync("/v1/messages", payload, ct);
         await EnsureSuccessAsync(response, ct);
 
@@ -128,9 +130,15 @@ public class AnthropicLlmClient : ILlmChatClient
         LastTotalTokens = inputTokens + outputTokens;
     }
 
-    private object BuildRequestBody(string? systemPrompt, object content, bool stream)
+    private object BuildRequestBody(string? systemPrompt, object content, bool stream, int? temperature = null)
     {
         var messages = new[] { new { role = "user", content } };
+        if (temperature is { } t)
+        {
+            return systemPrompt is null
+                ? new { model = _model, max_tokens = _maxTokens, temperature = t, messages, stream }
+                : new { model = _model, max_tokens = _maxTokens, temperature = t, system = systemPrompt, messages, stream };
+        }
         return systemPrompt is null
             ? new { model = _model, max_tokens = _maxTokens, messages, stream }
             : new { model = _model, max_tokens = _maxTokens, system = systemPrompt, messages, stream };

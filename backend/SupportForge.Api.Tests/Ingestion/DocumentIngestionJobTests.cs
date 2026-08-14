@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SupportForge.Agents;
 using SupportForge.Core;
@@ -18,15 +20,20 @@ public class DocumentIngestionJobTests
         var vectorStore = new Mock<IVectorStoreService>();
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
-        return (llm, vectorStore, new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object));
+        return (llm, vectorStore, new KbVectorIndexer(
+            llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object, NullLogger<KbVectorIndexer>.Instance));
     }
+
+    private static string FixturePath(string name) =>
+        Path.Combine(AppContext.BaseDirectory, "Ingestion", "Fixtures", name);
 
     [Fact]
     public async Task RunAsync_Throws_WhenFolderDoesNotExist()
     {
         var (_, _, indexer) = MakeIndexer();
         var job = new DocumentIngestionJob(
-            "proj1", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), "docs/", indexer, new Mock<IProjectRepository>().Object);
+            "proj1", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), "docs/", indexer, new Mock<IProjectRepository>().Object,
+            NullLogger<DocumentIngestionJob>.Instance);
 
         await Assert.ThrowsAsync<DirectoryNotFoundException>(() => job.RunAsync(CancellationToken.None));
     }
@@ -60,7 +67,8 @@ public class DocumentIngestionJobTests
                 .Callback<Project, CancellationToken>((p, _) => saved = p)
                 .Returns(Task.CompletedTask);
 
-            var job = new DocumentIngestionJob("proj1", folder, "docs/", indexer, projects.Object);
+            var job = new DocumentIngestionJob(
+                "proj1", folder, "docs/", indexer, projects.Object, NullLogger<DocumentIngestionJob>.Instance);
 
             await job.RunAsync(CancellationToken.None);
 
@@ -71,6 +79,101 @@ public class DocumentIngestionJobTests
             Assert.DoesNotContain(upserted, d => d.Text.Contains("{}"));
             Assert.NotNull(saved);
             Assert.NotNull(saved!.KbSources[0].LastSyncedAt);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_IndexesPdfDocxPptx_AndSkipsUnsupportedExtension()
+    {
+        var folder = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(folder, "doc.md"), "Markdown content.");
+            File.Copy(FixturePath("sample.pdf"), Path.Combine(folder, "sample.pdf"));
+            File.Copy(FixturePath("sample.docx"), Path.Combine(folder, "sample.docx"));
+            File.Copy(FixturePath("sample.pptx"), Path.Combine(folder, "sample.pptx"));
+            await File.WriteAllTextAsync(Path.Combine(folder, "ignored.xlsx"), "not supported");
+
+            var (_, vectorStore, indexer) = MakeIndexer();
+            IReadOnlyList<VectorDocument>? upserted = null;
+            vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+                .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
+                .Returns(Task.CompletedTask);
+
+            var projects = new Mock<IProjectRepository>();
+            var project = new Project
+            {
+                Id = "proj1",
+                Name = "Test",
+                KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "docs/", null) },
+            };
+            projects.Setup(p => p.GetByIdAsync("proj1", It.IsAny<CancellationToken>())).ReturnsAsync(project);
+            projects.Setup(p => p.UpsertAsync(It.IsAny<Project>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+            var job = new DocumentIngestionJob(
+                "proj1", folder, "docs/", indexer, projects.Object, NullLogger<DocumentIngestionJob>.Instance);
+
+            await job.RunAsync(CancellationToken.None);
+
+            Assert.NotNull(upserted);
+            Assert.Equal(4, upserted!.Count); // md, pdf, docx, pptx -- xlsx excluded
+            Assert.Contains(upserted, d => d.Text.Contains("Markdown content."));
+            Assert.Contains(upserted, d => d.Text.Contains("Hello PDF extraction test"));
+            Assert.Contains(upserted, d => d.Text.Contains("This is a sample paragraph"));
+            Assert.Contains(upserted, d => d.Text.Contains("Slide one content."));
+            Assert.DoesNotContain(upserted, d => d.Text.Contains("not supported"));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_LogsAndSkips_CorruptPdf_WithoutFailingRestOfFolder()
+    {
+        var folder = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(folder, "doc.md"), "Markdown content.");
+            await File.WriteAllTextAsync(Path.Combine(folder, "corrupt.pdf"), "not a real pdf");
+
+            var (_, vectorStore, indexer) = MakeIndexer();
+            IReadOnlyList<VectorDocument>? upserted = null;
+            vectorStore.Setup(v => v.UpsertAsync("proj1-kb", It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+                .Callback<string, IReadOnlyList<VectorDocument>, CancellationToken>((_, docs, _) => upserted = docs)
+                .Returns(Task.CompletedTask);
+
+            var projects = new Mock<IProjectRepository>();
+            var project = new Project
+            {
+                Id = "proj1",
+                Name = "Test",
+                KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "docs/", null) },
+            };
+            projects.Setup(p => p.GetByIdAsync("proj1", It.IsAny<CancellationToken>())).ReturnsAsync(project);
+            projects.Setup(p => p.UpsertAsync(It.IsAny<Project>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+            var loggerMock = new Mock<ILogger<DocumentIngestionJob>>();
+            var job = new DocumentIngestionJob("proj1", folder, "docs/", indexer, projects.Object, loggerMock.Object);
+
+            await job.RunAsync(CancellationToken.None); // must not throw
+
+            Assert.NotNull(upserted);
+            Assert.Single(upserted!);
+            Assert.Contains(upserted, d => d.Text.Contains("Markdown content."));
+            loggerMock.Verify(
+                l => l.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    It.IsAny<Exception>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
         }
         finally
         {

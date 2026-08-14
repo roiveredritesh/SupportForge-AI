@@ -131,4 +131,32 @@ public class AnthropicLlmClientTests
         var client = CreateClient(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)));
         Assert.True(client.SupportsVision);
     }
+
+    [Fact]
+    public async Task CompleteAsync_SendsTemperatureZero()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}"""),
+        });
+        var client = CreateClient(handler);
+
+        await client.CompleteAsync("system prompt", "user prompt", CancellationToken.None);
+
+        Assert.Contains("\"temperature\":0", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task AnalyzeImageAsync_DoesNotSendTemperature()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"content":[{"type":"text","text":"a screenshot"}],"usage":{"input_tokens":20,"output_tokens":8}}"""),
+        });
+        var client = CreateClient(handler);
+
+        await client.AnalyzeImageAsync("YmFzZTY0", "describe this", CancellationToken.None);
+
+        Assert.DoesNotContain("\"temperature\"", handler.LastRequestBody);
+    }
 }

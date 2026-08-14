@@ -10,8 +10,7 @@ namespace SupportForge.Api.Tests.VectorStore;
 
 public class ChromaVectorStoreServiceTests
 {
-    [Fact]
-    public async Task QueryAsync_ParsesChromaResponse_IntoVectorQueryResults()
+    private static (Mock<HttpMessageHandler> handler, ChromaVectorStoreService sut) MakeSut(float? maxDistance = null)
     {
         var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
         handler.Protected()
@@ -30,23 +29,60 @@ public class ChromaVectorStoreServiceTests
             {
                 Content = new StringContent("""
                 {
-                  "ids": [["doc-1"]],
-                  "documents": [["hello world"]],
-                  "distances": [[0.12]],
-                  "metadatas": [[{"source": "kb"}]]
+                  "ids": [["doc-1", "doc-2"]],
+                  "documents": [["hello world", "goodbye world"]],
+                  "distances": [[0.12, 0.9]],
+                  "metadatas": [[{"source": "kb"}, {"source": "kb2"}]]
                 }
                 """)
             });
 
         var client = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost:8000") };
-        var options = Options.Create(new ChromaOptions { BaseUrl = "http://localhost:8000" });
-        var sut = new ChromaVectorStoreService(client, options);
+        var options = Options.Create(new ChromaOptions { BaseUrl = "http://localhost:8000", MaxDistance = maxDistance });
+        return (handler, new ChromaVectorStoreService(client, options));
+    }
 
-        var results = await sut.QueryAsync("proj1-kb", new float[] { 0.1f, 0.2f }, topK: 1);
+    [Fact]
+    public async Task QueryAsync_ParsesChromaResponse_IntoVectorQueryResults()
+    {
+        var (_, sut) = MakeSut();
 
-        Assert.Single(results);
+        var results = await sut.QueryAsync("proj1-kb", new float[] { 0.1f, 0.2f }, topK: 2);
+
+        Assert.Equal(2, results.Count);
         Assert.Equal("doc-1", results[0].Id);
         Assert.Equal("hello world", results[0].Text);
         Assert.Equal("kb", results[0].Metadata["source"]);
+    }
+
+    [Fact]
+    public async Task QueryAsync_ReturnsAllTopKResults_WhenMaxDistanceUnset()
+    {
+        var (_, sut) = MakeSut(maxDistance: null);
+
+        var results = await sut.QueryAsync("proj1-kb", new float[] { 0.1f, 0.2f }, topK: 2);
+
+        Assert.Equal(2, results.Count);
+    }
+
+    [Fact]
+    public async Task QueryAsync_ExcludesResultsBeyondMaxDistance()
+    {
+        var (_, sut) = MakeSut(maxDistance: 0.5f);
+
+        var results = await sut.QueryAsync("proj1-kb", new float[] { 0.1f, 0.2f }, topK: 2);
+
+        Assert.Single(results);
+        Assert.Equal("doc-1", results[0].Id);
+    }
+
+    [Fact]
+    public async Task QueryAsync_ReturnsEmptyList_WhenNoResultQualifiesUnderMaxDistance()
+    {
+        var (_, sut) = MakeSut(maxDistance: 0.05f);
+
+        var results = await sut.QueryAsync("proj1-kb", new float[] { 0.1f, 0.2f }, topK: 2);
+
+        Assert.Empty(results);
     }
 }

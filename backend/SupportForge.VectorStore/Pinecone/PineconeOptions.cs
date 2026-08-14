@@ -7,4 +7,8 @@ public sealed class PineconeOptions
     // BaseUrl, this isn't a fixed default since it's generated per index.
     public string Host { get; set; } = "";
     public string ApiKey { get; set; } = "";
+
+    // Pinecone's score metric is higher-is-closer (cosine); null preserves the pre-existing
+    // "always return topK" behavior.
+    public float? MinScore { get; set; }
 }

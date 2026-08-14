@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using SupportForge.Agents;
@@ -27,8 +28,13 @@ public class ConfluenceIngestionJobTests
         var json = """
             { "title": "Runbook", "body": { "storage": { "value": "<p>Restart the service.</p>" } } }
             """;
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient());
         var fetcher = new ConfluencePageFetcher(
-            new HttpClient(new StubHandler(json)), Options.Create(new ConfluenceOptions { BaseUrl = "http://confluence.example.com" }));
+            new HttpClient(new StubHandler(json)),
+            Options.Create(new ConfluenceOptions { BaseUrl = "http://confluence.example.com" }),
+            new IngestionImageCaptioner(new Mock<ILlmChatClient>().Object),
+            httpClientFactory.Object);
 
         var llm = new Mock<ILlmEmbeddingClient>();
         llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
@@ -39,7 +45,8 @@ public class ConfluenceIngestionJobTests
             .Returns(Task.CompletedTask);
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
-        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object);
+        var indexer = new KbVectorIndexer(
+            llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object, NullLogger<KbVectorIndexer>.Instance);
 
         var projects = new Mock<IProjectRepository>();
         var project = new Project
