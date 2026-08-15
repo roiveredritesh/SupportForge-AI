@@ -17,6 +17,11 @@ export default function ChatPage() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [screenshotBase64, setScreenshotBase64] = useState<string | undefined>();
+  // U10: free-text version field -- no version registry exists in this codebase to back a dropdown,
+  // so this stays a plain text input rather than inventing one. configText is "key=value" per line,
+  // parsed into a Record<string, string> only on submit.
+  const [productVersion, setProductVersion] = useState('');
+  const [configText, setConfigText] = useState('');
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const chatStream = useChatQueryStream();
   const submitFeedback = useSubmitFeedback();
@@ -55,6 +60,21 @@ export default function ChatPage() {
     setQuery('');
   };
 
+  // "key=value" pairs, comma- or newline-separated -> Record<string, string>; blank entries and
+  // entries without "=" are ignored.
+  const parseConfig = (text: string): Record<string, string> | undefined => {
+    const entries = text
+      .split(/[,\n]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry): [string, string] | null => {
+        const idx = entry.indexOf('=');
+        return idx === -1 ? null : [entry.slice(0, idx).trim(), entry.slice(idx + 1).trim()];
+      })
+      .filter((e): e is [string, string] => e !== null);
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  };
+
   const handleSubmit = () => {
     if (!selectedProjectId || !query.trim()) return;
     messageCountBeforeSubmit.current = conversationQuery.data?.messages.length ?? 0;
@@ -64,6 +84,8 @@ export default function ChatPage() {
       query,
       screenshotBase64,
       conversationId: activeConversationId ?? undefined,
+      productVersion: productVersion.trim() || undefined,
+      config: parseConfig(configText),
     });
     setQuery('');
   };
@@ -117,6 +139,7 @@ export default function ChatPage() {
                   sources: chatStream.sources,
                   totalTokensUsed: chatStream.totalTokensUsed,
                   codeDetails: chatStream.codeDetails,
+                  commitHistory: chatStream.commitHistory,
                   actions: chatStream.draft
                     ? {
                         onCopy: () => navigator.clipboard.writeText(chatStream.draft),
@@ -138,6 +161,24 @@ export default function ChatPage() {
         )}
 
         <div className="space-y-2 border-t border-slate-200 p-3 dark:border-gray-700">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="w-40 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800"
+              value={productVersion}
+              onChange={(e) => setProductVersion(e.target.value)}
+              placeholder="Product version (optional)"
+              aria-label="Product version"
+            />
+            <input
+              type="text"
+              className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800"
+              value={configText}
+              onChange={(e) => setConfigText(e.target.value)}
+              placeholder="Config (optional, key=value, comma-separated)"
+              aria-label="Config"
+            />
+          </div>
           <ScreenshotDropzone onImageSelected={setScreenshotBase64} />
           <div className="flex gap-2">
             <textarea
