@@ -72,14 +72,20 @@ public class OrgsController : ControllerBase
     // U8: lists the org's employees (name, role, project scope) for AdminPage's Employees section.
     // "Employee" here means every user with a ProjectMembership row on one of this org's projects --
     // there's no separate employee-roster entity, membership rows are the source of truth.
+    // Also the data source for U27's "Invite Engineer" picker (ChatPage.tsx's useEmployees call) --
+    // L2/L3 need this to invite a colleague into a conversation, so the gate is any org member with
+    // elevated access, not Admin-only. Registering a *new* employee (below) stays Admin-only; this
+    // is read-only org-roster visibility, which L2/L3 already implicitly have via the escalation
+    // queue and code-detail gating.
     [HttpGet("{orgId}/employees")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "L2,L3,Admin")]
     public async Task<ActionResult<IReadOnlyList<EmployeeSummary>>> GetEmployees(string orgId, CancellationToken ct = default)
     {
-        // Belt-and-suspenders with [Authorize(Roles="Admin")]: that attribute is enforced by the
-        // MVC pipeline (a no-op when the action is invoked directly, e.g. from a unit test), so the
-        // explicit check here is what actually makes "non-Admin -> 403" true at the action level too.
-        if (this.CurrentUserRole() != AppRole.Admin) return Forbid();
+        // Belt-and-suspenders with [Authorize(Roles="L2,L3,Admin")]: that attribute is enforced by
+        // the MVC pipeline (a no-op when the action is invoked directly, e.g. from a unit test), so
+        // the explicit check here is what actually makes "L1 -> 403" true at the action level too.
+        var role = this.CurrentUserRole();
+        if (role != AppRole.L2 && role != AppRole.L3 && role != AppRole.Admin) return Forbid();
         if (!await _memberships.IsMemberAsync(this.CurrentUserId(), orgId, ct)) return Forbid();
 
         var allProjects = await _projects.GetAllAsync(ct);

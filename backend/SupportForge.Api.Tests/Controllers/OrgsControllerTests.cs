@@ -197,4 +197,34 @@ public class OrgsControllerTests : IDisposable
         Assert.Equal(AppRole.L3, bob.Role);
         Assert.Equal(new[] { "proj1" }, bob.ProjectIds);
     }
+
+    // Regression: U27's "Invite Engineer" picker (ChatPage.tsx's useEmployees call) depends on this
+    // endpoint, and L2/L3 -- not just Admin -- need to invite a colleague into a conversation. An
+    // Admin-only gate here silently empties the picker for every L2/L3 caller (a 403 that
+    // useEmployees swallows into "no options", not a visible error).
+    [Theory]
+    [InlineData(AppRole.L2)]
+    [InlineData(AppRole.L3)]
+    public async Task GetEmployees_L2OrL3Caller_Succeeds(AppRole role)
+    {
+        var orgId = await SeedOrgWithProjectAsync("org1", "proj1");
+        await _controller.RegisterEmployee(
+            "org1", new OrgsController.RegisterEmployeeRequest("bob", "Passw0rd!", AppRole.L1, new List<string> { "proj1" }));
+        SetUser("test-user", role);
+
+        var result = await _controller.GetEmployees(orgId);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetEmployees_L1Caller_ReturnsForbid()
+    {
+        var orgId = await SeedOrgWithProjectAsync("org1", "proj1");
+        SetUser("test-user", AppRole.L1);
+
+        var result = await _controller.GetEmployees(orgId);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
 }
