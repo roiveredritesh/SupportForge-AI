@@ -14,6 +14,7 @@ using SupportForge.Agents;
 using SupportForge.Agents.Tools;
 using SupportForge.Api;
 using SupportForge.Api.HealthChecks;
+using SupportForge.Api.Hubs;
 using SupportForge.Api.Identity;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
@@ -82,6 +83,12 @@ builder.Services.AddSingleton<IEscalationRepository>(
 builder.Services.AddSingleton<IUserRepository>(
     new JsonFileUserRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 
+// U26: ConversationHub -- part of the Microsoft.AspNetCore.App shared framework this API already
+// targets (net9.0 Web SDK), no external PackageReference needed. IConversationPresenceTracker backs
+// PresenceIndicator's roster (join/leave broadcasts), see Hubs/ConversationPresenceTracker.cs.
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IConversationPresenceTracker, ConversationPresenceTracker>();
+
 // KTD1: Identity's storage abstractions against a JSON-file-backed store (CustomUserStore),
 // not EF Core -- this repo has no database anywhere else. PasswordHasher<AppUser> (registered
 // by AddIdentityCore) handles hashing; no custom hashing code needed.
@@ -101,6 +108,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = JwtTokenFactory.ResolveSigningKey(builder.Configuration),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
+        };
+        // U26: browsers can't set an Authorization header on a WebSocket upgrade request, so the
+        // SignalR JS client sends the token as an "access_token" query param instead (standard
+        // ASP.NET Core SignalR JWT pattern) -- only honored on the hub's own path, every other
+        // endpoint still requires the real Authorization header.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments("/hubs/conversation"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            },
         };
     });
 builder.Services.AddAuthorization();
@@ -308,6 +331,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 app.MapControllers();
+app.MapHub<ConversationHub>("/hubs/conversation");
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
     ResponseWriter = async (context, report) =>

@@ -10,6 +10,9 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.0" />
+    <!-- U26: real SignalR JS-equivalent .NET client, used only by ConversationHubTests to drive two
+         genuine HubConnections against the in-memory TestServer (WebApplicationFactory<Program>). -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="OpenTelemetry.Exporter.InMemory" Version="1.17.0" />
