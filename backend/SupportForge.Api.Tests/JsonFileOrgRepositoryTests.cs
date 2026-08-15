@@ -66,4 +66,49 @@ public class JsonFileOrgRepositoryTests : IDisposable
     {
         Assert.Null(await _repo.GetByIdAsync("missing"));
     }
+
+    // Sprint 3 (U13): Org.Connections round-trips through the same whole-object JSON
+    // serialization the rest of Org already relies on -- no per-field wiring needed.
+    [Fact]
+    public async Task UpsertAsync_WithMcpConnection_RoundTripsConnection()
+    {
+        var org = new Org
+        {
+            Id = "org1",
+            Name = "Acme",
+            Connections = [new McpConnection { ServerType = "github", Credential = "ghp_secret", EnabledTools = ["list_commits"] }],
+        };
+
+        await _repo.UpsertAsync(org);
+        var found = await _repo.GetByIdAsync("org1");
+
+        var connection = Assert.Single(found!.Connections);
+        Assert.Equal("github", connection.ServerType);
+        Assert.Equal("ghp_secret", connection.Credential);
+        Assert.Equal(["list_commits"], connection.EnabledTools);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_WithMultipleMcpConnections_RoundTripsIndependently()
+    {
+        var org = new Org
+        {
+            Id = "org1",
+            Name = "Acme",
+            Connections =
+            [
+                new McpConnection { ServerType = "github", Credential = "ghp_secret", EnabledTools = ["list_commits"] },
+                new McpConnection { ServerType = "jira", Credential = "jira_token", EnabledTools = ["create_issue"] },
+            ],
+        };
+
+        await _repo.UpsertAsync(org);
+        var found = await _repo.GetByIdAsync("org1");
+
+        Assert.Equal(2, found!.Connections.Count);
+        var github = found.Connections.Single(c => c.ServerType == "github");
+        var jira = found.Connections.Single(c => c.ServerType == "jira");
+        Assert.Equal("ghp_secret", github.Credential);
+        Assert.Equal("jira_token", jira.Credential);
+    }
 }
