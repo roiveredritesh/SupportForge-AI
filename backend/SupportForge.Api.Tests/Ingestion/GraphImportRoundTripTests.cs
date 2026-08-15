@@ -96,4 +96,55 @@ public class GraphImportRoundTripTests
             }
         }
     }
+
+    // U22 regression test: two repos in the same project each have a file at the same relative path
+    // ("src/index.ts"). Before the fix, GraphImportJob's MERGE key was {id, projectId} only, so the
+    // second repo's import silently collided into the first repo's node instead of creating its own.
+    [SkippableFact]
+    [Trait("Category", "Integration")]
+    public async Task RunAsync_KeepsRepoNodesDistinct_WhenTwoReposShareARelativePath()
+    {
+        var driver = await TryConnectAsync();
+        Skip.If(driver is null, $"requires a live Neo4j at {BoltUri}");
+
+        var projectId = "graph-import-collision-" + Guid.NewGuid();
+        try
+        {
+            CodeGraphFile GraphFor(string summary) => new()
+            {
+                Nodes = [new CodeGraphNode { Id = "src/index.ts", Label = "index.ts", FileType = "typescript", SourceFile = "src/index.ts", SourceLocation = "L1", Summary = summary }],
+            };
+
+            var repo1JsonPath = Path.Combine(Path.GetTempPath(), $"{projectId}-repo1.json");
+            var repo2JsonPath = Path.Combine(Path.GetTempPath(), $"{projectId}-repo2.json");
+            await File.WriteAllTextAsync(repo1JsonPath, JsonSerializer.Serialize(GraphFor("repo1's index file.")));
+            await File.WriteAllTextAsync(repo2JsonPath, JsonSerializer.Serialize(GraphFor("repo2's index file.")));
+
+            await new GraphImportJob(projectId, repo1JsonPath, "repo1", driver!, "neo4j").RunAsync(CancellationToken.None);
+            await new GraphImportJob(projectId, repo2JsonPath, "repo2", driver!, "neo4j").RunAsync(CancellationToken.None);
+
+            await using var session = driver!.AsyncSession();
+            var records = await session.ExecuteReadAsync(async tx =>
+            {
+                var cursor = await tx.RunAsync(
+                    "MATCH (n:GraphNode {projectId: $projectId, id: 'src/index.ts'}) RETURN n.repo AS repo, n.summary AS summary ORDER BY n.repo",
+                    new { projectId });
+                return await cursor.ToListAsync();
+            });
+
+            Assert.Equal(2, records.Count); // not collided into one node
+            Assert.Contains(records, r => r["repo"].As<string>() == "repo1" && r["summary"].As<string>() == "repo1's index file.");
+            Assert.Contains(records, r => r["repo"].As<string>() == "repo2" && r["summary"].As<string>() == "repo2's index file.");
+        }
+        finally
+        {
+            if (driver is not null)
+            {
+                await using var cleanupSession = driver.AsyncSession();
+                await cleanupSession.ExecuteWriteAsync(tx => tx.RunAsync(
+                    "MATCH (n:GraphNode {projectId: $projectId}) DETACH DELETE n", new { projectId }));
+                await driver.DisposeAsync();
+            }
+        }
+    }
 }
