@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Agents;
+using SupportForge.Agents.Tools;
 using SupportForge.Api;
 using SupportForge.Api.Contracts;
 using SupportForge.Core;
@@ -16,7 +17,7 @@ namespace SupportForge.Api.Controllers;
 [ApiController]
 [Route("api/chat")]
 [Authorize]
-public class ChatController : ControllerBase
+public partial class ChatController : ControllerBase
 {
     private readonly CoordinatorPipeline _pipeline;
     private readonly TriageAgent _triage;
@@ -33,6 +34,8 @@ public class ChatController : ControllerBase
     private readonly IConversationRepository _conversations;
     private readonly IChatMessageRepository _messages;
     private readonly IProjectMembershipRepository _memberships;
+    private readonly IProjectRepository _projects;
+    private readonly CommitLookupTool _commitLookup;
     private readonly ILogger<ChatController> _logger;
 
     private const string DrafterName = "Drafter";
@@ -53,6 +56,8 @@ public class ChatController : ControllerBase
         IConversationRepository conversations,
         IChatMessageRepository messages,
         IProjectMembershipRepository memberships,
+        IProjectRepository projects,
+        CommitLookupTool commitLookup,
         ILogger<ChatController> logger)
     {
         _pipeline = pipeline;
@@ -70,6 +75,8 @@ public class ChatController : ControllerBase
         _conversations = conversations;
         _messages = messages;
         _memberships = memberships;
+        _projects = projects;
+        _commitLookup = commitLookup;
         _logger = logger;
     }
 
@@ -139,6 +146,8 @@ public class ChatController : ControllerBase
             ProjectId = request.ProjectId,
             Query = request.Query,
             ScreenshotBase64 = request.ScreenshotBase64,
+            ProductVersion = request.ProductVersion,
+            Config = request.Config,
         };
         context.History.AddRange(await LoadRecapAsync(conversationId, ct));
         return context;
@@ -230,13 +239,15 @@ public class ChatController : ControllerBase
         var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
         var result = await _pipeline.RunAsync(context, ct);
-        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow, "chat"), ct);
+        await _tokenUsage.AddAsync(
+            new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow, "chat", request.ProductVersion, request.Config), ct);
         _logger.LogInformation("TokenUsage project={ProjectId} total={Total} byAgent={ByAgent}",
             request.ProjectId, result.TotalTokensUsed, JsonSerializer.Serialize(result.TokensByAgent));
 
         var sources = BuildSources(result);
         await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, result.TotalTokensUsed, ct);
 
+        var role = this.CurrentUserRole();
         return Ok(new ChatQueryResponse
         {
             Draft = result.Draft,
@@ -244,7 +255,8 @@ public class ChatController : ControllerBase
             ConversationId = conversation.Id,
             Sources = sources,
             TotalTokensUsed = result.TotalTokensUsed,
-            CodeDetails = CodeDetailsForRole(this.CurrentUserRole(), result),
+            CodeDetails = CodeDetailsForRole(role, result),
+            CommitHistory = await CommitHistoryForRoleAsync(role, request.ProjectId, result, ct),
         });
     }
 
@@ -257,6 +269,43 @@ public class ChatController : ControllerBase
         role is AppRole.L2 or AppRole.L3 or AppRole.Admin && context.CodeSnippets.Count > 0
             ? context.CodeSnippets.ToList()
             : null;
+
+    // U11: matches GraphDbQueryTool's "src=<file> loc=L<line>" NODE-line format (see
+    // GraphDbQueryTool.FormatAndTruncate) -- the only place CodeAnalyzerAgent's snippets carry a
+    // file reference. Distinct + capped so one answer doesn't fan out into dozens of git/GitHub calls.
+    [GeneratedRegex(@"src=(?<file>\S+)\s+loc=L\d+")]
+    private static partial Regex CodeLocationRef();
+
+    private const int MaxFilesForCommitLookup = 3;
+    private const int MaxCommitsPerFile = 5;
+
+    private static IReadOnlyList<string> ExtractFilePaths(IReadOnlyList<string> codeSnippets) =>
+        codeSnippets
+            .SelectMany(s => CodeLocationRef().Matches(s).Select(m => m.Groups["file"].Value))
+            .Distinct()
+            .Take(MaxFilesForCommitLookup)
+            .ToList();
+
+    // U11: gated the same way as CodeDetailsForRole (role check at response assembly, not inside the
+    // agent pipeline) and wired off CodeDetails' own file references, so commit history always lines
+    // up with whatever code-location matches the caller can actually see.
+    private async Task<IReadOnlyList<CommitInfo>?> CommitHistoryForRoleAsync(
+        AppRole role, string projectId, AgentContext context, CancellationToken ct)
+    {
+        if (role is not (AppRole.L2 or AppRole.L3 or AppRole.Admin) || context.CodeSnippets.Count == 0) return null;
+
+        var project = await _projects.GetByIdAsync(projectId, ct);
+        if (project is null || project.Repos.Count == 0) return null;
+
+        var files = ExtractFilePaths(context.CodeSnippets);
+        if (files.Count == 0) return null;
+
+        var history = new List<CommitInfo>();
+        foreach (var file in files)
+            history.AddRange(await _commitLookup.LookupForProjectAsync(project, file, MaxCommitsPerFile, ct));
+
+        return history.Count > 0 ? history : null;
+    }
 
     // Runs every agent except the Drafter as before, then streams the Drafter's answer to the
     // client token-by-token over SSE instead of waiting for the full completion.
@@ -340,7 +389,8 @@ public class ChatController : ControllerBase
             confidence = leaked ? 0.0 : DrafterAgent.ComputeConfidence(context);
         }
 
-        await _tokenUsage.AddAsync(new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow, "chat"), ct);
+        await _tokenUsage.AddAsync(
+            new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow, "chat", request.ProductVersion, request.Config), ct);
         _logger.LogInformation("TokenUsage project={ProjectId} total={Total} byAgent={ByAgent}",
             request.ProjectId, context.TotalTokensUsed, JsonSerializer.Serialize(context.TokensByAgent));
 
@@ -358,6 +408,7 @@ public class ChatController : ControllerBase
         var sources = BuildSources(context);
         await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, ct);
 
+        var streamRole = this.CurrentUserRole();
         var done = JsonSerializer.Serialize(
             new
             {
@@ -365,7 +416,8 @@ public class ChatController : ControllerBase
                 conversationId = conversation.Id,
                 sources = sources.Select(s => new { label = s.Label, url = s.Url }),
                 totalTokensUsed = context.TotalTokensUsed,
-                codeDetails = CodeDetailsForRole(this.CurrentUserRole(), context),
+                codeDetails = CodeDetailsForRole(streamRole, context),
+                commitHistory = await CommitHistoryForRoleAsync(streamRole, request.ProjectId, context, ct),
             },
             // U6: same "absent, not null-but-present" rule as ChatQueryResponse.CodeDetails --
             // this anonymous type can't carry a per-property [JsonIgnore], so it's set for this

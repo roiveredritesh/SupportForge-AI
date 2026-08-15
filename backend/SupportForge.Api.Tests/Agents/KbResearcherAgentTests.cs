@@ -33,6 +33,32 @@ public class KbResearcherAgentTests
         Assert.Contains(result.Sources, s => s.Url == "kb/reset.md");
     }
 
+    // U10: a ProductVersion on the context becomes a {"version": ...} metadataFilter passed straight
+    // through to IVectorStoreService.QueryAsync -- the existing filter parameter, no new mechanism.
+    [Fact]
+    public async Task RunAsync_WithProductVersion_PassesVersionAsMetadataFilter()
+    {
+        var llm = new Mock<ILlmClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default, It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore
+            .Setup(v => v.QueryAsync(
+                "proj1-kb", It.IsAny<float[]>(), 5,
+                It.Is<IReadOnlyDictionary<string, string>>(f => f != null && f["version"] == "3.0"),
+                default))
+            .ReturnsAsync(new List<VectorQueryResult> { new("doc-1", "v3 steps", 0.1f, new Dictionary<string, string> { ["source"] = "kb/v3.md" }) });
+
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var agent = new KbResearcherAgent(tool, new ListLogger<KbResearcherAgent>());
+        var context = new AgentContext { ProjectId = "proj1", Query = "how do I install this?", Intent = "kb_question", ProductVersion = "3.0" };
+
+        var result = await agent.RunAsync(context);
+
+        Assert.Single(result.KbSnippets);
+        Assert.Equal("v3 steps", result.KbSnippets[0]);
+    }
+
     [Fact]
     public async Task RunAsync_OnRetry_ClearsPreviousSnippetsAndWidensTopK()
     {

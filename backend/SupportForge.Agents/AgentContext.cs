@@ -13,6 +13,11 @@ public sealed class AgentContext
     public required string ProjectId { get; init; }
     public required string Query { get; init; }
     public string? ScreenshotBase64 { get; init; }
+    // U10: customer-supplied product version and free-form config (key-value), threaded from the
+    // chat request through to KbResearcherAgent's retrieval bias and DrafterAgent's version-disclaimer
+    // instruction. Both optional -- most callers won't set either.
+    public string? ProductVersion { get; init; }
+    public IReadOnlyDictionary<string, string>? Config { get; init; }
 
     public string Intent { get; set; } = string.Empty;
     public FreshnessContext? Freshness { get; set; }

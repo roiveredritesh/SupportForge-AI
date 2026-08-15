@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { apiClient } from '../lib/apiClient';
 import { useAuthStore } from '../store/useAuthStore';
-import type { ChatQueryRequest, ChatSource } from './useChatQuery';
+import type { ChatQueryRequest, ChatSource, CommitInfo } from './useChatQuery';
 
 interface DoneEvent {
   confidence: number;
@@ -9,6 +9,7 @@ interface DoneEvent {
   sources: ChatSource[];
   totalTokensUsed: number;
   codeDetails?: string[];
+  commitHistory?: CommitInfo[];
 }
 
 export function useChatQueryStream() {
@@ -18,6 +19,7 @@ export function useChatQueryStream() {
   const [sources, setSources] = useState<ChatSource[]>([]);
   const [totalTokensUsed, setTotalTokensUsed] = useState<number>();
   const [codeDetails, setCodeDetails] = useState<string[] | undefined>();
+  const [commitHistory, setCommitHistory] = useState<CommitInfo[] | undefined>();
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<Error>();
   const requestRef = useRef<ChatQueryRequest | undefined>(undefined);
@@ -29,6 +31,7 @@ export function useChatQueryStream() {
     setSources([]);
     setTotalTokensUsed(undefined);
     setCodeDetails(undefined);
+    setCommitHistory(undefined);
     setError(undefined);
     setIsStreaming(true);
 
@@ -68,6 +71,7 @@ export function useChatQueryStream() {
             setSources(payload.sources ?? []);
             setTotalTokensUsed(payload.totalTokensUsed);
             setCodeDetails(payload.codeDetails);
+            setCommitHistory(payload.commitHistory);
           } else {
             setDraft((prev) => prev + (JSON.parse(dataLine) as string));
           }
@@ -91,8 +95,12 @@ export function useChatQueryStream() {
     setSources([]);
     setTotalTokensUsed(undefined);
     setCodeDetails(undefined);
+    setCommitHistory(undefined);
     setError(undefined);
   }, []);
 
-  return { draft, confidence, conversationId, sources, totalTokensUsed, codeDetails, isStreaming, error, start, retry, reset };
+  return {
+    draft, confidence, conversationId, sources, totalTokensUsed, codeDetails, commitHistory,
+    isStreaming, error, start, retry, reset,
+  };
 }
