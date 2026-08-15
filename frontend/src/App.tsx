@@ -6,6 +6,7 @@ import DashboardPage from './pages/DashboardPage';
 import ChatPage from './pages/ChatPage';
 import AdminPage from './pages/AdminPage';
 import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
 import EscalationQueuePage from './pages/EscalationQueuePage';
 import MyIssuesPage from './pages/MyIssuesPage';
 
@@ -14,6 +15,7 @@ export default function App() {
     <ErrorBoundary>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         <Route element={<RequireAuth />}>
           <Route element={<Layout />}>
             <Route path="/" element={<DashboardPage />} />
