@@ -77,6 +77,8 @@ builder.Services.AddSingleton<IConversationRepository>(
     new JsonFileConversationRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IChatMessageRepository>(
     new JsonFileChatMessageRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IEscalationRepository>(
+    new JsonFileEscalationRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IUserRepository>(
     new JsonFileUserRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 
