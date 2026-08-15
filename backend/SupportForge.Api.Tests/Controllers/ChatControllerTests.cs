@@ -25,6 +25,12 @@ public class ChatControllerTests
     private static ClaimsPrincipal TestUser() =>
         new(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, TestUserId) }, "TestAuth"));
 
+    // U6: same identity, but carrying a Role claim -- CurrentUserRole() (ControllerBaseExtensions)
+    // is what ChatController.CodeDetailsForRole gates on.
+    private static ClaimsPrincipal TestUser(SupportForge.Core.Entities.AppRole role) =>
+        new(new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.NameIdentifier, TestUserId), new Claim(ClaimTypes.Role, role.ToString()) }, "TestAuth"));
+
     private static IProjectMembershipRepository MakePermissiveMemberships()
     {
         var mock = new Mock<IProjectMembershipRepository>();
@@ -326,6 +332,82 @@ public class ChatControllerTests
         Assert.Equal("KB: getting-started.md", persistedSource.Label);
     }
 
+    // U6: the sprint's core trust guarantee -- L1 never receives CodeAnalyzerAgent's raw findings
+    // in the chat response, even when the agent actually found matches.
+    [Fact]
+    public async Task Query_L1Caller_NeverReceivesCodeDetails_EvenWhenCodeAnalyzerFoundMatches()
+    {
+        var (controller, _) = MakeControllerWithCodeFindings(SupportForge.Core.Entities.AppRole.L1);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<ChatQueryResponse>(ok.Value);
+        Assert.Null(body.CodeDetails);
+
+        // Not just null in the C# object -- entirely absent from the wire (JsonIgnore WhenWritingNull).
+        var json = System.Text.Json.JsonSerializer.Serialize(body);
+        Assert.DoesNotContain("codeDetails", json, StringComparison.OrdinalIgnoreCase);
+
+        // U6 explicitly out of scope: DrafterAgent's leak guard is untouched, so the drafted answer
+        // text itself stays code-blind for every role regardless of what CodeAnalyzer found.
+        Assert.DoesNotContain(".cs", body.Draft);
+    }
+
+    [Theory]
+    [InlineData(SupportForge.Core.Entities.AppRole.L2)]
+    [InlineData(SupportForge.Core.Entities.AppRole.L3)]
+    [InlineData(SupportForge.Core.Entities.AppRole.Admin)]
+    public async Task Query_L2L3AdminCaller_ReceivesCodeDetails_WhenCodeAnalyzerFoundMatches(SupportForge.Core.Entities.AppRole role)
+    {
+        var (controller, _) = MakeControllerWithCodeFindings(role);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<ChatQueryResponse>(ok.Value);
+        var detail = Assert.Single(body.CodeDetails!);
+        Assert.Contains("ChatController.cs", detail);
+    }
+
+    private static (ChatController Controller, CoordinatorPipeline Pipeline) MakeControllerWithCodeFindings(SupportForge.Core.Entities.AppRole role)
+    {
+        var llmMock = new Mock<ILlmClient>();
+        llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("an answer");
+        var openAiLlm = new TestOpenAiLlmClient(llmMock.Object);
+
+        var pipeline = new CoordinatorPipeline(
+            new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance),
+            new NoOpAgent("FreshnessGate"),
+            new NoOpAgent("KbResearcher"),
+            new NoOpAgent("KbResearcherVerifier"),
+            new NoOpAgent("CrossReference"),
+            new CodeSnippetAddingAgent(),
+            new NoOpAgent("CodeAnalyzerVerifier"),
+            new NoOpAgent("VisionAnalyzer"),
+            new NoOpAgent("VisionAnalyzerVerifier"),
+            new DrafterAgent(openAiLlm, NullLogger<DrafterAgent>.Instance));
+
+        var vectorStore = new Mock<IVectorStoreService>();
+        var conversations = new Mock<IConversationRepository>();
+        conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        var messages = new Mock<IChatMessageRepository>();
+        messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<ChatMessage>());
+
+        var controller = new ChatController(
+            pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            MakeCrossReferenceAgent(openAiLlm),
+            new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
+            new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
+            new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser(role) } };
+
+        return (controller, pipeline);
+    }
+
     [Fact]
     public async Task Query_RecordsSummedTokenUsage_AcrossAllAgentsThatRan()
     {
@@ -504,6 +586,19 @@ public class ChatControllerTests
         public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
         {
             context.Sources.Add(_source);
+            return Task.FromResult(context);
+        }
+    }
+
+    // U6: stands in for a real CodeAnalyzerAgent run that found matches -- populates
+    // context.CodeSnippets the same way CodeAnalyzerAgent does, so these tests exercise
+    // ChatController's role gate on real (if fake) findings, not an empty list.
+    private sealed class CodeSnippetAddingAgent : IAgent
+    {
+        public string Name => "CodeAnalyzer";
+        public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
+        {
+            context.CodeSnippets.Add("backend/SupportForge.Api/Controllers/ChatController.cs:219-247 -- Query action");
             return Task.FromResult(context);
         }
     }

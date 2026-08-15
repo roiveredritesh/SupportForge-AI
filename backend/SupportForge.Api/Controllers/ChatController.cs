@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -243,8 +244,19 @@ public class ChatController : ControllerBase
             ConversationId = conversation.Id,
             Sources = sources,
             TotalTokensUsed = result.TotalTokensUsed,
+            CodeDetails = CodeDetailsForRole(this.CurrentUserRole(), result),
         });
     }
+
+    // U6: gated at response assembly, not inside the agent pipeline -- CodeAnalyzerAgent computes
+    // context.CodeSnippets regardless of caller role (same "pipeline always computes full detail"
+    // precedent Sprint 4's escalation caching reuses); only what reaches the HTTP response is
+    // role-shaped. L1 gets null here, which JsonIgnore(WhenWritingNull) on ChatQueryResponse turns
+    // into the field being entirely absent from the wire, not present-but-empty.
+    private static IReadOnlyList<string>? CodeDetailsForRole(AppRole role, AgentContext context) =>
+        role is AppRole.L2 or AppRole.L3 or AppRole.Admin && context.CodeSnippets.Count > 0
+            ? context.CodeSnippets.ToList()
+            : null;
 
     // Runs every agent except the Drafter as before, then streams the Drafter's answer to the
     // client token-by-token over SSE instead of waiting for the full completion.
@@ -346,13 +358,19 @@ public class ChatController : ControllerBase
         var sources = BuildSources(context);
         await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, ct);
 
-        var done = JsonSerializer.Serialize(new
-        {
-            confidence,
-            conversationId = conversation.Id,
-            sources = sources.Select(s => new { label = s.Label, url = s.Url }),
-            totalTokensUsed = context.TotalTokensUsed,
-        });
+        var done = JsonSerializer.Serialize(
+            new
+            {
+                confidence,
+                conversationId = conversation.Id,
+                sources = sources.Select(s => new { label = s.Label, url = s.Url }),
+                totalTokensUsed = context.TotalTokensUsed,
+                codeDetails = CodeDetailsForRole(this.CurrentUserRole(), context),
+            },
+            // U6: same "absent, not null-but-present" rule as ChatQueryResponse.CodeDetails --
+            // this anonymous type can't carry a per-property [JsonIgnore], so it's set for this
+            // one serialize call instead.
+            new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
         await Response.WriteAsync($"event: done\ndata: {done}\n\n", ct);
         await Response.Body.FlushAsync(ct);
     }
