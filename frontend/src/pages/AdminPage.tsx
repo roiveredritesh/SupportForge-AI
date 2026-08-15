@@ -8,6 +8,7 @@ import { useFreshness } from '../hooks/useFreshness';
 import { useDeadLetters, useDismissDeadLetter } from '../hooks/useDeadLetters';
 import { useAppStore } from '../store/useAppStore';
 import { EmployeesSection } from '../components/EmployeesSection';
+import { ConnectedAppsSection } from '../components/ConnectedAppsSection';
 
 function FreshnessBadge({ projectId }: { projectId: string }) {
   const { data } = useFreshness(projectId);
@@ -363,6 +364,7 @@ export default function AdminPage() {
       </section>
 
       <EmployeesSection />
+      <ConnectedAppsSection />
     </div>
   );
 }

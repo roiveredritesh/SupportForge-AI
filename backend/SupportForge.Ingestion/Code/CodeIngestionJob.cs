@@ -30,7 +30,11 @@ public sealed class CodeIngestionJob : IIngestionJob
 
     public async Task RunAsync(CancellationToken ct)
     {
-        _gitSync.CloneOrPull(_repoUrl, _localCachePath, _branch);
+        // Fetched up front (not just after clone, as before U15) so its OrgId is available to
+        // resolve a connected GitHub MCP connection's token ahead of the clone itself.
+        var project = await _projects.GetByIdAsync(ProjectId, ct);
+
+        await _gitSync.CloneOrPullAsync(_repoUrl, _localCachePath, _branch, project?.OrgId, ct);
         Directory.CreateDirectory(_localCachePath);
 
         // GraphImportJobFactory reads this same path (<repo>/code-graph/graph.json) and loads it into
@@ -41,7 +45,6 @@ public sealed class CodeIngestionJob : IIngestionJob
         Directory.CreateDirectory(graphOutDir);
         await File.WriteAllTextAsync(Path.Combine(graphOutDir, "graph.json"), JsonSerializer.Serialize(graph), ct);
 
-        var project = await _projects.GetByIdAsync(ProjectId, ct);
         if (project != null)
         {
             var repoIndex = project.Repos.FindIndex(r => r.Owner == _repoOwner && r.Repo == _repoName);
