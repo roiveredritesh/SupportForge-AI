@@ -43,4 +43,16 @@ public sealed class JsonFileFeedbackRepository : IFeedbackRepository
         }
         finally { _lock.Release(); }
     }
+
+    public async Task<IReadOnlyList<FeedbackEntry>> GetAllAsync(CancellationToken ct = default)
+    {
+        if (!File.Exists(_filePath)) return Array.Empty<FeedbackEntry>();
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            return JsonSerializer.Deserialize<List<FeedbackEntry>>(await File.ReadAllTextAsync(_filePath, ct)) ?? new();
+        }
+        finally { _lock.Release(); }
+    }
 }

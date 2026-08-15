@@ -36,6 +36,7 @@ public class ProjectAccessTests
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
             new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());

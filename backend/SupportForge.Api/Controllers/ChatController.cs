@@ -183,9 +183,13 @@ public partial class ChatController : ControllerBase
         return history.TakeLast(6).Select(m => (m.Role, m.Content)).ToList();
     }
 
+    // U19: context is the just-completed AgentContext for this turn -- its KbSnippets/CodeSnippets/
+    // VisionFindings/ProductVersion/Config are cached onto the assistant ChatMessage so
+    // EscalationsController can build a full-detail handoff Markdown later without re-running the
+    // pipeline (that state doesn't survive past this request otherwise).
     private async Task RecordTurnAsync(
         Conversation conversation, string query, string answer, double confidence, IReadOnlyList<ChatSource> sources,
-        int totalTokensUsed, CancellationToken ct)
+        int totalTokensUsed, AgentContext context, CancellationToken ct)
     {
         await _messages.AddAsync(new ChatMessage
         {
@@ -204,6 +208,11 @@ public partial class ChatController : ControllerBase
             Confidence = confidence,
             Sources = sources,
             TotalTokensUsed = totalTokensUsed,
+            KbSnippets = context.KbSnippets.ToList(),
+            CodeSnippets = context.CodeSnippets.ToList(),
+            VisionFindings = context.VisionFindings,
+            ProductVersion = context.ProductVersion,
+            Config = context.Config,
         }, ct);
 
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
@@ -245,7 +254,7 @@ public partial class ChatController : ControllerBase
             request.ProjectId, result.TotalTokensUsed, JsonSerializer.Serialize(result.TokensByAgent));
 
         var sources = BuildSources(result);
-        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, result.TotalTokensUsed, ct);
+        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, result.TotalTokensUsed, result, ct);
 
         var role = this.CurrentUserRole();
         return Ok(new ChatQueryResponse
@@ -406,7 +415,7 @@ public partial class ChatController : ControllerBase
         }
 
         var sources = BuildSources(context);
-        await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, ct);
+        await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, context, ct);
 
         var streamRole = this.CurrentUserRole();
         var done = JsonSerializer.Serialize(

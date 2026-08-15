@@ -1,21 +1,27 @@
-import { useEffect } from 'react';
+import { useEffect, type ComponentType } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
-import { useAuthStore } from '../store/useAuthStore';
+import { useAuthStore, type AppRole } from '../store/useAuthStore';
 import { useAppStore } from '../store/useAppStore';
 import { useProjects } from '../hooks/useProjects';
 
-const NAV_ITEMS = [
+const NAV_ITEMS: { to: string; label: string; end: boolean; icon: ComponentType<{ className?: string }>; roles?: AppRole[] }[] = [
   { to: '/', label: 'Dashboard', end: true, icon: DashboardIcon },
   { to: '/query', label: 'AI Chat', end: false, icon: ChatIcon },
+  // U21: server gate is GET /api/escalations' [Authorize(Roles="L2,L3,Admin")] -- this is only the
+  // client-side convenience mirror, same convention EmployeesSection's RequireRole established.
+  { to: '/escalations', label: 'Escalations', end: false, icon: EscalationIcon, roles: ['L2', 'L3', 'Admin'] },
+  { to: '/my-issues', label: 'My Issues', end: false, icon: EscalationIcon, roles: ['L2', 'L3', 'Admin'] },
   { to: '/admin', label: 'Settings', end: false, icon: SettingsIcon },
 ];
 
 export default function Layout() {
   const logout = useAuthStore((s) => s.logout);
+  const role = useAuthStore((s) => s.role);
   const navigate = useNavigate();
   const { data: projects } = useProjects();
   const { selectedProjectId, setSelectedProjectId } = useAppStore();
+  const visibleNavItems = NAV_ITEMS.filter((item) => !item.roles || (role && item.roles.includes(role)));
 
   // A projectId persisted from a previous session (deleted project, different
   // backend, stale browser profile) doesn't match any option in the project
@@ -48,7 +54,7 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 space-y-1 px-3">
-          {NAV_ITEMS.map(({ to, label, end, icon: Icon }) => (
+          {visibleNavItems.map(({ to, label, end, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -100,6 +106,18 @@ function ChatIcon({ className }: { className?: string }) {
       <path
         fillRule="evenodd"
         d="M2 5a2 2 0 012-2h12a2 2 0 012 2v7a2 2 0 01-2 2H9l-4 3v-3H4a2 2 0 01-2-2V5z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function EscalationIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M8.257 3.099c.765-1.36 2.72-1.36 3.486 0l6.28 11.19c.75 1.334-.213 2.987-1.743 2.987H3.72c-1.53 0-2.493-1.653-1.743-2.987l6.28-11.19zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 8a1 1 0 100-2 1 1 0 000 2z"
         clipRule="evenodd"
       />
     </svg>

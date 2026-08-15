@@ -9,6 +9,7 @@ import { useChatQueryStream } from '../hooks/useChatQueryStream';
 import { useAppStore } from '../store/useAppStore';
 import { useConversation } from '../hooks/useConversations';
 import { useSubmitFeedback } from '../hooks/useSubmitFeedback';
+import { useEscalateConversation } from '../hooks/useEscalateConversation';
 import type { MessageBubbleActions } from '../components/MessageBubble';
 
 export default function ChatPage() {
@@ -25,6 +26,7 @@ export default function ChatPage() {
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const chatStream = useChatQueryStream();
   const submitFeedback = useSubmitFeedback();
+  const escalateConversation = useEscalateConversation();
   const conversationQuery = useConversation(activeConversationId);
   const messageCountBeforeSubmit = useRef(0);
 
@@ -92,13 +94,20 @@ export default function ChatPage() {
 
   const messages = conversationQuery.data?.messages ?? [];
   const lastUserQuery = !pendingQuery ? [...messages].reverse().find((m) => m.role === 'user')?.content : undefined;
+  const lastAssistantMessage = !pendingQuery ? [...messages].reverse().find((m) => m.role === 'assistant') : undefined;
   const lastAssistantActions: MessageBubbleActions | undefined = lastUserQuery
     ? {
-        onCopy: () => navigator.clipboard.writeText([...messages].reverse().find((m) => m.role === 'assistant')?.content ?? ''),
-        onMarkUseful: (useful) =>
-          submitFeedback.mutate({ projectId: selectedProjectId!, query: lastUserQuery, useful, escalated: false }),
-        onEscalate: () =>
-          submitFeedback.mutate({ projectId: selectedProjectId!, query: lastUserQuery, escalated: true }),
+        onCopy: () => navigator.clipboard.writeText(lastAssistantMessage?.content ?? ''),
+        onMarkUseful: (useful, reasonCode) =>
+          submitFeedback.mutate({
+            projectId: selectedProjectId!,
+            query: lastUserQuery,
+            useful,
+            escalated: false,
+            reasonCode,
+            sources: lastAssistantMessage?.sources?.map((s) => s.url),
+          }),
+        onEscalate: () => (activeConversationId ? escalateConversation.mutateAsync(activeConversationId) : Promise.resolve()),
       }
     : undefined;
 
@@ -143,10 +152,17 @@ export default function ChatPage() {
                   actions: chatStream.draft
                     ? {
                         onCopy: () => navigator.clipboard.writeText(chatStream.draft),
-                        onMarkUseful: (useful) =>
-                          submitFeedback.mutate({ projectId: selectedProjectId, query: pendingQuery, useful, escalated: false }),
+                        onMarkUseful: (useful, reasonCode) =>
+                          submitFeedback.mutate({
+                            projectId: selectedProjectId,
+                            query: pendingQuery,
+                            useful,
+                            escalated: false,
+                            reasonCode,
+                            sources: chatStream.sources?.map((s) => s.url),
+                          }),
                         onEscalate: () =>
-                          submitFeedback.mutate({ projectId: selectedProjectId, query: pendingQuery, escalated: true }),
+                          chatStream.conversationId ? escalateConversation.mutateAsync(chatStream.conversationId) : Promise.resolve(),
                       }
                     : undefined,
                 }

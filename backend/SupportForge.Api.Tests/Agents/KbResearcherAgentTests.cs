@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
+using SupportForge.Core;
+using SupportForge.Core.Entities;
 using SupportForge.VectorStore;
 using SupportForge.VectorStore.Models;
 using Xunit;
@@ -10,6 +12,13 @@ namespace SupportForge.Api.Tests.Agents;
 
 public class KbResearcherAgentTests
 {
+    private static IFeedbackRepository MakeEmptyFeedbackRepository()
+    {
+        var mock = new Mock<IFeedbackRepository>();
+        mock.Setup(f => f.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new List<FeedbackEntry>());
+        return mock.Object;
+    }
+
     [Theory]
     [InlineData("kb_question")]
     [InlineData("code_issue")]
@@ -23,7 +32,7 @@ public class KbResearcherAgentTests
         vectorStore.Setup(v => v.QueryAsync("proj1-kb", It.IsAny<float[]>(), 5, null, default))
             .ReturnsAsync(new List<VectorQueryResult> { new("doc-1", "reset password steps", 0.1f, new Dictionary<string, string> { ["source"] = "kb/reset.md" }) });
 
-        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object, MakeEmptyFeedbackRepository());
         var agent = new KbResearcherAgent(tool, new ListLogger<KbResearcherAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "how do I reset my password", Intent = intent };
 
@@ -49,7 +58,7 @@ public class KbResearcherAgentTests
                 default))
             .ReturnsAsync(new List<VectorQueryResult> { new("doc-1", "v3 steps", 0.1f, new Dictionary<string, string> { ["source"] = "kb/v3.md" }) });
 
-        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object, MakeEmptyFeedbackRepository());
         var agent = new KbResearcherAgent(tool, new ListLogger<KbResearcherAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "how do I install this?", Intent = "kb_question", ProductVersion = "3.0" };
 
@@ -69,7 +78,7 @@ public class KbResearcherAgentTests
         vectorStore.Setup(v => v.QueryAsync("proj1-kb", It.IsAny<float[]>(), 10, null, default))
             .ReturnsAsync(new List<VectorQueryResult> { new("doc-2", "retry result", 0.2f, new Dictionary<string, string> { ["source"] = "kb/retry.md" }) });
 
-        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object, MakeEmptyFeedbackRepository());
         var agent = new KbResearcherAgent(tool, new ListLogger<KbResearcherAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = "code_issue" };
         context.KbSnippets.Add("stale snippet from a previous attempt");
@@ -90,7 +99,7 @@ public class KbResearcherAgentTests
         var llm = new Mock<ILlmClient>();
         var vectorStore = new Mock<IVectorStoreService>();
 
-        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object, MakeEmptyFeedbackRepository());
         var agent = new KbResearcherAgent(tool, new ListLogger<KbResearcherAgent>());
         var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = intent };
 
@@ -113,7 +122,7 @@ public class KbResearcherAgentTests
         vectorStore.Setup(v => v.QueryAsync("proj1-kb", It.IsAny<float[]>(), 5, null, default))
             .ReturnsAsync(new List<VectorQueryResult> { new("doc-1", "reset password steps", 0.1f, new Dictionary<string, string> { ["source"] = "kb/reset.md" }) });
 
-        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object, MakeEmptyFeedbackRepository());
         var logger = new ListLogger<KbResearcherAgent>();
         var agent = new KbResearcherAgent(tool, logger);
         var context = new AgentContext { ProjectId = "proj1", Query = "how do I reset my password", Intent = "kb_question" };
@@ -131,7 +140,7 @@ public class KbResearcherAgentTests
         llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), default, It.IsAny<EmbeddingPurpose>())).ThrowsAsync(new InvalidOperationException("embed failed"));
 
         var vectorStore = new Mock<IVectorStoreService>();
-        var tool = new KbSearchTool(llm.Object, vectorStore.Object);
+        var tool = new KbSearchTool(llm.Object, vectorStore.Object, MakeEmptyFeedbackRepository());
         var logger = new ListLogger<KbResearcherAgent>();
         var agent = new KbResearcherAgent(tool, logger);
         var context = new AgentContext { ProjectId = "proj1", Query = "q", Intent = "kb_question" };

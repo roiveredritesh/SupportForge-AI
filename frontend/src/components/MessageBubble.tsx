@@ -1,13 +1,24 @@
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { CodeDetailPanel } from './CodeDetailPanel';
 import type { ChatSource, CommitInfo } from '../hooks/useChatQuery';
+import type { FeedbackReasonCode } from '../hooks/useSubmitFeedback';
+
+const REASON_CODES: { value: FeedbackReasonCode; label: string }[] = [
+  { value: 'Irrelevant', label: 'Irrelevant' },
+  { value: 'WrongVersion', label: 'Wrong version' },
+  { value: 'Incomplete', label: 'Incomplete' },
+  { value: 'Other', label: 'Other' },
+];
 
 export interface MessageBubbleActions {
   onCopy: () => void;
-  onMarkUseful: (useful: boolean) => void;
-  onEscalate: () => void;
+  // U17: reasonCode is required by the backend when useful=false -- MessageBubble collects it via
+  // the inline reason-code select before calling this.
+  onMarkUseful: (useful: boolean, reasonCode?: FeedbackReasonCode) => void;
+  onEscalate: () => void | Promise<unknown>;
 }
 
 interface Props {
@@ -26,6 +37,25 @@ interface Props {
 // drafted prose* (what "Copy Response" copies to send onward), not from this internal tool's own
 // screen. This is for the support engineer's own verification, per the PRD's "Cited sources" screen.
 export function MessageBubble({ role, content, confidence, sources, totalTokensUsed, codeDetails, commitHistory, actions }: Props) {
+  // U17/U20: "Not Useful" reveals a reason-code select instead of submitting immediately -- the
+  // backend rejects useful=false without one. "Mark Useful" still submits straight away.
+  const [pickingReason, setPickingReason] = useState(false);
+  const [reasonCode, setReasonCode] = useState<FeedbackReasonCode | ''>('');
+  const [escalated, setEscalated] = useState(false);
+
+  const submitNotUseful = () => {
+    if (!reasonCode) return;
+    actions?.onMarkUseful(false, reasonCode);
+    setPickingReason(false);
+    setReasonCode('');
+  };
+
+  const handleEscalate = async () => {
+    if (!actions) return;
+    await actions.onEscalate();
+    setEscalated(true);
+  };
+
   if (role === 'user') {
     return (
       <div className="flex justify-end">
@@ -64,11 +94,44 @@ export function MessageBubble({ role, content, confidence, sources, totalTokensU
         <CodeDetailPanel codeDetails={codeDetails} commitHistory={commitHistory} />
 
         {actions && (
-          <div className="flex gap-2 pt-2">
-            <button className="rounded border px-3 py-1 text-sm" onClick={actions.onCopy}>Copy Response</button>
-            <button className="rounded border px-3 py-1 text-sm" onClick={() => actions.onMarkUseful(true)}>Mark Useful</button>
-            <button className="rounded border px-3 py-1 text-sm" onClick={() => actions.onMarkUseful(false)}>Not Useful</button>
-            <button className="rounded border px-3 py-1 text-sm" onClick={actions.onEscalate}>Escalate</button>
+          <div className="space-y-2 pt-2">
+            <div className="flex flex-wrap gap-2">
+              <button className="rounded border px-3 py-1 text-sm" onClick={actions.onCopy}>Copy Response</button>
+              <button className="rounded border px-3 py-1 text-sm" onClick={() => actions.onMarkUseful(true)}>Mark Useful</button>
+              <button className="rounded border px-3 py-1 text-sm" onClick={() => setPickingReason(true)}>Not Useful</button>
+              <button className="rounded border px-3 py-1 text-sm" onClick={handleEscalate} disabled={escalated}>
+                {escalated ? 'Escalated' : 'Escalate'}
+              </button>
+            </div>
+
+            {pickingReason && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <label htmlFor="feedback-reason-code">Reason:</label>
+                <select
+                  id="feedback-reason-code"
+                  className="rounded border px-2 py-1 text-sm dark:bg-gray-900"
+                  value={reasonCode}
+                  onChange={(e) => setReasonCode(e.target.value as FeedbackReasonCode)}
+                >
+                  <option value="">Select a reason...</option>
+                  {REASON_CODES.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+                <button
+                  className="rounded border px-3 py-1 text-sm disabled:opacity-50"
+                  onClick={submitNotUseful}
+                  disabled={!reasonCode}
+                >
+                  Submit
+                </button>
+                <button className="text-sm text-gray-500 hover:underline" onClick={() => setPickingReason(false)}>
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {escalated && <p className="text-xs text-green-600 dark:text-green-400">Escalated to the support queue.</p>}
           </div>
         )}
       </div>

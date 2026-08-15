@@ -48,6 +48,7 @@ public class ProjectsControllerTests
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
             new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
@@ -86,6 +87,7 @@ public class ProjectsControllerTests
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
             new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
@@ -120,6 +122,7 @@ public class ProjectsControllerTests
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
             new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
@@ -149,6 +152,7 @@ public class ProjectsControllerTests
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
             new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());
@@ -196,6 +200,7 @@ public class ProjectsControllerTests
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
             new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
             env.Object,
             queue,
             Mock.Of<ILogger<ProjectsController>>());
@@ -250,6 +255,7 @@ public class ProjectsControllerTests
             new Mock<IConversationRepository>().Object,
             new Mock<IDeadLetterRepository>().Object,
             new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
             env.Object,
             new IngestionQueue(),
             Mock.Of<ILogger<ProjectsController>>());

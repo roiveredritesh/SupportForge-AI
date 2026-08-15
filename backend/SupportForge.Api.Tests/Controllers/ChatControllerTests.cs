@@ -49,6 +49,15 @@ public class ChatControllerTests
 
     private static CommitLookupTool MakeCommitLookup() => new(new HttpClient(), null, Path.GetTempPath());
 
+    // U17: no negative feedback recorded -- the default stand-in for every test here, none of which
+    // exercise KbSearchTool's down-weighting (that's covered by KbSearchToolTests).
+    private static IFeedbackRepository MakeEmptyFeedbackRepository()
+    {
+        var mock = new Mock<IFeedbackRepository>();
+        mock.Setup(f => f.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new List<FeedbackEntry>());
+        return mock.Object;
+    }
+
     // WS3 (retrieval-pipeline remediation plan): a project repo returning null (no project found) and an
     // ingestion-activity check that's never busy -- FreshnessGateAgent handles both gracefully, so this is
     // a safe stand-in everywhere these tests don't care about freshness behavior specifically.
@@ -94,7 +103,7 @@ public class ChatControllerTests
             pipeline,
             new TriageAgent(llm, NullLogger<TriageAgent>.Instance),
             MakeFreshnessGateAgent(),
-            new KbResearcherAgent(new KbSearchTool(llm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            new KbResearcherAgent(new KbSearchTool(llm, vectorStore.Object, MakeEmptyFeedbackRepository()), NullLogger<KbResearcherAgent>.Instance),
             MakeCrossReferenceAgent(llm),
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(llm, NullLogger<KbResearcherVerifier>.Instance),
@@ -277,7 +286,7 @@ public class ChatControllerTests
 
         var controller = new ChatController(
             pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(),
-            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object, MakeEmptyFeedbackRepository()), NullLogger<KbResearcherAgent>.Instance),
             MakeCrossReferenceAgent(openAiLlm),
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
@@ -333,7 +342,7 @@ public class ChatControllerTests
 
         var controller = new ChatController(
             pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(),
-            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object, MakeEmptyFeedbackRepository()), NullLogger<KbResearcherAgent>.Instance),
             MakeCrossReferenceAgent(openAiLlm),
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
@@ -418,7 +427,7 @@ public class ChatControllerTests
 
         var controller = new ChatController(
             pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(),
-            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object, MakeEmptyFeedbackRepository()), NullLogger<KbResearcherAgent>.Instance),
             MakeCrossReferenceAgent(openAiLlm),
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
@@ -484,7 +493,7 @@ public class ChatControllerTests
                     : new List<VectorQueryResult> { new("doc-1", "found on retry", 0.2f, new Dictionary<string, string> { ["source"] = "kb/x.md" }) };
             });
 
-        var kbResearcher = new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance);
+        var kbResearcher = new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object, MakeEmptyFeedbackRepository()), NullLogger<KbResearcherAgent>.Instance);
         var kbVerifier = new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance);
 
         var conversations = new Mock<IConversationRepository>();
@@ -566,7 +575,7 @@ public class ChatControllerTests
 
         var controller = new ChatController(
             pipeline, new TriageAgent(openAiLlm, NullLogger<TriageAgent>.Instance), MakeFreshnessGateAgent(),
-            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object), NullLogger<KbResearcherAgent>.Instance),
+            new KbResearcherAgent(new KbSearchTool(openAiLlm, vectorStore.Object, MakeEmptyFeedbackRepository()), NullLogger<KbResearcherAgent>.Instance),
             MakeCrossReferenceAgent(openAiLlm),
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
