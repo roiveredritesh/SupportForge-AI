@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { MessageBubble } from './MessageBubble';
 
 describe('MessageBubble', () => {
@@ -70,5 +70,66 @@ describe('MessageBubble', () => {
 
     expect(screen.getByText('Tokens used:')).toBeInTheDocument();
     expect(screen.getByText('8,406')).toBeInTheDocument();
+  });
+
+  // U17/U20: marking "not useful" reveals a reason-code select; submit is disabled until a reason
+  // is chosen, and onMarkUseful only fires once one is picked.
+  it('requires a reason code before submitting "not useful" feedback', () => {
+    const onMarkUseful = vi.fn();
+    render(
+      <MessageBubble
+        role="assistant"
+        content="answer"
+        actions={{ onCopy: vi.fn(), onMarkUseful, onEscalate: vi.fn() }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Not Useful'));
+    const submit = screen.getByText('Submit');
+    expect(submit).toBeDisabled();
+    expect(onMarkUseful).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Reason:'), { target: { value: 'Incomplete' } });
+    expect(submit).not.toBeDisabled();
+    fireEvent.click(submit);
+
+    expect(onMarkUseful).toHaveBeenCalledWith(false, 'Incomplete');
+  });
+
+  // U17: "useful" feedback never requires a reason code.
+  it('marks useful without requiring a reason code', () => {
+    const onMarkUseful = vi.fn();
+    render(
+      <MessageBubble
+        role="assistant"
+        content="answer"
+        actions={{ onCopy: vi.fn(), onMarkUseful, onEscalate: vi.fn() }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Mark Useful'));
+
+    expect(onMarkUseful).toHaveBeenCalledWith(true);
+    expect(screen.queryByText('Submit')).not.toBeInTheDocument();
+  });
+
+  // U20: Escalate is visible for every role (MessageBubble itself has no role awareness -- the
+  // backend/ChatPage gate what the caller ultimately sees) and confirms queuing without rendering
+  // any Markdown/code detail -- onEscalate's resolved value is never displayed.
+  it('confirms escalation after calling onEscalate, without showing any returned content', async () => {
+    const onEscalate = vi.fn().mockResolvedValue({ escalationId: 'e1', status: 'Open' });
+    render(
+      <MessageBubble
+        role="assistant"
+        content="answer"
+        actions={{ onCopy: vi.fn(), onMarkUseful: vi.fn(), onEscalate }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Escalate'));
+
+    expect(onEscalate).toHaveBeenCalled();
+    expect(await screen.findByText('Escalated to the support queue.')).toBeInTheDocument();
+    expect(screen.queryByText('e1')).not.toBeInTheDocument();
   });
 });
