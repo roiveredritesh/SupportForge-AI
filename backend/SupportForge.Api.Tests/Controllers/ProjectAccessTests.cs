@@ -30,6 +30,7 @@ public class ProjectAccessTests
         var controller = new ProjectsController(
             new JsonFileProjectRepository(tempDir),
             memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,

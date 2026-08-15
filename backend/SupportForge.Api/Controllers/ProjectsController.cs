@@ -16,6 +16,7 @@ public class ProjectsController : ControllerBase
 {
     private readonly IProjectRepository _repo;
     private readonly IProjectMembershipRepository _memberships;
+    private readonly IOrgMembershipRepository _orgMemberships;
     private readonly IVectorStoreService _vectorStore;
     private readonly IFeedbackRepository _feedback;
     private readonly ITokenUsageRepository _tokenUsage;
@@ -30,6 +31,7 @@ public class ProjectsController : ControllerBase
     public ProjectsController(
         IProjectRepository repo,
         IProjectMembershipRepository memberships,
+        IOrgMembershipRepository orgMemberships,
         IVectorStoreService vectorStore,
         IFeedbackRepository feedback,
         ITokenUsageRepository tokenUsage,
@@ -43,6 +45,7 @@ public class ProjectsController : ControllerBase
     {
         _repo = repo;
         _memberships = memberships;
+        _orgMemberships = orgMemberships;
         _vectorStore = vectorStore;
         _feedback = feedback;
         _tokenUsage = tokenUsage;
@@ -87,7 +90,36 @@ public class ProjectsController : ControllerBase
         if (existing is not null && !await _memberships.IsMemberAsync(userId, project.Id, ct))
             return Forbid();
 
-        await _repo.UpsertAsync(project, ct);
+        // OrgId is stamped server-side, never trusted from the client -- a new project belongs to
+        // the caller's own org (first membership; project creation itself doesn't support choosing
+        // among multiple), and an update keeps whatever OrgId the project already had regardless of
+        // what the client posted, so a member can't reassign a project to a different org by editing
+        // the body. Without this, ProjectOrgMigration only ever backfills projects that existed
+        // before it ran -- every project created afterward would silently keep OrgId null forever.
+        string? orgId;
+        if (existing is null)
+        {
+            var callerOrgIds = await _orgMemberships.GetOrgIdsForUserAsync(userId, ct);
+            orgId = callerOrgIds.FirstOrDefault();
+        }
+        else
+        {
+            orgId = existing.OrgId;
+        }
+
+        var toSave = new Project
+        {
+            Id = project.Id,
+            Name = project.Name,
+            OrgId = orgId,
+            Repos = project.Repos,
+            KbSources = project.KbSources,
+            CreatedAt = project.CreatedAt,
+            ScheduledSyncIntervalHours = project.ScheduledSyncIntervalHours,
+        };
+
+        await _repo.UpsertAsync(toSave, ct);
+        project = toSave;
         if (existing is null) await _memberships.AddAsync(userId, project.Id, ct);
         return Ok(project);
     }
