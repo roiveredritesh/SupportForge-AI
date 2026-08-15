@@ -42,6 +42,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -67,6 +68,88 @@ public class ProjectsControllerTests
         Directory.Delete(tempDir, recursive: true);
     }
 
+    // Regression test: CreateOrUpdate must stamp OrgId from the caller's own org membership on
+    // creation, not leave it null (ProjectOrgMigration only backfills projects that existed before
+    // it ran -- every project created afterward needs OrgId set here or it silently stays null
+    // forever, breaking org-scoped checks like OrgsController.RegisterEmployee's project-scope
+    // validation).
+    [Fact]
+    public async Task CreateProject_StampsOrgIdFromCallersOrgMembership()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var orgMemberships = new JsonFileOrgMembershipRepository(tempDir);
+        await orgMemberships.AddAsync("test-user", "org-1");
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            orgMemberships,
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
+
+        var result = await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var created = Assert.IsType<Project>(ok.Value);
+        Assert.Equal("org-1", created.OrgId);
+
+        var stored = await repo.GetByIdAsync("proj1");
+        Assert.Equal("org-1", stored!.OrgId);
+
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    // A client-supplied OrgId on update must never override the project's real OrgId (would let a
+    // member reassign a project to a different org just by editing the POST body).
+    [Fact]
+    public async Task UpdateProject_IgnoresClientSuppliedOrgId()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var orgMemberships = new JsonFileOrgMembershipRepository(tempDir);
+        await orgMemberships.AddAsync("test-user", "org-1");
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            orgMemberships,
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+
+        var result = await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Renamed", OrgId = "someone-elses-org" });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var updated = Assert.IsType<Project>(ok.Value);
+        Assert.Equal("org-1", updated.OrgId);
+        Assert.Equal("Renamed", updated.Name);
+
+        Directory.Delete(tempDir, recursive: true);
+    }
+
     [Fact]
     public async Task GetTokenUsage_ReturnsTotalAndBreakdown_ForMemberOfProject()
     {
@@ -81,6 +164,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             tokenUsage.Object,
@@ -116,6 +200,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -146,6 +231,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             new JsonFileProjectMembershipRepository(tempDir),
+            new JsonFileOrgMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -194,6 +280,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             new JsonFileProjectMembershipRepository(tempDir),
+            new JsonFileOrgMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
@@ -249,6 +336,7 @@ public class ProjectsControllerTests
         var controller = new ProjectsController(
             repo,
             new JsonFileProjectMembershipRepository(tempDir),
+            new JsonFileOrgMembershipRepository(tempDir),
             new Mock<IVectorStoreService>().Object,
             new Mock<IFeedbackRepository>().Object,
             new Mock<ITokenUsageRepository>().Object,
