@@ -86,10 +86,19 @@ public class OrgsController : ControllerBase
         // the explicit check here is what actually makes "L1 -> 403" true at the action level too.
         var role = this.CurrentUserRole();
         if (role != AppRole.L2 && role != AppRole.L3 && role != AppRole.Admin) return Forbid();
-        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), orgId, ct)) return Forbid();
 
         var allProjects = await _projects.GetAllAsync(ct);
         var orgProjectIds = allProjects.Where(p => p.OrgId == orgId).Select(p => p.Id).ToHashSet();
+
+        // Admins get an OrgMembership row (org creator/joiner); employees (L2/L3) never do -- they
+        // only get ProjectMembership rows -- so "does this caller genuinely belong to this org"
+        // means different things per role. Checking IsMemberAsync for an L2/L3 caller would 403
+        // every one of them, since that row can't exist for an employee.
+        var callerId = this.CurrentUserId();
+        var callerBelongsToOrg = role == AppRole.Admin
+            ? await _memberships.IsMemberAsync(callerId, orgId, ct)
+            : (await _projectMemberships.GetProjectIdsForUserAsync(callerId, ct)).Any(orgProjectIds.Contains);
+        if (!callerBelongsToOrg) return Forbid();
 
         var allUsers = await _users.GetAllAsync(ct);
         var result = new List<EmployeeSummary>();

@@ -210,6 +210,9 @@ public class OrgsControllerTests : IDisposable
         var orgId = await SeedOrgWithProjectAsync("org1", "proj1");
         await _controller.RegisterEmployee(
             "org1", new OrgsController.RegisterEmployeeRequest("bob", "Passw0rd!", AppRole.L1, new List<string> { "proj1" }));
+        // An L2/L3 caller never gets an OrgMembership row (only the org's Admin does) -- their
+        // ProjectMembership on one of the org's projects is what proves they belong to it.
+        await _projectMemberships.AddAsync("test-user", "proj1");
         SetUser("test-user", role);
 
         var result = await _controller.GetEmployees(orgId);
@@ -222,6 +225,19 @@ public class OrgsControllerTests : IDisposable
     {
         var orgId = await SeedOrgWithProjectAsync("org1", "proj1");
         SetUser("test-user", AppRole.L1);
+
+        var result = await _controller.GetEmployees(orgId);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    // An L2/L3 caller with no ProjectMembership on any of the target org's projects must still be
+    // rejected -- role alone isn't enough, they must actually belong to that org.
+    [Fact]
+    public async Task GetEmployees_L3CallerNotMemberOfOrg_ReturnsForbid()
+    {
+        var orgId = await SeedOrgWithProjectAsync("org1", "proj1");
+        SetUser("test-user", AppRole.L3);
 
         var result = await _controller.GetEmployees(orgId);
 
