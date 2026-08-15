@@ -14,7 +14,7 @@ import { useSubmitFeedback } from '../hooks/useSubmitFeedback';
 import { useEscalateConversation } from '../hooks/useEscalateConversation';
 import { useInviteToConversation } from '../hooks/useInviteToConversation';
 import { usePresence } from '../hooks/usePresence';
-import { useOrgs } from '../hooks/useOrgs';
+import { useProjects } from '../hooks/useProjects';
 import { useEmployees } from '../hooks/useEmployees';
 import type { MessageBubbleActions } from '../components/MessageBubble';
 
@@ -42,8 +42,11 @@ export default function ChatPage() {
   // hook Sprint 1's AdminPage Employees section uses), calls the invite endpoint.
   const role = useAuthStore((s) => s.role);
   const canInvite = !!role && ELEVATED_ROLES.has(role);
-  const { data: orgs } = useOrgs();
-  const orgId = orgs?.[0]?.id;
+  // orgId comes from the selected project, not GET /api/orgs -- employees (L1/L2/L3) never get an
+  // OrgMembership row (only the Admin who created the org does), so useOrgs() always returns empty
+  // for an L2/L3 caller and silently breaks this picker.
+  const { data: projects } = useProjects();
+  const orgId = projects?.find((p) => p.id === selectedProjectId)?.orgId ?? undefined;
   const { data: employees } = useEmployees(canInvite ? orgId : undefined);
   const inviteToConversation = useInviteToConversation();
   const [showInvitePicker, setShowInvitePicker] = useState(false);

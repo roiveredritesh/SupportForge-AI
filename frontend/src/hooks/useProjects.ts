@@ -25,6 +25,10 @@ export interface ProjectKbSource {
 export interface Project {
   id: string;
   name: string;
+  // Sprint 0 (U2): the org this project belongs to. Employees (L1/L2/L3) never get an OrgMembership
+  // row -- only the Admin who created the org does -- so a project's own OrgId is the only way for
+  // an employee-role caller to resolve "their" org (e.g. ChatPage's Invite Engineer picker).
+  orgId?: string | null;
   repos: ProjectRepo[];
   kbSources: ProjectKbSource[];
   // Overrides the server's global scheduled-sync cadence for this project's KB sources.
