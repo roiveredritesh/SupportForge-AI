@@ -45,7 +45,11 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
     public async Task RunAsync(CancellationToken ct)
     {
         Directory.CreateDirectory(_localRepoPath);
-        _gitSync.CloneOrPull(_repoUrl, _localRepoPath, _branch);
+
+        // U15: fetched ahead of the clone so a connected GitHub MCP connection on the project's org
+        // can take precedence over the global GitHub:Token config.
+        var project = await _projects.GetByIdAsync(ProjectId, ct);
+        await _gitSync.CloneOrPullAsync(_repoUrl, _localRepoPath, _branch, project?.OrgId, ct);
 
         var folderPath = string.IsNullOrEmpty(_subPath) ? _localRepoPath : Path.Combine(_localRepoPath, _subPath);
         if (!Directory.Exists(folderPath))
