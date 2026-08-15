@@ -12,6 +12,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
+using SupportForge.Api;
 using SupportForge.Api.HealthChecks;
 using SupportForge.Api.Identity;
 using SupportForge.Core;
@@ -60,6 +61,10 @@ builder.Services.AddSingleton<IProjectRepository>(
     new JsonFileProjectRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IProjectMembershipRepository>(
     new JsonFileProjectMembershipRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IOrgRepository>(
+    new JsonFileOrgRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
+builder.Services.AddSingleton<IOrgMembershipRepository>(
+    new JsonFileOrgMembershipRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IFeedbackRepository>(
     new JsonFileFeedbackRepository(Path.Combine(builder.Environment.ContentRootPath, "App_Data")));
 builder.Services.AddSingleton<IDeadLetterRepository>(
@@ -272,6 +277,12 @@ builder.Services.AddOpenTelemetry()
     });
 
 var app = builder.Build();
+
+// Sprint 0 (U2): must run before the app starts serving requests so no request can observe a
+// project with a missing OrgId.
+await ProjectOrgMigration.RunAsync(
+    app.Services.GetRequiredService<IProjectRepository>(),
+    app.Services.GetRequiredService<IOrgRepository>());
 
 if (app.Environment.IsDevelopment())
 {
