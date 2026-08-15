@@ -7,6 +7,9 @@ export interface ConversationSummary {
   title: string;
   createdAt: string;
   updatedAt: string;
+  // U26/U27: users invited into this one conversation for scoped elevated visibility -- a non-empty
+  // list is what ConversationSidebar reads to mark an "active collaborative session".
+  invitedUserIds: string[];
 }
 
 export interface ChatSource {

@@ -31,7 +31,16 @@ export function ConversationSidebar({ projectId, activeConversationId, onSelect,
               onClick={() => onSelect(c.id)}
             >
               <div className="truncate">
-                <div className="truncate font-medium">{c.title}</div>
+                <div className="flex items-center gap-1.5 truncate font-medium">
+                  <span className="truncate">{c.title}</span>
+                  {/* U27: marks a conversation with an active collaborative session -- an invited
+                      engineer, not just a busy chat. */}
+                  {c.invitedUserIds.length > 0 && (
+                    <span title="Collaborative session active" aria-label="Collaborative session active">
+                      👥
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">
                   {new Date(c.updatedAt).toLocaleString()}
                 </div>

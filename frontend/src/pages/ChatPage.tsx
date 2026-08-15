@@ -5,12 +5,20 @@ import { ScreenshotDropzone } from '../components/ScreenshotDropzone';
 import { ConversationSidebar } from '../components/ConversationSidebar';
 import { MessageThread } from '../components/MessageThread';
 import { ProjectSwitcher } from '../components/ProjectSwitcher';
+import { PresenceIndicator } from '../components/PresenceIndicator';
 import { useChatQueryStream } from '../hooks/useChatQueryStream';
 import { useAppStore } from '../store/useAppStore';
+import { useAuthStore } from '../store/useAuthStore';
 import { useConversation } from '../hooks/useConversations';
 import { useSubmitFeedback } from '../hooks/useSubmitFeedback';
 import { useEscalateConversation } from '../hooks/useEscalateConversation';
+import { useInviteToConversation } from '../hooks/useInviteToConversation';
+import { usePresence } from '../hooks/usePresence';
+import { useOrgs } from '../hooks/useOrgs';
+import { useEmployees } from '../hooks/useEmployees';
 import type { MessageBubbleActions } from '../components/MessageBubble';
+
+const ELEVATED_ROLES = new Set(['L2', 'L3', 'Admin']);
 
 export default function ChatPage() {
   const { selectedProjectId } = useAppStore();
@@ -29,6 +37,26 @@ export default function ChatPage() {
   const escalateConversation = useEscalateConversation();
   const conversationQuery = useConversation(activeConversationId);
   const messageCountBeforeSubmit = useRef(0);
+
+  // U27: "Invite Engineer" -- visible to L2/L3/Admin, picks from the org's employee list (same
+  // hook Sprint 1's AdminPage Employees section uses), calls the invite endpoint.
+  const role = useAuthStore((s) => s.role);
+  const canInvite = !!role && ELEVATED_ROLES.has(role);
+  const { data: orgs } = useOrgs();
+  const orgId = orgs?.[0]?.id;
+  const { data: employees } = useEmployees(canInvite ? orgId : undefined);
+  const inviteToConversation = useInviteToConversation();
+  const [showInvitePicker, setShowInvitePicker] = useState(false);
+  const [inviteeId, setInviteeId] = useState('');
+  const { participantIds } = usePresence(activeConversationId);
+
+  const handleInvite = () => {
+    if (!activeConversationId || !selectedProjectId || !inviteeId) return;
+    inviteToConversation.mutate(
+      { conversationId: activeConversationId, projectId: selectedProjectId, userId: inviteeId },
+      { onSuccess: () => setShowInvitePicker(false) },
+    );
+  };
 
   // Once the backend has persisted the turn we just streamed, drop the local "pending" bubble
   // and let it render from the refetched history instead — otherwise it would show twice.
@@ -134,6 +162,45 @@ export default function ChatPage() {
       <div className="flex flex-1 flex-col">
         <div className="flex items-center justify-between border-b border-slate-200 p-3 dark:border-gray-700">
           <ProjectSwitcher hasMessages={!!(conversationQuery.data?.messages.length || pendingQuery)} onSwitch={handleNewChat} />
+
+          <div className="flex items-center gap-3">
+            <PresenceIndicator participantIds={participantIds} />
+
+            {canInvite && activeConversationId && (
+              <div className="relative">
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                  onClick={() => setShowInvitePicker((v) => !v)}
+                >
+                  Invite Engineer
+                </button>
+                {showInvitePicker && (
+                  <div className="absolute right-0 z-10 mt-2 w-64 space-y-2 rounded-lg border border-slate-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    <select
+                      className="w-full rounded-lg border border-slate-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                      value={inviteeId}
+                      onChange={(e) => setInviteeId(e.target.value)}
+                      aria-label="Engineer to invite"
+                    >
+                      <option value="">Select an engineer…</option>
+                      {employees?.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.userName} ({e.role})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="w-full rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+                      onClick={handleInvite}
+                      disabled={!inviteeId || inviteToConversation.isPending}
+                    >
+                      Invite
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <MessageThread
