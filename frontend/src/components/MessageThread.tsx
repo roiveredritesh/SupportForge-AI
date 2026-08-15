@@ -1,7 +1,7 @@
 import { MessageBubble, type MessageBubbleActions } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import type { ChatMessage } from '../hooks/useConversations';
-import type { ChatSource, CommitInfo } from '../hooks/useChatQuery';
+import type { BlastRadiusEntry, ChatSource, CommitInfo } from '../hooks/useChatQuery';
 
 interface PendingTurn {
   query: string;
@@ -11,6 +11,7 @@ interface PendingTurn {
   totalTokensUsed?: number;
   codeDetails?: string[];
   commitHistory?: CommitInfo[];
+  blastRadius?: BlastRadiusEntry[];
   actions?: MessageBubbleActions;
 }
 
@@ -51,6 +52,7 @@ export function MessageThread({ messages, pending, lastAssistantActions }: Props
               totalTokensUsed={pending.totalTokensUsed}
               codeDetails={pending.codeDetails}
               commitHistory={pending.commitHistory}
+              blastRadius={pending.blastRadius}
               actions={pending.actions}
             />
           ) : (

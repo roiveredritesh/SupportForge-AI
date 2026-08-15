@@ -26,6 +26,13 @@ export interface CommitInfo {
   prUrl?: string;
 }
 
+// U24: one repo whose endpoint a matched code file defines, and every other repo (in the same
+// project) whose calls_endpoint edge references it.
+export interface BlastRadiusEntry {
+  repo: string;
+  usedBy: string[];
+}
+
 export interface ChatQueryResponse {
   draft: string;
   confidence: number;
@@ -37,6 +44,8 @@ export interface ChatQueryResponse {
   codeDetails?: string[];
   // U11: same L2/L3/Admin-only gating as codeDetails above.
   commitHistory?: CommitInfo[];
+  // U24: same L2/L3/Admin-only gating as codeDetails/commitHistory above.
+  blastRadius?: BlastRadiusEntry[];
 }
 
 export function useChatQuery() {
