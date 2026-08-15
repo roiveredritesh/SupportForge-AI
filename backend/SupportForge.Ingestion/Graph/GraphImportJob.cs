@@ -50,16 +50,18 @@ public sealed class GraphImportJob : IIngestionJob
         {
             // UNWIND-batched MERGE, not one query per node/edge: a repo's graph can be thousands of
             // nodes, and per-node round-trips would dominate import time.
+            // U22: repo is part of the MERGE key, not just a SET property -- two repos in the same
+            // project that happen to share a relative path (e.g. both have "src/index.ts") used to
+            // collide into one GraphNode, silently mixing one repo's summary/edges into the other's.
             await tx.RunAsync(
                 """
                 UNWIND $nodes AS node
-                MERGE (n:GraphNode {id: node.id, projectId: $projectId})
+                MERGE (n:GraphNode {id: node.id, projectId: $projectId, repo: $repo})
                 SET n.label = node.label,
                     n.fileType = node.fileType,
                     n.sourceFile = node.sourceFile,
                     n.sourceLocation = node.sourceLocation,
-                    n.summary = node.summary,
-                    n.repo = $repo
+                    n.summary = node.summary
                 """,
                 new
                 {
@@ -80,10 +82,43 @@ public sealed class GraphImportJob : IIngestionJob
                     }),
                 });
 
+            // "defines"/"imports" edges only ever connect nodes CodeGraphExtractor found while
+            // walking this same repo, so both ends are scoped to $repo -- same fix as the node MERGE
+            // above, needed so an edge can't bridge two different repos' same-path nodes now that
+            // they're distinct GraphNodes.
             await tx.RunAsync(
                 """
                 UNWIND $edges AS edge
-                MATCH (a:GraphNode {id: edge.source, projectId: $projectId})
+                MATCH (a:GraphNode {id: edge.source, projectId: $projectId, repo: $repo})
+                MATCH (b:GraphNode {id: edge.target, projectId: $projectId, repo: $repo})
+                MERGE (a)-[r:EDGE {relation: edge.relation}]->(b)
+                SET r.confidence = edge.confidence
+                """,
+                new
+                {
+                    projectId = ProjectId,
+                    repo = _repo,
+                    edges = graph.Edges.Where(e => e.Relation != "calls_endpoint").Select(e => new
+                    {
+                        source = e.Source,
+                        target = e.Target,
+                        relation = e.Relation,
+                        confidence = e.Confidence,
+                    }),
+                });
+
+            // U23: "calls_endpoint" is the one cross-repo edge type -- the caller file lives in this
+            // job's repo ($repo), but the endpoint it targets may have been defined by a different
+            // repo's import (or none at all, if that repo hasn't been ingested yet / the route guess
+            // doesn't match anything real). So only the source end is repo-scoped; the target MATCH
+            // deliberately spans every repo in the project so blast-radius traversal can bridge them.
+            // A target that doesn't exist anywhere just means the MATCH finds nothing and no edge is
+            // written -- same "silently skip" behavior AddImportEdges already has for unresolved
+            // same-repo imports.
+            await tx.RunAsync(
+                """
+                UNWIND $edges AS edge
+                MATCH (a:GraphNode {id: edge.source, projectId: $projectId, repo: $repo})
                 MATCH (b:GraphNode {id: edge.target, projectId: $projectId})
                 MERGE (a)-[r:EDGE {relation: edge.relation}]->(b)
                 SET r.confidence = edge.confidence
@@ -91,7 +126,8 @@ public sealed class GraphImportJob : IIngestionJob
                 new
                 {
                     projectId = ProjectId,
-                    edges = graph.Edges.Select(e => new
+                    repo = _repo,
+                    edges = graph.Edges.Where(e => e.Relation == "calls_endpoint").Select(e => new
                     {
                         source = e.Source,
                         target = e.Target,

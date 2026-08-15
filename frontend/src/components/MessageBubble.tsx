@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { CodeDetailPanel } from './CodeDetailPanel';
-import type { ChatSource, CommitInfo } from '../hooks/useChatQuery';
+import type { BlastRadiusEntry, ChatSource, CommitInfo } from '../hooks/useChatQuery';
 import type { FeedbackReasonCode } from '../hooks/useSubmitFeedback';
 
 const REASON_CODES: { value: FeedbackReasonCode; label: string }[] = [
@@ -29,6 +29,7 @@ interface Props {
   totalTokensUsed?: number;
   codeDetails?: string[];
   commitHistory?: CommitInfo[];
+  blastRadius?: BlastRadiusEntry[];
   actions?: MessageBubbleActions;
 }
 
@@ -36,7 +37,7 @@ interface Props {
 // answer, never merged into `content` -- DrafterAgent's leak guard forbids citations *inside the
 // drafted prose* (what "Copy Response" copies to send onward), not from this internal tool's own
 // screen. This is for the support engineer's own verification, per the PRD's "Cited sources" screen.
-export function MessageBubble({ role, content, confidence, sources, totalTokensUsed, codeDetails, commitHistory, actions }: Props) {
+export function MessageBubble({ role, content, confidence, sources, totalTokensUsed, codeDetails, commitHistory, blastRadius, actions }: Props) {
   // U17/U20: "Not Useful" reveals a reason-code select instead of submitting immediately -- the
   // backend rejects useful=false without one. "Mark Useful" still submits straight away.
   const [pickingReason, setPickingReason] = useState(false);
@@ -91,7 +92,7 @@ export function MessageBubble({ role, content, confidence, sources, totalTokensU
           </div>
         )}
 
-        <CodeDetailPanel codeDetails={codeDetails} commitHistory={commitHistory} />
+        <CodeDetailPanel codeDetails={codeDetails} commitHistory={commitHistory} blastRadius={blastRadius} />
 
         {actions && (
           <div className="space-y-2 pt-2">

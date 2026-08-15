@@ -49,6 +49,16 @@ public class ChatControllerTests
 
     private static CommitLookupTool MakeCommitLookup() => new(new HttpClient(), null, Path.GetTempPath());
 
+    // U24: an empty blast radius is a safe default everywhere these tests don't specifically
+    // exercise BlastRadiusForRoleAsync -- same "no-op stand-in" shape as MakeCommitLookup above.
+    private static IBlastRadiusQueryTool MakeEmptyBlastRadius()
+    {
+        var mock = new Mock<IBlastRadiusQueryTool>();
+        mock.Setup(b => b.QueryAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<BlastRadiusEntry>());
+        return mock.Object;
+    }
+
     // U17: no negative feedback recorded -- the default stand-in for every test here, none of which
     // exercise KbSearchTool's down-weighting (that's covered by KbSearchToolTests).
     private static IFeedbackRepository MakeEmptyFeedbackRepository()
@@ -117,6 +127,7 @@ public class ChatControllerTests
             memberships ?? MakePermissiveMemberships(),
             projects.Object,
             commitLookup,
+            MakeEmptyBlastRadius(),
             NullLogger<ChatController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
         return controller;
@@ -291,7 +302,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), MakeEmptyBlastRadius(), NullLogger<ChatController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
@@ -347,7 +358,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), MakeEmptyBlastRadius(), NullLogger<ChatController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
@@ -400,7 +411,48 @@ public class ChatControllerTests
         Assert.Contains("ChatController.cs", detail);
     }
 
-    private static (ChatController Controller, CoordinatorPipeline Pipeline) MakeControllerWithCodeFindings(SupportForge.Core.Entities.AppRole role)
+    // U24: same trust guarantee as U6's CodeDetails test -- L1 never receives BlastRadiusQueryTool's
+    // findings in the chat response, even when the tool actually found a real cross-repo match.
+    [Fact]
+    public async Task Query_L1Caller_NeverReceivesBlastRadius_EvenWhenToolFoundAMatch()
+    {
+        var blastRadiusMock = new Mock<IBlastRadiusQueryTool>();
+        blastRadiusMock.Setup(b => b.QueryAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<BlastRadiusEntry> { new("repo-a", new List<string> { "repo-b" }) });
+        var (controller, _) = MakeControllerWithCodeFindings(SupportForge.Core.Entities.AppRole.L1, blastRadiusMock.Object);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<ChatQueryResponse>(ok.Value);
+        Assert.Null(body.BlastRadius);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(body);
+        Assert.DoesNotContain("blastRadius", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(SupportForge.Core.Entities.AppRole.L2)]
+    [InlineData(SupportForge.Core.Entities.AppRole.L3)]
+    [InlineData(SupportForge.Core.Entities.AppRole.Admin)]
+    public async Task Query_L2L3AdminCaller_ReceivesBlastRadius_WhenToolFoundAMatch(SupportForge.Core.Entities.AppRole role)
+    {
+        var blastRadiusMock = new Mock<IBlastRadiusQueryTool>();
+        blastRadiusMock.Setup(b => b.QueryAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<BlastRadiusEntry> { new("repo-a", new List<string> { "repo-b", "repo-c" }) });
+        var (controller, _) = MakeControllerWithCodeFindings(role, blastRadiusMock.Object);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<ChatQueryResponse>(ok.Value);
+        var entry = Assert.Single(body.BlastRadius!);
+        Assert.Equal("repo-a", entry.Repo);
+        Assert.Equal(new[] { "repo-b", "repo-c" }, entry.UsedBy);
+    }
+
+    private static (ChatController Controller, CoordinatorPipeline Pipeline) MakeControllerWithCodeFindings(
+        SupportForge.Core.Entities.AppRole role, IBlastRadiusQueryTool? blastRadius = null)
     {
         var llmMock = new Mock<ILlmClient>();
         llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("an answer");
@@ -432,7 +484,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), blastRadius ?? MakeEmptyBlastRadius(), NullLogger<ChatController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser(role) } };
 
         return (controller, pipeline);
@@ -516,7 +568,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance), kbVerifier,
             new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, tokenUsage.Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
+            openAiLlm, tokenUsage.Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), MakeEmptyBlastRadius(), NullLogger<ChatController>.Instance);
 
         var responseBody = new MemoryStream();
         var httpContext = new DefaultHttpContext { Response = { Body = responseBody }, User = TestUser() };
@@ -580,7 +632,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), MakeEmptyBlastRadius(), NullLogger<ChatController>.Instance);
 
         var body = new MemoryStream();
         controller.ControllerContext = new ControllerContext
@@ -628,7 +680,10 @@ public class ChatControllerTests
         public string Name => "CodeAnalyzer";
         public Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
         {
-            context.CodeSnippets.Add("backend/SupportForge.Api/Controllers/ChatController.cs:219-247 -- Query action");
+            // U11/U24: matches ChatController's CodeLocationRef regex (src=<file> loc=L<line>) so
+            // ExtractFilePaths finds a file both CommitHistoryForRoleAsync and BlastRadiusForRoleAsync
+            // key off of, not just the "contains ChatController.cs" substring these tests assert on.
+            context.CodeSnippets.Add("NODE Query [src=ChatController.cs loc=L219]: Query action");
             return Task.FromResult(context);
         }
     }

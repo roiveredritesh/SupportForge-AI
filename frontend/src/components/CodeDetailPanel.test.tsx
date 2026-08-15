@@ -61,4 +61,30 @@ describe('CodeDetailPanel', () => {
 
     expect(screen.getByText('Show code details (2)')).toBeInTheDocument();
   });
+
+  // U25/L2-L3: blast radius renders as a structured "Repo A -> used by Repo B, Repo C" list once
+  // expanded, when the backend sent the field.
+  it('renders blast radius as a structured repo list when expanded', () => {
+    render(
+      <CodeDetailPanel
+        codeDetails={['NODE Query [src=ChatController.cs loc=L219]']}
+        blastRadius={[{ repo: 'api-repo', usedBy: ['widget-repo', 'billing-repo'] }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(screen.getByText('Blast radius')).toBeInTheDocument();
+    expect(screen.getByText('api-repo')).toBeInTheDocument();
+    expect(screen.getByText('widget-repo, billing-repo')).toBeInTheDocument();
+  });
+
+  // U25/L1: same "absent field renders nothing" rule as codeDetails/commitHistory above.
+  it('renders no blast radius sub-section when the field is absent', () => {
+    render(<CodeDetailPanel codeDetails={['NODE Query [src=ChatController.cs loc=L219]']} />);
+
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(screen.queryByText('Blast radius')).not.toBeInTheDocument();
+  });
 });

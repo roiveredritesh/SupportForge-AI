@@ -36,6 +36,7 @@ public partial class ChatController : ControllerBase
     private readonly IProjectMembershipRepository _memberships;
     private readonly IProjectRepository _projects;
     private readonly CommitLookupTool _commitLookup;
+    private readonly IBlastRadiusQueryTool _blastRadius;
     private readonly ILogger<ChatController> _logger;
 
     private const string DrafterName = "Drafter";
@@ -58,6 +59,7 @@ public partial class ChatController : ControllerBase
         IProjectMembershipRepository memberships,
         IProjectRepository projects,
         CommitLookupTool commitLookup,
+        IBlastRadiusQueryTool blastRadius,
         ILogger<ChatController> logger)
     {
         _pipeline = pipeline;
@@ -77,6 +79,7 @@ public partial class ChatController : ControllerBase
         _memberships = memberships;
         _projects = projects;
         _commitLookup = commitLookup;
+        _blastRadius = blastRadius;
         _logger = logger;
     }
 
@@ -266,6 +269,7 @@ public partial class ChatController : ControllerBase
             TotalTokensUsed = result.TotalTokensUsed,
             CodeDetails = CodeDetailsForRole(role, result),
             CommitHistory = await CommitHistoryForRoleAsync(role, request.ProjectId, result, ct),
+            BlastRadius = await BlastRadiusForRoleAsync(role, request.ProjectId, result, ct),
         });
     }
 
@@ -314,6 +318,20 @@ public partial class ChatController : ControllerBase
             history.AddRange(await _commitLookup.LookupForProjectAsync(project, file, MaxCommitsPerFile, ct));
 
         return history.Count > 0 ? history : null;
+    }
+
+    // U24: gated and wired the same way as CommitHistoryForRoleAsync -- same file references
+    // (CodeDetails' own matched files), same L2/L3/Admin gate, same "absent, not null-but-present" rule.
+    private async Task<IReadOnlyList<BlastRadiusEntry>?> BlastRadiusForRoleAsync(
+        AppRole role, string projectId, AgentContext context, CancellationToken ct)
+    {
+        if (role is not (AppRole.L2 or AppRole.L3 or AppRole.Admin) || context.CodeSnippets.Count == 0) return null;
+
+        var files = ExtractFilePaths(context.CodeSnippets);
+        if (files.Count == 0) return null;
+
+        var entries = await _blastRadius.QueryAsync(projectId, files, ct);
+        return entries.Count > 0 ? entries : null;
     }
 
     // Runs every agent except the Drafter as before, then streams the Drafter's answer to the
@@ -427,6 +445,7 @@ public partial class ChatController : ControllerBase
                 totalTokensUsed = context.TotalTokensUsed,
                 codeDetails = CodeDetailsForRole(streamRole, context),
                 commitHistory = await CommitHistoryForRoleAsync(streamRole, request.ProjectId, context, ct),
+                blastRadius = await BlastRadiusForRoleAsync(streamRole, request.ProjectId, context, ct),
             },
             // U6: same "absent, not null-but-present" rule as ChatQueryResponse.CodeDetails --
             // this anonymous type can't carry a per-property [JsonIgnore], so it's set for this

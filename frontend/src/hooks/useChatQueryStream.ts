@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { apiClient } from '../lib/apiClient';
 import { useAuthStore } from '../store/useAuthStore';
-import type { ChatQueryRequest, ChatSource, CommitInfo } from './useChatQuery';
+import type { BlastRadiusEntry, ChatQueryRequest, ChatSource, CommitInfo } from './useChatQuery';
 
 interface DoneEvent {
   confidence: number;
@@ -10,6 +10,7 @@ interface DoneEvent {
   totalTokensUsed: number;
   codeDetails?: string[];
   commitHistory?: CommitInfo[];
+  blastRadius?: BlastRadiusEntry[];
 }
 
 export function useChatQueryStream() {
@@ -20,6 +21,7 @@ export function useChatQueryStream() {
   const [totalTokensUsed, setTotalTokensUsed] = useState<number>();
   const [codeDetails, setCodeDetails] = useState<string[] | undefined>();
   const [commitHistory, setCommitHistory] = useState<CommitInfo[] | undefined>();
+  const [blastRadius, setBlastRadius] = useState<BlastRadiusEntry[] | undefined>();
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<Error>();
   const requestRef = useRef<ChatQueryRequest | undefined>(undefined);
@@ -32,6 +34,7 @@ export function useChatQueryStream() {
     setTotalTokensUsed(undefined);
     setCodeDetails(undefined);
     setCommitHistory(undefined);
+    setBlastRadius(undefined);
     setError(undefined);
     setIsStreaming(true);
 
@@ -72,6 +75,7 @@ export function useChatQueryStream() {
             setTotalTokensUsed(payload.totalTokensUsed);
             setCodeDetails(payload.codeDetails);
             setCommitHistory(payload.commitHistory);
+            setBlastRadius(payload.blastRadius);
           } else {
             setDraft((prev) => prev + (JSON.parse(dataLine) as string));
           }
@@ -96,11 +100,12 @@ export function useChatQueryStream() {
     setTotalTokensUsed(undefined);
     setCodeDetails(undefined);
     setCommitHistory(undefined);
+    setBlastRadius(undefined);
     setError(undefined);
   }, []);
 
   return {
-    draft, confidence, conversationId, sources, totalTokensUsed, codeDetails, commitHistory,
+    draft, confidence, conversationId, sources, totalTokensUsed, codeDetails, commitHistory, blastRadius,
     isStreaming, error, start, retry, reset,
   };
 }

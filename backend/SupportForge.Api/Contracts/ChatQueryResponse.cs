@@ -22,4 +22,9 @@ public sealed class ChatQueryResponse
     // same L2/L3/Admin gate and same "absent, not null-but-present" rule as CodeDetails above.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CommitInfo>? CommitHistory { get; init; }
+
+    // U24: other repos in the project that call an endpoint one of CodeDetails' files defines --
+    // same L2/L3/Admin gate and same "absent, not null-but-present" rule as CodeDetails/CommitHistory.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<BlastRadiusEntry>? BlastRadius { get; init; }
 }

@@ -11,7 +11,10 @@ namespace SupportForge.Ingestion.Code;
 /// into Neo4j, not a substitute for a language server. Import edges are only resolved for languages whose
 /// import syntax names a file path directly (relative JS/TS imports, dotted Python imports) -- C#/Java/Go
 /// import/using statements name a namespace or package, not a file, so resolving those to a specific file
-/// isn't reliable without a real symbol table and is skipped here.
+/// isn't reliable without a real symbol table and is skipped here. U23 adds a bounded second heuristic on
+/// top of the same regex-only approach: an "endpoint" node per ASP.NET Core [HttpGet]/[HttpPost]/[Route]
+/// action, and a "calls_endpoint" edge from any file whose HttpClient-shaped call names that verb+route --
+/// this is what lets <c>GraphImportJob</c>/<c>BlastRadiusQueryTool</c> bridge two repos in one project.
 /// </summary>
 public static class CodeGraphExtractor
 {
@@ -66,6 +69,28 @@ public static class CodeGraphExtractor
         "\\A\\s*[rRuU]?(\"\"\"|''')(?<body>.*?)\\1",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
+    // U23: ASP.NET Core attribute-routing heuristic, bounded to this codebase's own controller style
+    // (see ChatController.cs: [Route("api/chat")] class + [HttpPost("query")] action) -- not a
+    // general ASP.NET Core route resolver (doesn't handle [ApiController] convention routing,
+    // multiple [Route] overloads, or minimal-API MapGet/MapPost). Extend only when a real target
+    // repo needs one of those.
+    private static readonly Regex ControllerRoutePattern = new(
+        @"\[Route\(\s*""(?<route>[^""]*)""\s*\)\]\s*(?:\[[^\]]*\]\s*)*(?:public\s+|internal\s+)?(?:partial\s+)?class",
+        RegexOptions.Compiled);
+
+    private static readonly Regex HttpMethodAttributePattern = new(
+        @"\[Http(?<verb>Get|Post|Put|Delete|Patch)(?:\(\s*""(?<route>[^""]*)""\s*\))?\]",
+        RegexOptions.Compiled);
+
+    // Cross-repo endpoint-usage heuristic: an HttpClient call naming a verb+route, e.g.
+    // httpClient.GetAsync("api/chat/query"). Deliberately loose (any *Async(verb) call with a
+    // literal string argument) -- the extractor has no way to know at extraction time which repo (if
+    // any) actually defines the target, so it always emits the edge; GraphImportJob's cross-repo
+    // MATCH silently drops it if no matching endpoint node exists anywhere in the project.
+    private static readonly Regex HttpClientCallPattern = new(
+        @"\.(?<verb>Get|Post|Put|Delete|Patch)Async\s*\(\s*""(?<route>[^""]+)""",
+        RegexOptions.Compiled);
+
     private const int MaxSummaryLength = 500;
 
     public static CodeGraphFile Extract(string repoDir)
@@ -98,10 +123,68 @@ public static class CodeGraphExtractor
                 AddDefinitionNodesAndEdges(graph, relativePath, fileType, text, definitionPattern);
 
             AddImportEdges(graph, relativePath, fileType, text, filesByRelativePath.Keys);
+            AddEndpointNodesAndEdges(graph, relativePath, fileType, text);
+            AddEndpointUsageEdges(graph, relativePath, text);
         }
 
         return graph;
     }
+
+    // U23: endpoint node type -- one per [HttpGet]/[HttpPost]/etc action found in a csharp file,
+    // combining the controller's [Route] prefix (if any) with the action's own route template.
+    private static void AddEndpointNodesAndEdges(CodeGraphFile graph, string relativePath, string fileType, string text)
+    {
+        if (fileType != "csharp") return;
+
+        var routePrefixMatch = ControllerRoutePattern.Match(text);
+        var routePrefix = routePrefixMatch.Success ? routePrefixMatch.Groups["route"].Value : null;
+
+        foreach (Match match in HttpMethodAttributePattern.Matches(text))
+        {
+            var verb = match.Groups["verb"].Value.ToUpperInvariant();
+            var methodRoute = match.Groups["route"].Success ? match.Groups["route"].Value : null;
+            var route = CombineRoute(routePrefix, methodRoute);
+            if (route.Length == 0) continue; // no route info at all (e.g. bare [HttpGet] with no controller-level [Route])
+
+            var endpointId = EndpointNodeId(verb, route);
+            if (graph.Nodes.Any(n => n.Id == endpointId)) continue; // same endpoint attribute matched twice
+
+            graph.Nodes.Add(new CodeGraphNode
+            {
+                Id = endpointId,
+                Label = $"{verb} {route}",
+                FileType = fileType,
+                SourceFile = relativePath,
+                SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
+                Summary = "",
+            });
+            graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = endpointId, Relation = "defines_endpoint", Confidence = "high" });
+        }
+    }
+
+    // U23: calls_endpoint edge type -- emitted from every file's HttpClient-shaped calls,
+    // regardless of whether the target endpoint is known to exist (see HttpClientCallPattern comment).
+    private static void AddEndpointUsageEdges(CodeGraphFile graph, string relativePath, string text)
+    {
+        foreach (Match match in HttpClientCallPattern.Matches(text))
+        {
+            var verb = match.Groups["verb"].Value.ToUpperInvariant();
+            var route = match.Groups["route"].Value.Trim('/');
+            if (route.Length == 0) continue;
+
+            graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = EndpointNodeId(verb, route), Relation = "calls_endpoint", Confidence = "medium" });
+        }
+    }
+
+    private static string CombineRoute(string? prefix, string? methodRoute)
+    {
+        var parts = new[] { prefix, methodRoute }
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p!.Trim('/'));
+        return string.Join('/', parts);
+    }
+
+    private static string EndpointNodeId(string verb, string route) => $"endpoint::{verb} {route}";
 
     private static void AddDefinitionNodesAndEdges(
         CodeGraphFile graph, string relativePath, string fileType, string text, Regex definitionPattern)

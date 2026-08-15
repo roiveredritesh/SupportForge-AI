@@ -149,6 +149,7 @@ export default function ChatPage() {
                   totalTokensUsed: chatStream.totalTokensUsed,
                   codeDetails: chatStream.codeDetails,
                   commitHistory: chatStream.commitHistory,
+                  blastRadius: chatStream.blastRadius,
                   actions: chatStream.draft
                     ? {
                         onCopy: () => navigator.clipboard.writeText(chatStream.draft),
