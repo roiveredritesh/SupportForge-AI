@@ -159,4 +159,47 @@ public class CodeGraphExtractorTests
         Assert.True(fileNode.Summary.Length <= 501); // 500 chars + the truncation ellipsis
         Assert.EndsWith("…", fileNode.Summary);
     }
+
+    [Fact]
+    public void Extract_CreatesEndpointNode_ForControllerActionWithRouteAttributes()
+    {
+        var repoDir = CreateRepoFixture(("ChatController.cs",
+            "namespace Demo;\n\n" +
+            "[Route(\"api/chat\")]\n" +
+            "public partial class ChatController\n{\n" +
+            "    [HttpPost(\"query\")]\n" +
+            "    public void Query() { }\n" +
+            "}\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        var endpoint = Assert.Single(graph.Nodes, n => n.Id == "endpoint::POST api/chat/query");
+        Assert.Equal("POST api/chat/query", endpoint.Label);
+        Assert.Contains(graph.Edges, e => e.Source == "ChatController.cs" && e.Target == "endpoint::POST api/chat/query" && e.Relation == "defines_endpoint");
+    }
+
+    [Fact]
+    public void Extract_CreatesCallsEndpointEdge_ForHttpClientCallMatchingAnEndpointRoute()
+    {
+        var repoDir = CreateRepoFixture(("client/Widget.cs",
+            "namespace OtherRepo;\n\n" +
+            "public class WidgetClient\n{\n" +
+            "    public async Task Fetch(HttpClient http) => await http.GetAsync(\"api/chat/query\");\n" +
+            "}\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Contains(graph.Edges, e => e.Source == "client/Widget.cs" && e.Target == "endpoint::GET api/chat/query" && e.Relation == "calls_endpoint");
+    }
+
+    [Fact]
+    public void Extract_CreatesNoEndpointNode_ForFileWithNoHttpAttributes()
+    {
+        var repoDir = CreateRepoFixture(("Plain.cs", "namespace Demo;\n\npublic class Plain\n{\n    public void DoWork() { }\n}\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.DoesNotContain(graph.Nodes, n => n.Id.StartsWith("endpoint::", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph.Edges, e => e.Relation is "defines_endpoint" or "calls_endpoint");
+    }
 }
