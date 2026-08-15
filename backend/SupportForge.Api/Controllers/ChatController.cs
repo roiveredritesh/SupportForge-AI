@@ -5,10 +5,12 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using SupportForge.Agents;
 using SupportForge.Agents.Tools;
 using SupportForge.Api;
 using SupportForge.Api.Contracts;
+using SupportForge.Api.Hubs;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 
@@ -38,6 +40,12 @@ public partial class ChatController : ControllerBase
     private readonly CommitLookupTool _commitLookup;
     private readonly IBlastRadiusQueryTool _blastRadius;
     private readonly ILogger<ChatController> _logger;
+    // U26: nullable with a default so every pre-existing test-constructed ChatController (six call
+    // sites in ChatControllerTests.cs, none of which care about SignalR) keeps compiling unchanged;
+    // production DI always supplies a real IHubContext<ConversationHub> (registered by
+    // builder.Services.AddSignalR() in Program.cs). Broadcasting is a best-effort side channel, not
+    // load-bearing for the HTTP response, so a null hub just means "nothing to broadcast to."
+    private readonly IHubContext<ConversationHub>? _hub;
 
     private const string DrafterName = "Drafter";
 
@@ -60,7 +68,8 @@ public partial class ChatController : ControllerBase
         IProjectRepository projects,
         CommitLookupTool commitLookup,
         IBlastRadiusQueryTool blastRadius,
-        ILogger<ChatController> logger)
+        ILogger<ChatController> logger,
+        IHubContext<ConversationHub>? hub = null)
     {
         _pipeline = pipeline;
         _triage = triage;
@@ -81,6 +90,7 @@ public partial class ChatController : ControllerBase
         _commitLookup = commitLookup;
         _blastRadius = blastRadius;
         _logger = logger;
+        _hub = hub;
     }
 
     // Splits on word boundaries while keeping the trailing whitespace attached to each chunk, so
@@ -190,7 +200,7 @@ public partial class ChatController : ControllerBase
     // VisionFindings/ProductVersion/Config are cached onto the assistant ChatMessage so
     // EscalationsController can build a full-detail handoff Markdown later without re-running the
     // pipeline (that state doesn't survive past this request otherwise).
-    private async Task RecordTurnAsync(
+    private async Task<ChatMessage> RecordTurnAsync(
         Conversation conversation, string query, string answer, double confidence, IReadOnlyList<ChatSource> sources,
         int totalTokensUsed, AgentContext context, CancellationToken ct)
     {
@@ -202,7 +212,7 @@ public partial class ChatController : ControllerBase
             Content = query,
         }, ct);
 
-        await _messages.AddAsync(new ChatMessage
+        var assistantMessage = new ChatMessage
         {
             Id = Guid.NewGuid().ToString("n"),
             ConversationId = conversation.Id,
@@ -216,11 +226,40 @@ public partial class ChatController : ControllerBase
             VisionFindings = context.VisionFindings,
             ProductVersion = context.ProductVersion,
             Config = context.Config,
-        }, ct);
+        };
+        await _messages.AddAsync(assistantMessage, ct);
 
         conversation.UpdatedAt = DateTimeOffset.UtcNow;
         await _conversations.UpsertAsync(conversation, ct);
+        return assistantMessage;
     }
+
+    // U26: ConversationHub broadcast is deliberately role-blind and carries only the same fields
+    // ConversationsController.ToDto(ChatMessage) already exposes to every project member via
+    // GET /api/conversations/{id} -- CodeDetails/CommitHistory/BlastRadius never go through here,
+    // so a group with mixed elevation (e.g. the original L1 asker plus an invited L2 engineer) can
+    // never leak elevated detail via the hub; each caller's own elevated fields still only ever
+    // reach them through their own Query/QueryStream response (see IsElevated below).
+    private Task BroadcastMessageAsync(string conversationId, ChatMessage message) =>
+        _hub is null
+            ? Task.CompletedTask
+            : _hub.Clients.Group(ConversationHub.GroupName(conversationId)).SendAsync("receiveMessage", new
+            {
+                id = message.Id,
+                role = message.Role,
+                content = message.Content,
+                confidence = message.Confidence,
+                sources = message.Sources,
+                createdAt = message.CreatedAt,
+                totalTokensUsed = message.TotalTokensUsed,
+            });
+
+    // U26: effective permission check reused by both Query and QueryStream -- role is L2/L3/Admin
+    // (unchanged U6 gate), OR the caller was invited into this one conversation (U26). Scoped
+    // strictly to conversation.InvitedUserIds, never touches the caller's own Role/AppUser record,
+    // so it can never leak into their access on any other conversation or project.
+    private static bool IsElevated(AppRole role, Conversation conversation, string userId) =>
+        role is AppRole.L2 or AppRole.L3 or AppRole.Admin || conversation.InvitedUserIds.Contains(userId);
 
     // E1 (gap-closing-solutions.md Phase E): context.Sources is populated by KbResearcherAgent/
     // CodeAnalyzerAgent at *retrieval* time (before the verifier judges relevance), so it can contain
@@ -257,9 +296,11 @@ public partial class ChatController : ControllerBase
             request.ProjectId, result.TotalTokensUsed, JsonSerializer.Serialize(result.TokensByAgent));
 
         var sources = BuildSources(result);
-        await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, result.TotalTokensUsed, result, ct);
+        var assistantMessage = await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, result.TotalTokensUsed, result, ct);
+        await BroadcastMessageAsync(conversation.Id, assistantMessage);
 
         var role = this.CurrentUserRole();
+        var elevated = IsElevated(role, conversation, this.CurrentUserId());
         return Ok(new ChatQueryResponse
         {
             Draft = result.Draft,
@@ -267,9 +308,9 @@ public partial class ChatController : ControllerBase
             ConversationId = conversation.Id,
             Sources = sources,
             TotalTokensUsed = result.TotalTokensUsed,
-            CodeDetails = CodeDetailsForRole(role, result),
-            CommitHistory = await CommitHistoryForRoleAsync(role, request.ProjectId, result, ct),
-            BlastRadius = await BlastRadiusForRoleAsync(role, request.ProjectId, result, ct),
+            CodeDetails = CodeDetailsForRole(elevated, result),
+            CommitHistory = await CommitHistoryForRoleAsync(elevated, request.ProjectId, result, ct),
+            BlastRadius = await BlastRadiusForRoleAsync(elevated, request.ProjectId, result, ct),
         });
     }
 
@@ -278,8 +319,8 @@ public partial class ChatController : ControllerBase
     // precedent Sprint 4's escalation caching reuses); only what reaches the HTTP response is
     // role-shaped. L1 gets null here, which JsonIgnore(WhenWritingNull) on ChatQueryResponse turns
     // into the field being entirely absent from the wire, not present-but-empty.
-    private static IReadOnlyList<string>? CodeDetailsForRole(AppRole role, AgentContext context) =>
-        role is AppRole.L2 or AppRole.L3 or AppRole.Admin && context.CodeSnippets.Count > 0
+    private static IReadOnlyList<string>? CodeDetailsForRole(bool elevated, AgentContext context) =>
+        elevated && context.CodeSnippets.Count > 0
             ? context.CodeSnippets.ToList()
             : null;
 
@@ -303,9 +344,9 @@ public partial class ChatController : ControllerBase
     // agent pipeline) and wired off CodeDetails' own file references, so commit history always lines
     // up with whatever code-location matches the caller can actually see.
     private async Task<IReadOnlyList<CommitInfo>?> CommitHistoryForRoleAsync(
-        AppRole role, string projectId, AgentContext context, CancellationToken ct)
+        bool elevated, string projectId, AgentContext context, CancellationToken ct)
     {
-        if (role is not (AppRole.L2 or AppRole.L3 or AppRole.Admin) || context.CodeSnippets.Count == 0) return null;
+        if (!elevated || context.CodeSnippets.Count == 0) return null;
 
         var project = await _projects.GetByIdAsync(projectId, ct);
         if (project is null || project.Repos.Count == 0) return null;
@@ -323,9 +364,9 @@ public partial class ChatController : ControllerBase
     // U24: gated and wired the same way as CommitHistoryForRoleAsync -- same file references
     // (CodeDetails' own matched files), same L2/L3/Admin gate, same "absent, not null-but-present" rule.
     private async Task<IReadOnlyList<BlastRadiusEntry>?> BlastRadiusForRoleAsync(
-        AppRole role, string projectId, AgentContext context, CancellationToken ct)
+        bool elevated, string projectId, AgentContext context, CancellationToken ct)
     {
-        if (role is not (AppRole.L2 or AppRole.L3 or AppRole.Admin) || context.CodeSnippets.Count == 0) return null;
+        if (!elevated || context.CodeSnippets.Count == 0) return null;
 
         var files = ExtractFilePaths(context.CodeSnippets);
         if (files.Count == 0) return null;
@@ -361,6 +402,13 @@ public partial class ChatController : ControllerBase
         }
 
         var context = await BuildInitialContextAsync(request, conversation.Id, ct);
+
+        // U26: lightweight progress ping for any other viewer connected to this conversation's
+        // SignalR group (e.g. an invited engineer watching along) -- ponytail: a single
+        // "processing has started" event, not per-token streaming to other viewers; add per-agent
+        // progress events here if PresenceIndicator ever needs finer-grained status.
+        if (_hub is not null)
+            await _hub.Clients.Group(ConversationHub.GroupName(conversation.Id)).SendAsync("progress", new { conversationId = conversation.Id, stage = "processing" }, ct);
 
         context = await _triage.RunAsync(context, ct);
         context = await _freshnessGate.RunAsync(context, ct);
@@ -433,9 +481,11 @@ public partial class ChatController : ControllerBase
         }
 
         var sources = BuildSources(context);
-        await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, context, ct);
+        var assistantMessage = await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, context, ct);
+        await BroadcastMessageAsync(conversation.Id, assistantMessage);
 
         var streamRole = this.CurrentUserRole();
+        var streamElevated = IsElevated(streamRole, conversation, this.CurrentUserId());
         var done = JsonSerializer.Serialize(
             new
             {
@@ -443,9 +493,9 @@ public partial class ChatController : ControllerBase
                 conversationId = conversation.Id,
                 sources = sources.Select(s => new { label = s.Label, url = s.Url }),
                 totalTokensUsed = context.TotalTokensUsed,
-                codeDetails = CodeDetailsForRole(streamRole, context),
-                commitHistory = await CommitHistoryForRoleAsync(streamRole, request.ProjectId, context, ct),
-                blastRadius = await BlastRadiusForRoleAsync(streamRole, request.ProjectId, context, ct),
+                codeDetails = CodeDetailsForRole(streamElevated, context),
+                commitHistory = await CommitHistoryForRoleAsync(streamElevated, request.ProjectId, context, ct),
+                blastRadius = await BlastRadiusForRoleAsync(streamElevated, request.ProjectId, context, ct),
             },
             // U6: same "absent, not null-but-present" rule as ChatQueryResponse.CodeDetails --
             // this anonymous type can't carry a per-property [JsonIgnore], so it's set for this
