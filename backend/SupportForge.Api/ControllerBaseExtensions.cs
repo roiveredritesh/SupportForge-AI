@@ -10,4 +10,12 @@ public static class ControllerBaseExtensions
     public static string CurrentUserId(this ControllerBase controller) =>
         controller.User.FindFirstValue(ClaimTypes.NameIdentifier)
         ?? throw new InvalidOperationException("Authenticated request has no NameIdentifier claim.");
+
+    // U6: the JWT's "role" claim auto-maps to ClaimTypes.Role (same inbound-claim-type mapping
+    // JwtSecurityTokenHandler applies to "sub" -> NameIdentifier above) -- this is also what
+    // [Authorize(Roles="Admin")] checks against.
+    public static SupportForge.Core.Entities.AppRole CurrentUserRole(this ControllerBase controller) =>
+        Enum.TryParse<SupportForge.Core.Entities.AppRole>(controller.User.FindFirstValue(ClaimTypes.Role), out var role)
+            ? role
+            : SupportForge.Core.Entities.AppRole.L1;
 }
