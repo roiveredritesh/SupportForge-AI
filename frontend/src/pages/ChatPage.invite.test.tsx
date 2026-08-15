@@ -18,14 +18,16 @@ vi.mock('../components/ConversationSidebar', () => ({
   },
 }));
 
-// U27's own hooks (useOrgs/useEmployees/useInviteToConversation/usePresence) are mocked below --
-// this apiClient stub only needs to satisfy ChatPage's other, pre-existing data hooks
-// (useConversation, useProjects via ProjectSwitcher) well enough that they don't throw when this
-// test's assertions wait long enough for those queries to resolve.
+// U27's own hooks (useEmployees/useInviteToConversation/usePresence) are mocked below -- this
+// apiClient stub only needs to satisfy ChatPage's other, pre-existing data hooks (useConversation,
+// useProjects -- both via ProjectSwitcher and directly for orgId resolution) well enough that they
+// don't throw when this test's assertions wait long enough for those queries to resolve. The
+// project's orgId (not a separate useOrgs() call -- employees never get an OrgMembership row) is
+// what ChatPage reads to resolve which org's employee list to fetch.
 vi.mock('../lib/apiClient', () => ({
   apiClient: {
     get: vi.fn((url: string) => {
-      if (url === '/projects') return Promise.resolve({ data: [{ id: 'proj1', name: 'Proj 1' }] });
+      if (url === '/projects') return Promise.resolve({ data: [{ id: 'proj1', name: 'Proj 1', orgId: 'org1' }] });
       if (url.startsWith('/conversations/')) return Promise.resolve({ data: { id: 'conv1', projectId: 'proj1', title: 't', messages: [] } });
       return Promise.resolve({ data: [] });
     }),
@@ -43,8 +45,6 @@ vi.mock('../hooks/useChatQueryStream', () => ({
 }));
 
 vi.mock('../hooks/usePresence', () => ({ usePresence: () => ({ participantIds: [] }) }));
-
-vi.mock('../hooks/useOrgs', () => ({ useOrgs: () => ({ data: [{ id: 'org1', name: 'Org' }] }) }));
 
 vi.mock('../hooks/useEmployees', () => ({
   useEmployees: () => ({ data: [{ id: 'eng1', userName: 'bob-engineer', role: 'L2', projectIds: ['proj1'] }] }),
