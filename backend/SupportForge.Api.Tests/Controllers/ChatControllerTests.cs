@@ -451,8 +451,39 @@ public class ChatControllerTests
         Assert.Equal(new[] { "repo-b", "repo-c" }, entry.UsedBy);
     }
 
+    // U26: an L1 caller invited into this one conversation gets the same elevated CodeDetails an
+    // L2/L3/Admin caller would, scoped strictly to that conversation.
+    [Fact]
+    public async Task Query_InvitedL1Caller_OnInvitedConversation_ReceivesCodeDetails()
+    {
+        var invitedConversation = new Conversation { Id = "conv-invited", ProjectId = "proj1", Title = "t", InvitedUserIds = new List<string> { TestUserId } };
+        var (controller, _) = MakeControllerWithCodeFindings(SupportForge.Core.Entities.AppRole.L1, seededConversation: invitedConversation);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail", ConversationId = "conv-invited" });
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<ChatQueryResponse>(ok.Value);
+        var detail = Assert.Single(body.CodeDetails!);
+        Assert.Contains("ChatController.cs", detail);
+    }
+
+    // U26: the same invited-engineer elevation does NOT leak to a different conversation the caller
+    // wasn't invited into -- scoped strictly to the one Conversation.Id, not a role change.
+    [Fact]
+    public async Task Query_InvitedL1Caller_OnDifferentConversation_DoesNotReceiveCodeDetails()
+    {
+        var otherConversation = new Conversation { Id = "conv-not-invited", ProjectId = "proj1", Title = "t", InvitedUserIds = new List<string>() };
+        var (controller, _) = MakeControllerWithCodeFindings(SupportForge.Core.Entities.AppRole.L1, seededConversation: otherConversation);
+
+        var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail", ConversationId = "conv-not-invited" });
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var body = Assert.IsType<ChatQueryResponse>(ok.Value);
+        Assert.Null(body.CodeDetails);
+    }
+
     private static (ChatController Controller, CoordinatorPipeline Pipeline) MakeControllerWithCodeFindings(
-        SupportForge.Core.Entities.AppRole role, IBlastRadiusQueryTool? blastRadius = null)
+        SupportForge.Core.Entities.AppRole role, IBlastRadiusQueryTool? blastRadius = null, Conversation? seededConversation = null)
     {
         var llmMock = new Mock<ILlmClient>();
         llmMock.Setup(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("an answer");
@@ -473,6 +504,12 @@ public class ChatControllerTests
         var vectorStore = new Mock<IVectorStoreService>();
         var conversations = new Mock<IConversationRepository>();
         conversations.Setup(c => c.UpsertAsync(It.IsAny<Conversation>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        // U26: when a test passes a pre-seeded Conversation (carrying InvitedUserIds), the request
+        // resolves to that exact conversation instead of ResolveConversationAsync's "always empty
+        // InvitedUserIds" fresh-conversation path -- otherwise there's no way to exercise the
+        // invited-engineer elevation path from this helper.
+        if (seededConversation is not null)
+            conversations.Setup(c => c.GetByIdAsync(seededConversation.Id, It.IsAny<CancellationToken>())).ReturnsAsync(seededConversation);
         var messages = new Mock<IChatMessageRepository>();
         messages.Setup(m => m.AddAsync(It.IsAny<ChatMessage>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<ChatMessage>());

@@ -19,15 +19,17 @@ public class EscalationsController : ControllerBase
     private readonly IConversationRepository _conversations;
     private readonly IChatMessageRepository _messages;
     private readonly IProjectMembershipRepository _memberships;
+    private readonly IUserRepository _users;
 
     public EscalationsController(
         IEscalationRepository escalations, IConversationRepository conversations,
-        IChatMessageRepository messages, IProjectMembershipRepository memberships)
+        IChatMessageRepository messages, IProjectMembershipRepository memberships, IUserRepository users)
     {
         _escalations = escalations;
         _conversations = conversations;
         _messages = messages;
         _memberships = memberships;
+        _users = users;
     }
 
     public sealed record EscalateResponse(string EscalationId, EscalationStatus Status);
@@ -54,15 +56,18 @@ public class EscalationsController : ControllerBase
             ProjectId: conversation.ProjectId,
             EscalatedByUserId: this.CurrentUserId(),
             EscalatedAt: DateTimeOffset.UtcNow,
-            Markdown: BuildMarkdown(query, assistant),
+            Markdown: await BuildMarkdownAsync(query, assistant, conversation, ct),
             Status: EscalationStatus.Open);
         await _escalations.UpsertAsync(escalation, ct);
 
         return Ok(new EscalateResponse(escalation.Id, escalation.Status));
     }
 
-    // Assembled once, from already-computed state -- see the class-level comment above.
-    private static string BuildMarkdown(string query, ChatMessage assistant)
+    // Assembled once, from already-computed state -- see the class-level comment above. U27: extends
+    // the same one-shot assembly step with collaborative session participants (Conversation
+    // .InvitedUserIds, U26) when present, rather than adding a second export path -- still no
+    // pipeline re-run, just one more already-persisted field folded in.
+    private async Task<string> BuildMarkdownAsync(string query, ChatMessage assistant, Conversation conversation, CancellationToken ct)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("## Escalated Conversation");
@@ -99,6 +104,16 @@ public class EscalationsController : ControllerBase
             sb.AppendLine();
             sb.AppendLine("### Vision Findings");
             sb.AppendLine(assistant.VisionFindings);
+        }
+        if (conversation.InvitedUserIds.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("### Collaborative Session");
+            foreach (var userId in conversation.InvitedUserIds)
+            {
+                var user = await _users.GetByIdAsync(userId, ct);
+                sb.AppendLine($"- Invited: {user?.UserName ?? userId}");
+            }
         }
         return sb.ToString();
     }

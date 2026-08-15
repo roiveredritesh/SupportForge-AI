@@ -17,11 +17,19 @@ public class EscalationsControllerTests
 
     private static EscalationsController MakeController(
         IEscalationRepository escalations, IConversationRepository conversations, IChatMessageRepository messages,
-        IProjectMembershipRepository? memberships, string userId, AppRole role)
+        IProjectMembershipRepository? memberships, string userId, AppRole role, IUserRepository? users = null)
     {
-        var controller = new EscalationsController(escalations, conversations, messages, memberships ?? MakePermissiveMemberships());
+        var controller = new EscalationsController(escalations, conversations, messages, memberships ?? MakePermissiveMemberships(), users ?? MakeEmptyUsers());
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser(userId, role) } };
         return controller;
+    }
+
+    // U27: no invited users to resolve unless a test explicitly sets up Conversation.InvitedUserIds.
+    private static IUserRepository MakeEmptyUsers()
+    {
+        var mock = new Mock<IUserRepository>();
+        mock.Setup(u => u.GetByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((AppUser?)null);
+        return mock.Object;
     }
 
     private static IProjectMembershipRepository MakePermissiveMemberships()
@@ -96,6 +104,40 @@ public class EscalationsControllerTests
         Assert.Equal(EscalationStatus.Open, saved.Status);
         Assert.Equal("l1-user", saved.EscalatedByUserId);
         Assert.Equal("proj1", saved.ProjectId);
+    }
+
+    // U27: extends the same one-shot cached-Markdown assembly with collaborative session
+    // participants (Conversation.InvitedUserIds, U26) when present -- not a new export path.
+    [Fact]
+    public async Task Escalate_ConversationHasInvitedParticipants_MarkdownIncludesThem()
+    {
+        var conversations = new Mock<IConversationRepository>();
+        conversations.Setup(c => c.GetByIdAsync("conv1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Conversation { Id = "conv1", ProjectId = "proj1", Title = "t", InvitedUserIds = new List<string> { "engineer-1" } });
+
+        var userMsg = new ChatMessage { Id = "msg-user", ConversationId = "conv1", Role = "user", Content = "why does this fail", CreatedAt = DateTimeOffset.UtcNow.AddSeconds(-1) };
+        var assistantMsg = MakeAssistantMessageWithFullDetail();
+        var messages = new Mock<IChatMessageRepository>();
+        messages.Setup(m => m.GetByConversationIdAsync("conv1", It.IsAny<CancellationToken>())).ReturnsAsync(new List<ChatMessage> { userMsg, assistantMsg });
+
+        Escalation? saved = null;
+        var escalations = new Mock<IEscalationRepository>();
+        escalations.Setup(e => e.UpsertAsync(It.IsAny<Escalation>(), It.IsAny<CancellationToken>()))
+            .Callback<Escalation, CancellationToken>((e, _) => saved = e)
+            .Returns(Task.CompletedTask);
+
+        var users = new Mock<IUserRepository>();
+        users.Setup(u => u.GetByIdAsync("engineer-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppUser { Id = "engineer-1", UserName = "bob-engineer", Role = AppRole.L2 });
+
+        var controller = MakeController(escalations.Object, conversations.Object, messages.Object, null, "l1-user", AppRole.L1, users.Object);
+
+        var response = await controller.Escalate("conv1");
+
+        Assert.IsType<OkObjectResult>(response.Result);
+        Assert.NotNull(saved);
+        Assert.Contains("Collaborative Session", saved!.Markdown);
+        Assert.Contains("bob-engineer", saved.Markdown);
     }
 
     [Fact]
