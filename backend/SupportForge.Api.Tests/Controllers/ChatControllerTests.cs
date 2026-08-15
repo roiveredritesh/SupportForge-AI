@@ -38,6 +38,17 @@ public class ChatControllerTests
         return mock.Object;
     }
 
+    // U11: "no project found" is a safe default everywhere these tests don't specifically exercise
+    // CommitLookupTool -- CommitHistoryForRoleAsync short-circuits to null on a null project.
+    private static IProjectRepository MakeNoProjectRepository()
+    {
+        var mock = new Mock<IProjectRepository>();
+        mock.Setup(p => p.GetByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((Project?)null);
+        return mock.Object;
+    }
+
+    private static CommitLookupTool MakeCommitLookup() => new(new HttpClient(), null, Path.GetTempPath());
+
     // WS3 (retrieval-pipeline remediation plan): a project repo returning null (no project found) and an
     // ingestion-activity check that's never busy -- FreshnessGateAgent handles both gracefully, so this is
     // a safe stand-in everywhere these tests don't care about freshness behavior specifically.
@@ -71,6 +82,14 @@ public class ChatControllerTests
         messages.Setup(m => m.GetByConversationIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ChatMessage>());
 
+        // U11: a project repo returning null (no project found) is a safe default everywhere these
+        // tests don't specifically exercise CommitLookupTool -- CommitHistoryForRoleAsync treats
+        // "no project" the same as "no commit history to attach", same short-circuit shape as
+        // MakeFreshnessGateAgent's stand-in above.
+        var projects = new Mock<IProjectRepository>();
+        projects.Setup(p => p.GetByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((Project?)null);
+        var commitLookup = new CommitLookupTool(new HttpClient(), null, Path.GetTempPath());
+
         var controller = new ChatController(
             pipeline,
             new TriageAgent(llm, NullLogger<TriageAgent>.Instance),
@@ -87,6 +106,8 @@ public class ChatControllerTests
             conversations.Object,
             messages.Object,
             memberships ?? MakePermissiveMemberships(),
+            projects.Object,
+            commitLookup,
             NullLogger<ChatController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
         return controller;
@@ -261,7 +282,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
@@ -317,7 +338,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser() } };
 
         var response = await controller.Query(new ChatQueryRequest { ProjectId = "proj1", Query = "why does this fail" });
@@ -402,7 +423,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestUser(role) } };
 
         return (controller, pipeline);
@@ -486,7 +507,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance), kbVerifier,
             new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, tokenUsage.Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
+            openAiLlm, tokenUsage.Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
 
         var responseBody = new MemoryStream();
         var httpContext = new DefaultHttpContext { Response = { Body = responseBody }, User = TestUser() };
@@ -550,7 +571,7 @@ public class ChatControllerTests
             new CodeAnalyzerAgent(new Mock<ICodeGraphQueryTool>().Object, NullLogger<CodeAnalyzerAgent>.Instance),
             new KbResearcherVerifier(openAiLlm, NullLogger<KbResearcherVerifier>.Instance), new CodeAnalyzerVerifier(openAiLlm, NullLogger<CodeAnalyzerVerifier>.Instance),
             new VisionAnalyzerAgent(new VisionAnalysisTool(openAiLlm), NullLogger<VisionAnalyzerAgent>.Instance), new VisionAnalyzerVerifier(openAiLlm, NullLogger<VisionAnalyzerVerifier>.Instance),
-            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), NullLogger<ChatController>.Instance);
+            openAiLlm, new Mock<ITokenUsageRepository>().Object, conversations.Object, messages.Object, MakePermissiveMemberships(), MakeNoProjectRepository(), MakeCommitLookup(), NullLogger<ChatController>.Instance);
 
         var body = new MemoryStream();
         controller.ControllerContext = new ControllerContext

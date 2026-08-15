@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SupportForge.Agents.Tools;
 using SupportForge.Core.Entities;
 
 namespace SupportForge.Api.Contracts;
@@ -16,4 +17,9 @@ public sealed class ChatQueryResponse
     // see this field at all (omitted, not null-but-present), hence WhenWritingNull.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? CodeDetails { get; init; }
+
+    // U11: recent commits (author/date/message/PR link) for the files CodeDetails matched --
+    // same L2/L3/Admin gate and same "absent, not null-but-present" rule as CodeDetails above.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CommitInfo>? CommitHistory { get; init; }
 }

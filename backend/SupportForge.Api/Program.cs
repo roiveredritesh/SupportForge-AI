@@ -215,6 +215,14 @@ builder.Services.AddSingleton<DocumentIngestionJobFactory>(sp => new DocumentIng
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => sp.GetRequiredService<DocumentIngestionJobFactory>());
 builder.Services.AddSingleton<GitRepoSyncService>();
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeIngestionJobFactory(sp, repoCacheRoot));
+// U11: CommitLookupTool -- named HttpClient for its standalone GitHub REST calls (PR/issue link
+// resolution), reusing the same GitHub:Token config GitRepoSyncService already reads. Singleton,
+// same reasoning as ConfluencePageFetcher/IngestionImageCaptioner above.
+builder.Services.AddHttpClient("GitHubApi");
+builder.Services.AddSingleton<CommitLookupTool>(sp => new CommitLookupTool(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("GitHubApi"),
+    builder.Configuration["GitHub:Token"],
+    repoCacheRoot));
 
 // Code Q&A is backed entirely by Neo4j: GraphImportJob loads each repo's code graph, tagged with
 // projectId, and GraphDbQueryTool queries it over a pooled Neo4j.Driver connection.
