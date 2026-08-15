@@ -69,6 +69,40 @@ public class DrafterAgentTests
         for (var i = 5; i < 10; i++) Assert.DoesNotContain($"kb-snippet-{i}", prompt);
     }
 
+    // U10: ProductVersion flows into the prompt so the model can state which version it answered for.
+    [Fact]
+    public void BuildUserPrompt_WithProductVersion_IncludesIt()
+    {
+        var context = new AgentContext { ProjectId = "p", Query = "q", ProductVersion = "3.0" };
+
+        var prompt = DrafterAgent.BuildUserPrompt(context);
+
+        Assert.Contains("ProductVersion: 3.0", prompt);
+    }
+
+    // U10: missing-version path -- BuildUserPrompt still marks it explicitly rather than omitting
+    // the line, so the model's "not specified" disclaimer instruction has something to key off of.
+    [Fact]
+    public void BuildUserPrompt_WithoutProductVersion_MarksItNotSpecified()
+    {
+        var context = new AgentContext { ProjectId = "p", Query = "q" };
+
+        var prompt = DrafterAgent.BuildUserPrompt(context);
+
+        Assert.Contains("ProductVersion: (not specified)", prompt);
+    }
+
+    // U10: the system prompt instructs the model to disclose/flag version state -- exercised at the
+    // prompt-construction level since there's no live LLM in this test environment (same limitation
+    // DrafterAgent's groundedness check documents).
+    [Fact]
+    public void SystemPrompt_InstructsVersionDisclaimerAndMismatchFlagging()
+    {
+        Assert.Contains("version this answer applies to", DrafterAgent.SystemPrompt);
+        Assert.Contains("version mismatch", DrafterAgent.SystemPrompt);
+        Assert.Contains("no version was specified", DrafterAgent.SystemPrompt);
+    }
+
     [Fact]
     public void BuildUserPrompt_WithNoHistory_ShowsNone()
     {

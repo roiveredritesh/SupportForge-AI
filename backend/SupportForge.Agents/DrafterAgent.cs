@@ -101,6 +101,14 @@ public sealed partial class DrafterAgent : IAgent
         behavior you do have; if no documentation covers it, direct them to the engineering team.
 
         For other intents, answer the question in plain prose from the provided context.
+
+        Version (skip this for "greeting" and "unclear" intents, which never add caveats): if
+        ProductVersion is given below, end your answer with a short bolded line stating the version this answer applies to
+        (e.g. "**Applies to version X.**"). If the retrieved context clearly documents different
+        behavior for other versions than the one given, say so as a version mismatch instead of
+        silently answering for the wrong version. If ProductVersion is not given, add a short bolded
+        note that no version was specified and the answer may not apply to every version.
+
         Respond in Markdown.
         """;
 
@@ -147,6 +155,7 @@ public sealed partial class DrafterAgent : IAgent
         Customer question: {context.Query}
         Intent: {context.Intent}
         Freshness: {DescribeFreshness(context.Freshness)}
+        ProductVersion: {(string.IsNullOrEmpty(context.ProductVersion) ? "(not specified)" : context.ProductVersion)}
         <retrieved_context source="kb">
         {string.Join("\n---\n", context.KbSnippets.Take(MaxSnippetsPerSource))}
         </retrieved_context>

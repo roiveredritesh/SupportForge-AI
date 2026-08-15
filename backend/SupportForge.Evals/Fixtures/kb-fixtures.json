@@ -201,5 +201,15 @@
       "| Plan | Price/mo | API calls/mo |\n| --- | --- | --- |",
       "Waza's refund API returns a 409 if the order was already refunded."
     ]
+  },
+
+  {
+    "id": "waza-version-01", "domain": "waza (e-commerce API)", "expectPass": true,
+    "note": "U10: version-tagged snippet -- KbResearcherVerifier judges topical relevance, which is orthogonal to KbResearcherAgent's separate version-bias retrieval filter, so this should still pass",
+    "query": "how do I install Waza v3 on macOS?",
+    "snippets": [
+      "Waza v3.0 install guide: run curl -fsSL https://waza.dev/v3/install.sh | sh to install on macOS or Linux.",
+      "Waza's refund API returns a 409 if the order was already refunded."
+    ]
   }
 ]

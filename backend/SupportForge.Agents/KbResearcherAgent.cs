@@ -29,7 +29,13 @@ public sealed class KbResearcherAgent : IAgent
             }
 
             var topK = context.KbVerification.Attempts > 0 ? 10 : 5;
-            var results = await _tool.SearchAsync(context.ProjectId, context.Query, topK, ct: ct);
+            // U10: bias retrieval toward the customer's stated version when given -- KbSearchTool
+            // falls back to an unfiltered query if nothing matches this filter, so an untagged corpus
+            // still retrieves normally.
+            var metadataFilter = string.IsNullOrEmpty(context.ProductVersion)
+                ? null
+                : new Dictionary<string, string> { ["version"] = context.ProductVersion };
+            var results = await _tool.SearchAsync(context.ProjectId, context.Query, topK, metadataFilter, ct);
 
             context.KbSnippets.Clear();
             foreach (var (text, source) in results)
