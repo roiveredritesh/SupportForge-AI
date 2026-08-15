@@ -116,6 +116,7 @@ export default function ChatPage() {
                   confidence: chatStream.confidence,
                   sources: chatStream.sources,
                   totalTokensUsed: chatStream.totalTokensUsed,
+                  codeDetails: chatStream.codeDetails,
                   actions: chatStream.draft
                     ? {
                         onCopy: () => navigator.clipboard.writeText(chatStream.draft),

@@ -25,9 +25,10 @@ public class FeedbackController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Submit([FromBody] SubmitRequest request, CancellationToken ct = default)
     {
-        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), request.ProjectId, ct)) return Forbid();
+        var userId = this.CurrentUserId();
+        if (!await _memberships.IsMemberAsync(userId, request.ProjectId, ct)) return Forbid();
 
-        await _repo.AddAsync(new FeedbackEntry(request.ProjectId, request.Query, request.Useful, request.Escalated, DateTimeOffset.UtcNow), ct);
+        await _repo.AddAsync(new FeedbackEntry(request.ProjectId, request.Query, request.Useful, request.Escalated, DateTimeOffset.UtcNow, userId), ct);
         return Ok();
     }
 }

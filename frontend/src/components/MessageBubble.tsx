@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceBadge } from './ConfidenceBadge';
+import { CodeDetailPanel } from './CodeDetailPanel';
 import type { ChatSource } from '../hooks/useChatQuery';
 
 export interface MessageBubbleActions {
@@ -15,6 +16,7 @@ interface Props {
   confidence?: number;
   sources?: ChatSource[];
   totalTokensUsed?: number;
+  codeDetails?: string[];
   actions?: MessageBubbleActions;
 }
 
@@ -22,7 +24,7 @@ interface Props {
 // answer, never merged into `content` -- DrafterAgent's leak guard forbids citations *inside the
 // drafted prose* (what "Copy Response" copies to send onward), not from this internal tool's own
 // screen. This is for the support engineer's own verification, per the PRD's "Cited sources" screen.
-export function MessageBubble({ role, content, confidence, sources, totalTokensUsed, actions }: Props) {
+export function MessageBubble({ role, content, confidence, sources, totalTokensUsed, codeDetails, actions }: Props) {
   if (role === 'user') {
     return (
       <div className="flex justify-end">
@@ -57,6 +59,8 @@ export function MessageBubble({ role, content, confidence, sources, totalTokensU
             )}
           </div>
         )}
+
+        <CodeDetailPanel codeDetails={codeDetails} />
 
         {actions && (
           <div className="flex gap-2 pt-2">

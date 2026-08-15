@@ -3,7 +3,13 @@ import { apiClient } from '../lib/apiClient';
 import { useAuthStore } from '../store/useAuthStore';
 import type { ChatQueryRequest, ChatSource } from './useChatQuery';
 
-interface DoneEvent { confidence: number; conversationId: string; sources: ChatSource[]; totalTokensUsed: number; }
+interface DoneEvent {
+  confidence: number;
+  conversationId: string;
+  sources: ChatSource[];
+  totalTokensUsed: number;
+  codeDetails?: string[];
+}
 
 export function useChatQueryStream() {
   const [draft, setDraft] = useState('');
@@ -11,6 +17,7 @@ export function useChatQueryStream() {
   const [conversationId, setConversationId] = useState<string>();
   const [sources, setSources] = useState<ChatSource[]>([]);
   const [totalTokensUsed, setTotalTokensUsed] = useState<number>();
+  const [codeDetails, setCodeDetails] = useState<string[] | undefined>();
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<Error>();
   const requestRef = useRef<ChatQueryRequest | undefined>(undefined);
@@ -21,6 +28,7 @@ export function useChatQueryStream() {
     setConfidence(undefined);
     setSources([]);
     setTotalTokensUsed(undefined);
+    setCodeDetails(undefined);
     setError(undefined);
     setIsStreaming(true);
 
@@ -59,6 +67,7 @@ export function useChatQueryStream() {
             setConversationId(payload.conversationId);
             setSources(payload.sources ?? []);
             setTotalTokensUsed(payload.totalTokensUsed);
+            setCodeDetails(payload.codeDetails);
           } else {
             setDraft((prev) => prev + (JSON.parse(dataLine) as string));
           }
@@ -81,8 +90,9 @@ export function useChatQueryStream() {
     setConversationId(undefined);
     setSources([]);
     setTotalTokensUsed(undefined);
+    setCodeDetails(undefined);
     setError(undefined);
   }, []);
 
-  return { draft, confidence, conversationId, sources, totalTokensUsed, isStreaming, error, start, retry, reset };
+  return { draft, confidence, conversationId, sources, totalTokensUsed, codeDetails, isStreaming, error, start, retry, reset };
 }

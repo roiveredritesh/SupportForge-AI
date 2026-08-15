@@ -38,6 +38,10 @@ public static class JwtTokenFactory
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id),
             new Claim(JwtRegisteredClaimNames.UniqueName, user.UserName),
+            // U6/U4: ClaimTypes.Role (not the "role" short type) so ASP.NET's Roles-claim lookup --
+            // used by both [Authorize(Roles="Admin")] and ControllerBaseExtensions.CurrentUserRole --
+            // finds it without relying on JwtSecurityTokenHandler's inbound claim-type mapping.
+            new Claim(ClaimTypes.Role, user.Role.ToString()),
         };
         var credentials = new SigningCredentials(ResolveSigningKey(configuration), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(

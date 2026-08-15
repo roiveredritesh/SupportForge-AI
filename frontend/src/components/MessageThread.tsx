@@ -9,6 +9,7 @@ interface PendingTurn {
   confidence?: number;
   sources?: ChatSource[];
   totalTokensUsed?: number;
+  codeDetails?: string[];
   actions?: MessageBubbleActions;
 }
 
@@ -47,6 +48,7 @@ export function MessageThread({ messages, pending, lastAssistantActions }: Props
               confidence={pending.confidence}
               sources={pending.sources}
               totalTokensUsed={pending.totalTokensUsed}
+              codeDetails={pending.codeDetails}
               actions={pending.actions}
             />
           ) : (
