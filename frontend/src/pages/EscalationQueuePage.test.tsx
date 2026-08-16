@@ -25,27 +25,30 @@ describe('EscalationQueuePage', () => {
 
     render(<EscalationQueuePage />);
 
-    expect(screen.getByText(/Conversation conv1/)).toBeInTheDocument();
+    expect(screen.getByText('conv1')).toBeInTheDocument();
     expect(screen.queryByText(/Code Findings/)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/Conversation conv1/));
+    fireEvent.click(screen.getByText('conv1'));
 
     expect(screen.getByText('Code Findings')).toBeInTheDocument();
     expect(screen.getByText(/backend\/ChatController\.cs/)).toBeInTheDocument();
   });
 
-  it('renders open escalations as grid-item cards', () => {
+  it('renders open escalations as table rows', () => {
     queueData = [
       { id: 'e1', conversationId: 'conv1', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Open', markdown: 'md1' },
       { id: 'e2', conversationId: 'conv2', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Open', markdown: 'md2' },
       { id: 'e3', conversationId: 'conv3', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Open', markdown: 'md3' },
     ];
 
-    const { container } = render(<EscalationQueuePage />);
+    render(<EscalationQueuePage />);
 
-    const grid = container.querySelector('.grid');
-    expect(grid).toBeInTheDocument();
-    expect(grid?.children).toHaveLength(3);
+    const table = screen.getByRole('table');
+    expect(table).toBeInTheDocument();
+    expect(screen.getAllByRole('row')).toHaveLength(4); // 1 header row + 3 data rows
+    expect(screen.getByText('conv1')).toBeInTheDocument();
+    expect(screen.getByText('conv2')).toBeInTheDocument();
+    expect(screen.getByText('conv3')).toBeInTheDocument();
   });
 
   it('claiming an escalation calls the claim mutation', () => {

@@ -24,13 +24,13 @@ function renderSection() {
   );
 }
 
-// U8: employee list renders as a card grid instead of a <ul>/<li> list.
-describe('EmployeesSection grid layout', () => {
+// Employee list renders as a data table (rows/columns), not a card grid or a <ul>/<li> list.
+describe('EmployeesSection table layout', () => {
   beforeEach(() => {
     useAuthStore.setState({ role: 'Admin' });
   });
 
-  it('renders 3 employees as cards inside a grid container', async () => {
+  it('renders 3 employees as rows inside a table', async () => {
     vi.mocked(apiClient.get).mockImplementation((url: string) => {
       if (url === '/orgs') return Promise.resolve({ data: [{ id: 'org1', name: 'Org One' }] });
       if (url === '/orgs/org1/employees')
@@ -46,15 +46,15 @@ describe('EmployeesSection grid layout', () => {
 
     renderSection();
 
-    const alice = await screen.findByText(/alice/);
-    expect(screen.getByText(/bob/)).toBeInTheDocument();
-    expect(screen.getByText(/carol/)).toBeInTheDocument();
+    await screen.findByText('alice');
+    expect(screen.getByText('bob')).toBeInTheDocument();
+    expect(screen.getByText('carol')).toBeInTheDocument();
 
-    const card = alice.closest('.rounded-lg');
-    expect(card?.parentElement).toHaveClass('grid');
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getAllByRole('row')).toHaveLength(4); // 1 header row + 3 data rows
   });
 
-  it('shows the empty-state text and no grid when there are zero employees', async () => {
+  it('shows the empty-state text and no table when there are zero employees', async () => {
     vi.mocked(apiClient.get).mockImplementation((url: string) => {
       if (url === '/orgs') return Promise.resolve({ data: [{ id: 'org1', name: 'Org One' }] });
       if (url === '/orgs/org1/employees') return Promise.resolve({ data: [] });
@@ -64,7 +64,7 @@ describe('EmployeesSection grid layout', () => {
     renderSection();
 
     expect(await screen.findByText('No employees registered yet.')).toBeInTheDocument();
-    expect(document.querySelector('.grid')).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
   });
 });
 

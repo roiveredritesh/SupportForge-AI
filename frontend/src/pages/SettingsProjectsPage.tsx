@@ -327,79 +327,95 @@ export default function SettingsProjectsPage() {
         {projects?.length === 0 ? (
           <p className="text-sm text-gray-500">No projects yet.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-            {projects?.map((p) => (
-              <div key={p.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    {p.name} ({p.id})
-                    <FreshnessBadge projectId={p.id} />
-                  </span>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
-                    onClick={() => startEdit(p)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
-                    onClick={() => triggerIngestion.mutate(p.id)}
-                    disabled={triggerIngestion.isPending}
-                    title="Picks up new or changed content only"
-                  >
-                    Re-index
-                  </button>
-                  <button
-                    className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
-                    onClick={() => handleForceReindex(p.id)}
-                    disabled={forceReindex.isPending}
-                    title="Clears the sync cache first, so unchanged sources re-chunk too -- use after an ingestion logic update"
-                  >
-                    Force Reindex
-                  </button>
-                  <button
-                    className="rounded-lg border border-red-300 px-3 py-1 text-sm text-red-600 hover:bg-red-50 dark:border-red-700 dark:hover:bg-red-950"
-                    onClick={() => handleDelete(p.id)}
-                    disabled={deleteProject.isPending}
-                  >
-                    Delete
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  Re-index picks up new/changed content. Force Reindex also re-processes unchanged content — use
-                  after an ingestion logic update.
-                </p>
-                {(p.repos.length > 0 || p.kbSources.length > 0) && (
-                  <ul className="mt-1 space-y-0.5 text-sm text-gray-500">
-                    {p.repos.map((r) => (
-                      <li key={`${r.owner}/${r.repo}`}>
-                        Repo: {r.owner}/{r.repo} ({r.defaultBranch})
-                        {r.lastSyncedAt ? ` — last synced ${new Date(r.lastSyncedAt).toLocaleString()}` : ' — never synced'}
-                      </li>
-                    ))}
-                    {p.kbSources.map((k) => (
-                      <li key={`${k.type}:${k.location}`}>
-                        KB [{k.type}]: {k.location}
-                        {k.repoOwner && k.repoName ? ` (via ${k.repoOwner}/${k.repoName})` : ''}
-                        {k.type === 'Website' && k.crawlLinkedPages ? ' (+ linked pages)' : ''}
-                        {k.lastSyncedAt ? ` — last synced ${new Date(k.lastSyncedAt).toLocaleString()}` : ' — never synced'}
-                      </li>
-                    ))}
-                    {p.kbSources.length > 0 && (
-                      <li>
-                        Scheduled sync: every {p.scheduledSyncIntervalHours ?? '(default)'}
-                        {p.scheduledSyncIntervalHours != null ? 'h' : ''}
-                      </li>
-                    )}
-                  </ul>
-                )}
-                <ul className="mt-1 space-y-0.5 text-sm">
-                  <DeadLetterList projectId={p.id} />
-                </ul>
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs uppercase text-slate-400 dark:border-gray-700 dark:text-gray-500">
+                  <th className="py-2 pr-3">Project</th>
+                  <th className="py-2 pr-3">Freshness</th>
+                  <th className="py-2 pr-3">Sources</th>
+                  <th className="py-2 pr-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects?.map((p) => (
+                  <tr key={p.id} className="border-b border-slate-100 align-top dark:border-gray-800">
+                    <td className="py-2 pr-3 font-medium">
+                      {p.name} ({p.id})
+                    </td>
+                    <td className="py-2 pr-3">
+                      <FreshnessBadge projectId={p.id} />
+                    </td>
+                    <td className="py-2 pr-3 text-gray-500">
+                      {(p.repos.length > 0 || p.kbSources.length > 0) && (
+                        <ul className="space-y-0.5">
+                          {p.repos.map((r) => (
+                            <li key={`${r.owner}/${r.repo}`}>
+                              Repo: {r.owner}/{r.repo} ({r.defaultBranch})
+                              {r.lastSyncedAt ? ` — last synced ${new Date(r.lastSyncedAt).toLocaleString()}` : ' — never synced'}
+                            </li>
+                          ))}
+                          {p.kbSources.map((k) => (
+                            <li key={`${k.type}:${k.location}`}>
+                              KB [{k.type}]: {k.location}
+                              {k.repoOwner && k.repoName ? ` (via ${k.repoOwner}/${k.repoName})` : ''}
+                              {k.type === 'Website' && k.crawlLinkedPages ? ' (+ linked pages)' : ''}
+                              {k.lastSyncedAt ? ` — last synced ${new Date(k.lastSyncedAt).toLocaleString()}` : ' — never synced'}
+                            </li>
+                          ))}
+                          {p.kbSources.length > 0 && (
+                            <li>
+                              Scheduled sync: every {p.scheduledSyncIntervalHours ?? '(default)'}
+                              {p.scheduledSyncIntervalHours != null ? 'h' : ''}
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                      <ul className="space-y-0.5">
+                        <DeadLetterList projectId={p.id} />
+                      </ul>
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                          onClick={() => startEdit(p)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                          onClick={() => triggerIngestion.mutate(p.id)}
+                          disabled={triggerIngestion.isPending}
+                          title="Picks up new or changed content only"
+                        >
+                          Re-index
+                        </button>
+                        <button
+                          className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                          onClick={() => handleForceReindex(p.id)}
+                          disabled={forceReindex.isPending}
+                          title="Clears the sync cache first, so unchanged sources re-chunk too -- use after an ingestion logic update"
+                        >
+                          Force Reindex
+                        </button>
+                        <button
+                          className="rounded-lg border border-red-300 px-3 py-1 text-sm text-red-600 hover:bg-red-50 dark:border-red-700 dark:hover:bg-red-950"
+                          onClick={() => handleDelete(p.id)}
+                          disabled={deleteProject.isPending}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Re-index picks up new/changed content. Force Reindex also re-processes unchanged content —
+                        use after an ingestion logic update.
+                      </p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

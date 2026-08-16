@@ -63,12 +63,27 @@ export function EmployeesSection() {
         {employees?.length === 0 ? (
           <p className="text-sm text-gray-500">No employees registered yet.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {employees?.map((e) => (
-              <div key={e.id} className="rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-gray-900">
-                <span className="font-medium">{e.userName}</span> — {e.role} — projects: {e.projectIds.join(', ') || 'none'}
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs uppercase text-slate-400 dark:border-gray-700 dark:text-gray-500">
+                  <th className="py-2 pr-3">Username</th>
+                  <th className="py-2 pr-3">Role</th>
+                  <th className="py-2 pr-3">Projects</th>
+                </tr>
+              </thead>
+              <tbody>
+                {employees?.map((e) => (
+                  <tr key={e.id} className="border-b border-slate-100 dark:border-gray-800">
+                    <td className="py-2 pr-3 font-medium">{e.userName}</td>
+                    <td className="py-2 pr-3">{e.role}</td>
+                    <td className="py-2 pr-3">
+                      {e.projectIds.map((id) => projects?.find((p) => p.id === id)?.name ?? id).join(', ') || 'none'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
