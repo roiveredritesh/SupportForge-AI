@@ -314,6 +314,10 @@ builder.Services.AddOpenTelemetry()
 
 var app = builder.Build();
 
+// Sprint 7: must run before ProjectOrgMigration (or any other IOrgRepository consumer) ever reads
+// orgs.json through the strict Org model -- see OrgRequiredFieldsMigration's own comment for why.
+await OrgRequiredFieldsMigration.RunAsync(Path.Combine(builder.Environment.ContentRootPath, "App_Data"));
+
 // Sprint 0 (U2): must run before the app starts serving requests so no request can observe a
 // project with a missing OrgId.
 await ProjectOrgMigration.RunAsync(
