@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useRegister } from '../hooks/useRegister';
+import { type FieldErrors, validatePasswordLength, validateRequired } from '../lib/formValidation';
 
 // Self-service org+Admin signup -- mirrors LoginPage.tsx exactly. AuthController.Register creates
 // a new user, a new Org, and makes the user that org's Admin (one org per admin). Employees are
@@ -14,17 +15,27 @@ export default function RegisterPage() {
   const [contactNumber, setContactNumber] = useState('');
   const [industry, setIndustry] = useState('');
   const [address, setAddress] = useState('');
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<FieldErrors>({});
   const register = useRegister();
   const navigate = useNavigate();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!orgName || !userName || !password || !contactPerson || !contactNumber || !industry) {
-      setValidationError('Please fill in all required fields.');
+    const fieldErrors = validateRequired({
+      orgName,
+      userName,
+      password,
+      contactPerson,
+      contactNumber,
+      industry,
+    });
+    const passwordError = validatePasswordLength(password);
+    if (passwordError) fieldErrors.password = passwordError;
+    if (Object.keys(fieldErrors).length > 0) {
+      setErrors(fieldErrors);
       return;
     }
-    setValidationError(null);
+    setErrors({});
     register.mutate(
       {
         orgName,
@@ -51,56 +62,110 @@ export default function RegisterPage() {
             SupportForge AI — you'll be the Admin of a new org.
           </p>
         </div>
-        <label className="block text-sm">
-          Organization Name
-          <input
-            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
-            value={orgName}
-            onChange={(e) => setOrgName(e.target.value)}
-            autoFocus
-          />
-        </label>
-        <label className="block text-sm">
-          Username
-          <input
-            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
-            value={userName}
-            onChange={(e) => setUserName(e.target.value)}
-          />
-        </label>
-        <label className="block text-sm">
-          Password
-          <input
-            type="password"
-            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
-        <label className="block text-sm">
-          Contact Person
-          <input
-            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
-            value={contactPerson}
-            onChange={(e) => setContactPerson(e.target.value)}
-          />
-        </label>
-        <label className="block text-sm">
-          Contact Number
-          <input
-            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
-            value={contactNumber}
-            onChange={(e) => setContactNumber(e.target.value)}
-          />
-        </label>
-        <label className="block text-sm">
-          Industry
-          <input
-            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
-            value={industry}
-            onChange={(e) => setIndustry(e.target.value)}
-          />
-        </label>
+        <div>
+          <label className="block text-sm">
+            Organization Name
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+              value={orgName}
+              onChange={(e) => setOrgName(e.target.value)}
+              autoFocus
+              aria-invalid={!!errors.orgName}
+              aria-describedby={errors.orgName ? 'orgName-error' : undefined}
+            />
+          </label>
+          {errors.orgName && (
+            <p id="orgName-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {errors.orgName}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm">
+            Username
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              aria-invalid={!!errors.userName}
+              aria-describedby={errors.userName ? 'userName-error' : undefined}
+            />
+          </label>
+          {errors.userName && (
+            <p id="userName-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {errors.userName}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm">
+            Password
+            <input
+              type="password"
+              className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? 'password-error' : undefined}
+            />
+          </label>
+          {errors.password && (
+            <p id="password-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {errors.password}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm">
+            Contact Person
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+              value={contactPerson}
+              onChange={(e) => setContactPerson(e.target.value)}
+              aria-invalid={!!errors.contactPerson}
+              aria-describedby={errors.contactPerson ? 'contactPerson-error' : undefined}
+            />
+          </label>
+          {errors.contactPerson && (
+            <p id="contactPerson-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {errors.contactPerson}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm">
+            Contact Number
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+              value={contactNumber}
+              onChange={(e) => setContactNumber(e.target.value)}
+              aria-invalid={!!errors.contactNumber}
+              aria-describedby={errors.contactNumber ? 'contactNumber-error' : undefined}
+            />
+          </label>
+          {errors.contactNumber && (
+            <p id="contactNumber-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {errors.contactNumber}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm">
+            Industry
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+              aria-invalid={!!errors.industry}
+              aria-describedby={errors.industry ? 'industry-error' : undefined}
+            />
+          </label>
+          {errors.industry && (
+            <p id="industry-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {errors.industry}
+            </p>
+          )}
+        </div>
         <label className="block text-sm">
           Address (optional)
           <input
@@ -109,9 +174,6 @@ export default function RegisterPage() {
             onChange={(e) => setAddress(e.target.value)}
           />
         </label>
-        {validationError && (
-          <p className="text-sm text-red-600 dark:text-red-400">{validationError}</p>
-        )}
         {register.isError && (
           <p className="text-sm text-red-600 dark:text-red-400">
             Could not create your account. That username may already be taken.
