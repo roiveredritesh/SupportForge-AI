@@ -21,11 +21,13 @@ export default function EscalationQueuePage() {
       {isLoading && <p className="text-sm text-gray-500">Loading...</p>}
       {escalations?.length === 0 && <p className="text-sm text-gray-500">No open escalations.</p>}
 
-      <ul className="space-y-2">
-        {escalations?.map((e) => (
-          <EscalationRow key={e.id} escalation={e} isOpen={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)} onClaim={() => claim.mutate(e.id)} claimPending={claim.isPending} />
-        ))}
-      </ul>
+      {escalations && escalations.length > 0 && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {escalations.map((e) => (
+            <EscalationRow key={e.id} escalation={e} isOpen={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)} onClaim={() => claim.mutate(e.id)} claimPending={claim.isPending} />
+          ))}
+        </div>
+      )}
 
       {open && (
         <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
@@ -44,7 +46,7 @@ function EscalationRow({
   escalation: Escalation; isOpen: boolean; onToggle: () => void; onClaim: () => void; claimPending: boolean;
 }) {
   return (
-    <li
+    <div
       className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm dark:bg-gray-800 ${
         isOpen ? 'border-indigo-400 bg-indigo-50 dark:border-indigo-500' : 'border-slate-200 bg-white dark:border-gray-700'
       }`}
@@ -55,6 +57,6 @@ function EscalationRow({
       <button className="rounded border px-3 py-1 text-sm" onClick={onClaim} disabled={claimPending}>
         Claim
       </button>
-    </li>
+    </div>
   );
 }

@@ -33,16 +33,18 @@ export default function MyIssuesPage() {
       {isLoading && <p className="text-sm text-gray-500">Loading...</p>}
       {filtered.length === 0 && !isLoading && <p className="text-sm text-gray-500">No issues here.</p>}
 
-      <ul className="space-y-2">
-        {filtered.map((e: Escalation) => (
-          <li key={e.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800">
-            <button className="text-left hover:underline" onClick={() => setOpenId(openId === e.id ? null : e.id)}>
-              Conversation {e.conversationId} — {e.status}
-              {e.claimedAt ? ` — claimed ${new Date(e.claimedAt).toLocaleString()}` : ''}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {filtered.length > 0 && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((e: Escalation) => (
+            <div key={e.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800">
+              <button className="text-left hover:underline" onClick={() => setOpenId(openId === e.id ? null : e.id)}>
+                Conversation {e.conversationId} — {e.status}
+                {e.claimedAt ? ` — claimed ${new Date(e.claimedAt).toLocaleString()}` : ''}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {open && (
         <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
