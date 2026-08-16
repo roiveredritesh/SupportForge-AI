@@ -13,6 +13,7 @@ const NAV_ITEMS: { to: string; label: string; end: boolean; icon: ComponentType<
   { to: '/escalations', label: 'Escalations', end: false, icon: EscalationIcon, roles: ['L2', 'L3', 'Admin'] },
   { to: '/my-issues', label: 'My Issues', end: false, icon: EscalationIcon, roles: ['L2', 'L3', 'Admin'] },
   { to: '/settings', label: 'Settings', end: false, icon: SettingsIcon },
+  { to: '/help', label: 'Help', end: false, icon: HelpIcon },
 ];
 
 export default function Layout() {
@@ -118,6 +119,18 @@ function EscalationIcon({ className }: { className?: string }) {
       <path
         fillRule="evenodd"
         d="M8.257 3.099c.765-1.36 2.72-1.36 3.486 0l6.28 11.19c.75 1.334-.213 2.987-1.743 2.987H3.72c-1.53 0-2.493-1.653-1.743-2.987l6.28-11.19zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 8a1 1 0 100-2 1 1 0 000 2z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function HelpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a1.5 1.5 0 112.12 2.12c-.24.24-.44.44-.6.68-.16.24-.26.5-.26.76a.75.75 0 01-1.5 0c0-.6.24-1.1.53-1.5.24-.32.5-.58.72-.8a.5.5 0 10-.85-.35.75.75 0 11-1.5 0c0-.83.67-1.5 1.5-1.5.4 0 .77.16 1.03.43zM10 14a1 1 0 100-2 1 1 0 000 2z"
         clipRule="evenodd"
       />
     </svg>

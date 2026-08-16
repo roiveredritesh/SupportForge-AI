@@ -12,6 +12,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import EscalationQueuePage from './pages/EscalationQueuePage';
 import MyIssuesPage from './pages/MyIssuesPage';
+import HelpPage from './pages/HelpPage';
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
                 EmployeesSection) is what actually hides the link for L1. */}
             <Route path="/escalations" element={<EscalationQueuePage />} />
             <Route path="/my-issues" element={<MyIssuesPage />} />
+            <Route path="/help" element={<HelpPage />} />
           </Route>
         </Route>
       </Routes>
