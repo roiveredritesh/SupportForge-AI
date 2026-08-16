@@ -315,6 +315,7 @@ export default function SettingsProjectsPage() {
                     className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
                     onClick={() => triggerIngestion.mutate(p.id)}
                     disabled={triggerIngestion.isPending}
+                    title="Picks up new or changed content only"
                   >
                     Re-index
                   </button>
@@ -334,6 +335,10 @@ export default function SettingsProjectsPage() {
                     Delete
                   </button>
                 </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Re-index picks up new/changed content. Force Reindex also re-processes unchanged content — use
+                  after an ingestion logic update.
+                </p>
                 {(p.repos.length > 0 || p.kbSources.length > 0) && (
                   <ul className="mt-1 space-y-0.5 text-sm text-gray-500">
                     {p.repos.map((r) => (
