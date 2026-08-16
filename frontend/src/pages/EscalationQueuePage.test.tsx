@@ -34,6 +34,20 @@ describe('EscalationQueuePage', () => {
     expect(screen.getByText(/backend\/ChatController\.cs/)).toBeInTheDocument();
   });
 
+  it('renders open escalations as grid-item cards', () => {
+    queueData = [
+      { id: 'e1', conversationId: 'conv1', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Open', markdown: 'md1' },
+      { id: 'e2', conversationId: 'conv2', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Open', markdown: 'md2' },
+      { id: 'e3', conversationId: 'conv3', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Open', markdown: 'md3' },
+    ];
+
+    const { container } = render(<EscalationQueuePage />);
+
+    const grid = container.querySelector('.grid');
+    expect(grid).toBeInTheDocument();
+    expect(grid?.children).toHaveLength(3);
+  });
+
   it('claiming an escalation calls the claim mutation', () => {
     queueData = [
       {

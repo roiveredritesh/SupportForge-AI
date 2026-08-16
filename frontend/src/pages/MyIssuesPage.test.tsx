@@ -31,6 +31,32 @@ describe('MyIssuesPage', () => {
     expect(screen.getByText(/conv2/)).toBeInTheDocument();
   });
 
+  it('renders claimed items as grid-item cards', () => {
+    issuesData = [
+      { id: 'e1', conversationId: 'conv1', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Claimed', markdown: 'md1', claimedByUserId: 'l3', claimedAt: new Date().toISOString() },
+      { id: 'e2', conversationId: 'conv2', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Claimed', markdown: 'md2', claimedByUserId: 'l3', claimedAt: new Date().toISOString() },
+      { id: 'e3', conversationId: 'conv3', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Claimed', markdown: 'md3', claimedByUserId: 'l3', claimedAt: new Date().toISOString() },
+    ];
+
+    const { container } = render(<MyIssuesPage />);
+
+    const grid = container.querySelector('.grid');
+    expect(grid).toBeInTheDocument();
+    expect(grid?.children).toHaveLength(3);
+  });
+
+  it('opening an issue card shows its cached Markdown', () => {
+    issuesData = [
+      { id: 'e1', conversationId: 'conv1', projectId: 'proj1', escalatedByUserId: 'l1', escalatedAt: new Date().toISOString(), status: 'Claimed', markdown: '## Detail\n\nsome markdown body', claimedByUserId: 'l3', claimedAt: new Date().toISOString() },
+    ];
+
+    render(<MyIssuesPage />);
+
+    expect(screen.queryByText('Detail')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText(/conv1/));
+    expect(screen.getByText('Detail')).toBeInTheDocument();
+  });
+
   it('shows an empty state with no issues', () => {
     issuesData = [];
     render(<MyIssuesPage />);
