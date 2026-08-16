@@ -119,4 +119,48 @@ describe('SettingsProjectsPage', () => {
 
     await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/ingestion/dead-letters/dl1'));
   });
+
+  // U8: Existing Projects renders as a card grid instead of a <ul>/<li> list.
+  it('renders 2 projects as cards inside a grid container', async () => {
+    vi.mocked(apiClient.get).mockImplementation((url: string) => {
+      if (url === '/projects')
+        return Promise.resolve({
+          data: [
+            { id: 'proj1', name: 'Proj One', repos: [], kbSources: [] },
+            { id: 'proj2', name: 'Proj Two', repos: [], kbSources: [] },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const projOne = await screen.findByText(/Proj One/);
+    expect(screen.getByText(/Proj Two/)).toBeInTheDocument();
+
+    const card = projOne.closest('.rounded-lg');
+    expect(card?.parentElement).toHaveClass('grid');
+  });
+
+  it('shows the empty-state text and no grid when there are zero projects', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: [] });
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('No projects yet.')).toBeInTheDocument();
+  });
 });

@@ -49,14 +49,17 @@ export function EmployeesSection() {
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h2 className="font-medium">Employees</h2>
 
-        <ul className="space-y-2">
-          {employees?.map((e) => (
-            <li key={e.id} className="rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-gray-900">
-              <span className="font-medium">{e.userName}</span> — {e.role} — projects: {e.projectIds.join(', ') || 'none'}
-            </li>
-          ))}
-          {employees?.length === 0 && <li className="text-sm text-gray-500">No employees registered yet.</li>}
-        </ul>
+        {employees?.length === 0 ? (
+          <p className="text-sm text-gray-500">No employees registered yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {employees?.map((e) => (
+              <div key={e.id} className="rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-gray-900">
+                <span className="font-medium">{e.userName}</span> — {e.role} — projects: {e.projectIds.join(', ') || 'none'}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="space-y-2 border-t border-slate-100 pt-3 dark:border-gray-700">
           <label className="block text-sm">

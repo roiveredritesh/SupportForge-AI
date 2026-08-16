@@ -292,15 +292,19 @@ export default function SettingsProjectsPage() {
 
       <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <h2 className="font-medium">Existing Projects</h2>
-        <ul className="space-y-2">
-          {projects?.map((p) => (
-            <li key={p.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  {p.name} ({p.id})
-                  <FreshnessBadge projectId={p.id} />
-                </span>
-                <div className="flex gap-2">
+        {projects?.length === 0 ? (
+          <p className="text-sm text-gray-500">No projects yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {projects?.map((p) => (
+              <div key={p.id} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-gray-900">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    {p.name} ({p.id})
+                    <FreshnessBadge projectId={p.id} />
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700"
                     onClick={() => startEdit(p)}
@@ -330,37 +334,37 @@ export default function SettingsProjectsPage() {
                     Delete
                   </button>
                 </div>
-              </div>
-              {(p.repos.length > 0 || p.kbSources.length > 0) && (
-                <ul className="mt-1 space-y-0.5 text-sm text-gray-500">
-                  {p.repos.map((r) => (
-                    <li key={`${r.owner}/${r.repo}`}>
-                      Repo: {r.owner}/{r.repo} ({r.defaultBranch})
-                      {r.lastSyncedAt ? ` — last synced ${new Date(r.lastSyncedAt).toLocaleString()}` : ' — never synced'}
-                    </li>
-                  ))}
-                  {p.kbSources.map((k) => (
-                    <li key={`${k.type}:${k.location}`}>
-                      KB [{k.type}]: {k.location}
-                      {k.repoOwner && k.repoName ? ` (via ${k.repoOwner}/${k.repoName})` : ''}
-                      {k.type === 'Website' && k.crawlLinkedPages ? ' (+ linked pages)' : ''}
-                      {k.lastSyncedAt ? ` — last synced ${new Date(k.lastSyncedAt).toLocaleString()}` : ' — never synced'}
-                    </li>
-                  ))}
-                  {p.kbSources.length > 0 && (
-                    <li>
-                      Scheduled sync: every {p.scheduledSyncIntervalHours ?? '(default)'}
-                      {p.scheduledSyncIntervalHours != null ? 'h' : ''}
-                    </li>
-                  )}
+                {(p.repos.length > 0 || p.kbSources.length > 0) && (
+                  <ul className="mt-1 space-y-0.5 text-sm text-gray-500">
+                    {p.repos.map((r) => (
+                      <li key={`${r.owner}/${r.repo}`}>
+                        Repo: {r.owner}/{r.repo} ({r.defaultBranch})
+                        {r.lastSyncedAt ? ` — last synced ${new Date(r.lastSyncedAt).toLocaleString()}` : ' — never synced'}
+                      </li>
+                    ))}
+                    {p.kbSources.map((k) => (
+                      <li key={`${k.type}:${k.location}`}>
+                        KB [{k.type}]: {k.location}
+                        {k.repoOwner && k.repoName ? ` (via ${k.repoOwner}/${k.repoName})` : ''}
+                        {k.type === 'Website' && k.crawlLinkedPages ? ' (+ linked pages)' : ''}
+                        {k.lastSyncedAt ? ` — last synced ${new Date(k.lastSyncedAt).toLocaleString()}` : ' — never synced'}
+                      </li>
+                    ))}
+                    {p.kbSources.length > 0 && (
+                      <li>
+                        Scheduled sync: every {p.scheduledSyncIntervalHours ?? '(default)'}
+                        {p.scheduledSyncIntervalHours != null ? 'h' : ''}
+                      </li>
+                    )}
+                  </ul>
+                )}
+                <ul className="mt-1 space-y-0.5 text-sm">
+                  <DeadLetterList projectId={p.id} />
                 </ul>
-              )}
-              <ul className="mt-1 space-y-0.5 text-sm">
-                <DeadLetterList projectId={p.id} />
-              </ul>
-            </li>
-          ))}
-        </ul>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
