@@ -47,4 +47,28 @@ describe('AccountPage', () => {
 
     expect(await screen.findByText(/Could not change your password/)).toBeInTheDocument();
   });
+
+  // U4: inline required-field + password-length validation.
+  it('shows an inline error and does not submit when new password is empty', async () => {
+    (apiClient.post as any).mockResolvedValue({ data: {} });
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'Passw0rd!' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+
+    expect(await screen.findByText(/at least 6 characters/)).toBeInTheDocument();
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('shows the min-length inline error for a 3-character new password', async () => {
+    (apiClient.post as any).mockResolvedValue({ data: {} });
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'Passw0rd!' } });
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'abc' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+
+    expect(await screen.findByText(/at least 6 characters/)).toBeInTheDocument();
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
 });

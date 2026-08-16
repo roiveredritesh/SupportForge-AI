@@ -4,6 +4,7 @@ import { useEmployees, type EmployeeRole } from '../hooks/useEmployees';
 import { useRegisterEmployee } from '../hooks/useRegisterEmployee';
 import { useProjects } from '../hooks/useProjects';
 import { RequireRole } from './RequireRole';
+import { type FieldErrors, validatePasswordLength, validateRequired } from '../lib/formValidation';
 
 const inputClass =
   'mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900';
@@ -25,16 +26,26 @@ export function EmployeesSection() {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<EmployeeRole>('L1');
   const [projectIds, setProjectIds] = useState<string[]>([]);
+  const [errors, setErrors] = useState<FieldErrors>({});
 
   const resetForm = () => {
     setUserName('');
     setPassword('');
     setRole('L1');
     setProjectIds([]);
+    setErrors({});
   };
 
   const handleRegister = () => {
-    if (!orgId || !userName || !password) return;
+    if (!orgId) return;
+    const fieldErrors = validateRequired({ userName, password });
+    const passwordError = validatePasswordLength(password);
+    if (passwordError) fieldErrors.password = passwordError;
+    if (Object.keys(fieldErrors).length > 0) {
+      setErrors(fieldErrors);
+      return;
+    }
+    setErrors({});
     registerEmployee.mutate({ orgId, userName, password, role, projectIds }, { onSuccess: resetForm });
   };
 
@@ -62,14 +73,41 @@ export function EmployeesSection() {
         )}
 
         <div className="space-y-2 border-t border-slate-100 pt-3 dark:border-gray-700">
-          <label className="block text-sm">
-            Username
-            <input className={inputClass} value={userName} onChange={(e) => setUserName(e.target.value)} />
-          </label>
-          <label className="block text-sm">
-            Password
-            <input className={inputClass} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </label>
+          <div>
+            <label className="block text-sm">
+              Username
+              <input
+                className={inputClass}
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                aria-invalid={!!errors.userName}
+                aria-describedby={errors.userName ? 'userName-error' : undefined}
+              />
+            </label>
+            {errors.userName && (
+              <p id="userName-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+                {errors.userName}
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm">
+              Password
+              <input
+                className={inputClass}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={!!errors.password}
+                aria-describedby={errors.password ? 'password-error' : undefined}
+              />
+            </label>
+            {errors.password && (
+              <p id="password-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+                {errors.password}
+              </p>
+            )}
+          </div>
           <label className="block text-sm">
             Role
             <select className={inputClass} value={role} onChange={(e) => setRole(e.target.value as EmployeeRole)}>
@@ -90,7 +128,7 @@ export function EmployeesSection() {
           <button
             className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
             onClick={handleRegister}
-            disabled={registerEmployee.isPending || !userName || !password}
+            disabled={registerEmployee.isPending}
           >
             Register Employee
           </button>

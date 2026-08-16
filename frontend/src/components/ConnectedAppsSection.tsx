@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useOrgs } from '../hooks/useOrgs';
 import { useMcpCatalog, useMcpConnections, useConnectMcpServer, useDisconnectMcpServer } from '../hooks/useMcpConnections';
 import { RequireRole } from './RequireRole';
+import { type FieldErrors, validateRequired } from '../lib/formValidation';
 
 const inputClass =
   'mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900';
@@ -22,11 +23,13 @@ export function ConnectedAppsSection() {
   const [serverType, setServerType] = useState('');
   const [credential, setCredential] = useState('');
   const [enabledTools, setEnabledTools] = useState<string[]>([]);
+  const [errors, setErrors] = useState<FieldErrors>({});
 
   const resetForm = () => {
     setServerType('');
     setCredential('');
     setEnabledTools([]);
+    setErrors({});
   };
 
   const toggleTool = (toolName: string) => {
@@ -34,7 +37,13 @@ export function ConnectedAppsSection() {
   };
 
   const handleConnect = () => {
-    if (!orgId || !serverType || !credential) return;
+    if (!orgId) return;
+    const fieldErrors = validateRequired({ serverType, credential });
+    if (Object.keys(fieldErrors).length > 0) {
+      setErrors(fieldErrors);
+      return;
+    }
+    setErrors({});
     connect.mutate({ orgId, serverType, credential, enabledTools }, { onSuccess: resetForm });
   };
 
@@ -71,30 +80,53 @@ export function ConnectedAppsSection() {
         </ul>
 
         <div className="space-y-2 border-t border-slate-100 pt-3 dark:border-gray-700">
-          <label className="block text-sm">
-            Server
-            <select
-              className={inputClass}
-              value={serverType}
-              onChange={(e) => {
-                setServerType(e.target.value);
-                setEnabledTools([]);
-              }}
-            >
-              <option value="">Select a server...</option>
-              {catalog?.map((c) => (
-                <option key={c.serverType} value={c.serverType}>
-                  {c.serverType}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div>
+            <label className="block text-sm">
+              Server
+              <select
+                className={inputClass}
+                value={serverType}
+                onChange={(e) => {
+                  setServerType(e.target.value);
+                  setEnabledTools([]);
+                }}
+                aria-invalid={!!errors.serverType}
+                aria-describedby={errors.serverType ? 'serverType-error' : undefined}
+              >
+                <option value="">Select a server...</option>
+                {catalog?.map((c) => (
+                  <option key={c.serverType} value={c.serverType}>
+                    {c.serverType}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {errors.serverType && (
+              <p id="serverType-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+                {errors.serverType}
+              </p>
+            )}
+          </div>
 
           {serverType && (
-            <label className="block text-sm">
-              {serverType === 'github' ? 'Personal Access Token' : 'Credential'}
-              <input className={inputClass} type="password" value={credential} onChange={(e) => setCredential(e.target.value)} />
-            </label>
+            <div>
+              <label className="block text-sm">
+                {serverType === 'github' ? 'Personal Access Token' : 'Credential'}
+                <input
+                  className={inputClass}
+                  type="password"
+                  value={credential}
+                  onChange={(e) => setCredential(e.target.value)}
+                  aria-invalid={!!errors.credential}
+                  aria-describedby={errors.credential ? 'credential-error' : undefined}
+                />
+              </label>
+              {errors.credential && (
+                <p id="credential-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+                  {errors.credential}
+                </p>
+              )}
+            </div>
           )}
 
           {selectedServerTools.length > 0 && (
@@ -112,7 +144,7 @@ export function ConnectedAppsSection() {
           <button
             className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
             onClick={handleConnect}
-            disabled={connect.isPending || !serverType || !credential}
+            disabled={connect.isPending}
           >
             Connect
           </button>
