@@ -212,7 +212,7 @@ public class CommitLookupToolTests
             {
                 Id = "proj1",
                 Name = "Proj",
-                Repos = [new GitHubRepoConfig("acme", "widget", "main", null)],
+                Repos = [new GitHubRepoConfig("acme", "widget", "main")],
             };
 
             var commits = await tool.LookupForProjectAsync(project, "Foo.cs");

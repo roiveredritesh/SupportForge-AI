@@ -142,8 +142,8 @@ public class WebhooksControllerTests
     {
         var (controller, queue, factory, tempDir) = MakeSut();
         var projects = new JsonFileProjectRepository(tempDir);
-        var pushedRepo = new GitHubRepoConfig("acme", "widget-api", "main", null);
-        var otherRepo = new GitHubRepoConfig("acme", "other-repo", "main", null);
+        var pushedRepo = new GitHubRepoConfig("acme", "widget-api", "main");
+        var otherRepo = new GitHubRepoConfig("acme", "other-repo", "main");
         await projects.UpsertAsync(new Project
         {
             Id = "proj1",

@@ -60,7 +60,7 @@ function DeadLetterList({ projectId }: { projectId: string }) {
   );
 }
 
-const emptyRepo: ProjectRepo = { owner: '', repo: '', defaultBranch: 'main', accessTokenSecretName: '' };
+const emptyRepo: ProjectRepo = { owner: '', repo: '', defaultBranch: 'main' };
 const emptyKbSource: ProjectKbSource = { type: 'Documents', location: '' };
 
 const inputClass =
@@ -177,20 +177,12 @@ export default function SettingsProjectsPage() {
                 <input className={inputClass} placeholder="Owner" value={r.owner} onChange={(e) => updateRepo(i, { owner: e.target.value })} />
                 <input className={inputClass} placeholder="Repo" value={r.repo} onChange={(e) => updateRepo(i, { repo: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  className={inputClass}
-                  placeholder="Default branch"
-                  value={r.defaultBranch}
-                  onChange={(e) => updateRepo(i, { defaultBranch: e.target.value })}
-                />
-                <input
-                  className={inputClass}
-                  placeholder="Access token secret name (optional, private repos)"
-                  value={r.accessTokenSecretName ?? ''}
-                  onChange={(e) => updateRepo(i, { accessTokenSecretName: e.target.value })}
-                />
-              </div>
+              <input
+                className={inputClass}
+                placeholder="Default branch"
+                value={r.defaultBranch}
+                onChange={(e) => updateRepo(i, { defaultBranch: e.target.value })}
+              />
               <button
                 className="text-sm text-red-600 hover:underline dark:text-red-400"
                 onClick={() => setRepos((prev) => prev.filter((_, idx) => idx !== i))}

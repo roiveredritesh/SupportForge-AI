@@ -7,7 +7,6 @@ export interface ProjectRepo {
   owner: string;
   repo: string;
   defaultBranch: string;
-  accessTokenSecretName?: string | null;
   lastSyncedAt?: string | null;
 }
 

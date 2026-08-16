@@ -48,7 +48,7 @@ public class FreshnessCalculatorTests
         {
             Id = "proj1",
             Name = "Test",
-            Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null, DateTimeOffset.UtcNow.AddDays(-10)) },
+            Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", DateTimeOffset.UtcNow.AddDays(-10)) },
         };
 
         var result = FreshnessCalculator.Calculate(project);
@@ -64,7 +64,7 @@ public class FreshnessCalculatorTests
         {
             Id = "proj1",
             Name = "Test",
-            Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null, null) },
+            Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null) },
         };
 
         var result = FreshnessCalculator.Calculate(project);
@@ -82,7 +82,7 @@ public class FreshnessCalculatorTests
             Id = "proj1",
             Name = "Test",
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "docs/", syncedAt) },
-            Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null, null) },
+            Repos = new List<GitHubRepoConfig> { new("acme", "widgets", "main", null) },
         };
 
         var result = FreshnessCalculator.Calculate(project);
