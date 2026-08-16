@@ -12,12 +12,13 @@ public sealed class DocumentIngestionJob : IIngestionJob
     private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
     private readonly ILogger<DocumentIngestionJob> _logger;
+    private readonly string? _triggeredByUserId;
 
     public string ProjectId { get; }
 
     public DocumentIngestionJob(
         string projectId, string folderPath, string sourceLocation, KbVectorIndexer indexer, IProjectRepository projects,
-        ILogger<DocumentIngestionJob> logger)
+        ILogger<DocumentIngestionJob> logger, string? triggeredByUserId = null)
     {
         ProjectId = projectId;
         _folderPath = folderPath;
@@ -25,6 +26,7 @@ public sealed class DocumentIngestionJob : IIngestionJob
         _indexer = indexer;
         _projects = projects;
         _logger = logger;
+        _triggeredByUserId = triggeredByUserId;
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -61,7 +63,7 @@ public sealed class DocumentIngestionJob : IIngestionJob
             documents.Add((file, text, null));
         }
 
-        await _indexer.IndexAsync(ProjectId, documents, ct);
+        await _indexer.IndexAsync(ProjectId, documents, ct, _triggeredByUserId);
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _sourceLocation, ct);
     }
 }

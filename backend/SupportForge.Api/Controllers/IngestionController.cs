@@ -39,7 +39,7 @@ public class IngestionController : ControllerBase
         var (error, project) = await ValidateAndCheckBusyAsync(request, ct);
         if (error is not null) return error;
 
-        EnqueueAllJobs(project!);
+        EnqueueAllJobs(project!, this.CurrentUserId());
         return Accepted();
     }
 
@@ -53,7 +53,7 @@ public class IngestionController : ControllerBase
         if (error is not null) return error;
 
         await _contentHashes.DeleteByProjectIdAsync(request.ProjectId, ct);
-        EnqueueAllJobs(project!);
+        EnqueueAllJobs(project!, this.CurrentUserId());
         return Accepted();
     }
 
@@ -75,10 +75,10 @@ public class IngestionController : ControllerBase
     }
 
     // Task 7 / Task 8 register the concrete job factories that read `project.KbSources` / `project.Repos`.
-    private void EnqueueAllJobs(Project project)
+    private void EnqueueAllJobs(Project project, string? triggeredByUserId)
     {
         foreach (var factory in _services.GetServices<IIngestionJobFactory>())
-            foreach (var job in factory.CreateJobs(project))
+            foreach (var job in factory.CreateJobs(project, triggeredByUserId))
                 _queue.Enqueue(job);
     }
 

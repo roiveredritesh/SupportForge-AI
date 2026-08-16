@@ -24,12 +24,13 @@ public sealed class WebsiteIngestionJob : IIngestionJob
     private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
     private readonly IngestionImageCaptioner _captioner;
+    private readonly string? _triggeredByUserId;
 
     public string ProjectId { get; }
 
     public WebsiteIngestionJob(
         string projectId, string url, HttpClient httpClient, KbVectorIndexer indexer, IProjectRepository projects,
-        IngestionImageCaptioner captioner, bool crawlLinkedPages = false)
+        IngestionImageCaptioner captioner, bool crawlLinkedPages = false, string? triggeredByUserId = null)
     {
         ProjectId = projectId;
         _url = url;
@@ -38,6 +39,7 @@ public sealed class WebsiteIngestionJob : IIngestionJob
         _indexer = indexer;
         _projects = projects;
         _captioner = captioner;
+        _triggeredByUserId = triggeredByUserId;
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -67,7 +69,7 @@ public sealed class WebsiteIngestionJob : IIngestionJob
             }
         }
 
-        await _indexer.IndexAsync(ProjectId, pages, ct);
+        await _indexer.IndexAsync(ProjectId, pages, ct, _triggeredByUserId);
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _url, ct);
     }
 

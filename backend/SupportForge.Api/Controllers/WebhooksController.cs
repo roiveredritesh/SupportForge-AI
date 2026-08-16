@@ -100,8 +100,10 @@ public class WebhooksController : ControllerBase
             // Only the pushed repo, not the project's other repos/KB sources -- a code push
             // shouldn't also re-run an unrelated Confluence/Website sync for the same project.
             var pseudoProject = new Project { Id = project.Id, Name = project.Name, Repos = new List<GitHubRepoConfig> { matchedRepo! } };
+            // A webhook has no authenticated caller to attribute -- triggeredByUserId is null,
+            // same as a scheduled sync (KTD4).
             foreach (var factory in _services.GetServices<IIngestionJobFactory>())
-                foreach (var job in factory.CreateJobs(pseudoProject))
+                foreach (var job in factory.CreateJobs(pseudoProject, triggeredByUserId: null))
                     _queue.Enqueue(job);
             enqueued++;
         }
@@ -174,8 +176,10 @@ public class WebhooksController : ControllerBase
 
             // Only the changed page, not the project's other KB sources or repos.
             var pseudoProject = new Project { Id = project.Id, Name = project.Name, KbSources = new List<KbSourceConfig> { matchedSource! } };
+            // A webhook has no authenticated caller to attribute -- triggeredByUserId is null,
+            // same as a scheduled sync (KTD4).
             foreach (var factory in _services.GetServices<IIngestionJobFactory>())
-                foreach (var job in factory.CreateJobs(pseudoProject))
+                foreach (var job in factory.CreateJobs(pseudoProject, triggeredByUserId: null))
                     _queue.Enqueue(job);
             enqueued++;
         }

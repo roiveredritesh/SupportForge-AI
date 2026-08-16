@@ -17,7 +17,7 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
         _repoCacheRoot = repoCacheRoot;
     }
 
-    public IEnumerable<IIngestionJob> CreateJobs(Project project)
+    public IEnumerable<IIngestionJob> CreateJobs(Project project, string? triggeredByUserId)
     {
         var confluence = _services.GetRequiredService<ConfluencePageFetcher>();
         var projects = _services.GetRequiredService<IProjectRepository>();
@@ -52,19 +52,19 @@ public sealed class DocumentIngestionJobFactory : IIngestionJobFactory
                 return new GitHubFolderIngestionJob(
                     project.Id, $"https://github.com/{ghUrl.Owner}/{ghUrl.Repo}.git", ghUrl.Branch,
                     localRepoPath, ghUrl.SubPath, s.Location, gitSync, indexer, projects,
-                    _services.GetRequiredService<ILogger<GitHubFolderIngestionJob>>());
+                    _services.GetRequiredService<ILogger<GitHubFolderIngestionJob>>(), triggeredByUserId);
             }
 
             return new DocumentIngestionJob(
                 project.Id, ResolveDocumentFolderPath(s), s.Location, indexer, projects,
-                _services.GetRequiredService<ILogger<DocumentIngestionJob>>());
+                _services.GetRequiredService<ILogger<DocumentIngestionJob>>(), triggeredByUserId);
         }
 
         return project.KbSources.Select(s => (IIngestionJob)(s.Type switch
         {
             KbSourceType.Documents => BuildDocumentsJob(s),
-            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects, captioner, s.CrawlLinkedPages),
-            KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, confluence, indexer, projects),
+            KbSourceType.Website => new WebsiteIngestionJob(project.Id, s.Location, httpClientFactory.CreateClient(), indexer, projects, captioner, s.CrawlLinkedPages, triggeredByUserId),
+            KbSourceType.Confluence => new ConfluenceIngestionJob(project.Id, s.Location, confluence, indexer, projects, triggeredByUserId),
             _ => throw new NotSupportedException($"KB source type '{s.Type}' is not supported."),
         })).ToList();
     }

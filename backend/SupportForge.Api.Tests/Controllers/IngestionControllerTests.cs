@@ -19,9 +19,11 @@ public class IngestionControllerTests
     private sealed class RecordingJobFactory : IIngestionJobFactory
     {
         public List<Project> CallsWithProjectSnapshot { get; } = new();
-        public IEnumerable<IIngestionJob> CreateJobs(Project project)
+        public List<string?> TriggeredByUserIds { get; } = new();
+        public IEnumerable<IIngestionJob> CreateJobs(Project project, string? triggeredByUserId)
         {
             CallsWithProjectSnapshot.Add(project);
+            TriggeredByUserIds.Add(triggeredByUserId);
             yield return new NoOpJob(project.Id);
         }
     }
@@ -177,6 +179,35 @@ public class IngestionControllerTests
         var snapshot = Assert.Single(factory.CallsWithProjectSnapshot);
         Assert.Equal("proj1", snapshot.Id);
         Assert.Equal("hash1", await contentHashes.GetHashAsync("proj1", "src1"));
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    // U7: interactive Trigger/ForceReindex have a request-bound caller, so it's threaded through
+    // to every registered job factory (attributed to the requesting Admin's TokenUsageEntry rows
+    // via KbVectorIndexer -- verified end-to-end in TokenUsageTests / OrgsControllerTests).
+    [Fact]
+    public async Task Trigger_ValidProject_ThreadsCallerIdToJobFactories()
+    {
+        var (controller, projects, memberships, _, _, _, factory, tempDir) = MakeSut(userId: "alice");
+        await memberships.AddAsync("alice", "proj1");
+        await projects.UpsertAsync(new Project { Id = "proj1", Name = "P1" });
+
+        await controller.Trigger(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.Equal("alice", Assert.Single(factory.TriggeredByUserIds));
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task ForceReindex_ValidProject_ThreadsCallerIdToJobFactories()
+    {
+        var (controller, projects, memberships, _, _, _, factory, tempDir) = MakeSut(userId: "alice");
+        await memberships.AddAsync("alice", "proj1");
+        await projects.UpsertAsync(new Project { Id = "proj1", Name = "P1" });
+
+        await controller.ForceReindex(new IngestionController.TriggerRequest("proj1"), default);
+
+        Assert.Equal("alice", Assert.Single(factory.TriggeredByUserIds));
         Directory.Delete(tempDir, recursive: true);
     }
 

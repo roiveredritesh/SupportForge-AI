@@ -20,7 +20,9 @@ public sealed class GraphImportJobFactory : IIngestionJobFactory
         _cacheRoot = cacheRoot;
     }
 
-    public IEnumerable<IIngestionJob> CreateJobs(Project project)
+    // Signature-only per U7 -- this factory never writes a TokenUsageEntry (no KbVectorIndexer
+    // call), so triggeredByUserId is unused here.
+    public IEnumerable<IIngestionJob> CreateJobs(Project project, string? triggeredByUserId)
     {
         var driver = _services.GetRequiredService<IDriver>();
         var database = _services.GetRequiredService<Neo4jOptions>().Database;

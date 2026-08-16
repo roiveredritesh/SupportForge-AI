@@ -15,7 +15,9 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
         _cacheRoot = cacheRoot;
     }
 
-    public IEnumerable<IIngestionJob> CreateJobs(Project project)
+    // Signature-only per U7 -- this factory never writes a TokenUsageEntry (no KbVectorIndexer
+    // call), so triggeredByUserId is unused here.
+    public IEnumerable<IIngestionJob> CreateJobs(Project project, string? triggeredByUserId)
     {
         var gitSync = _services.GetRequiredService<GitRepoSyncService>();
         var projects = _services.GetRequiredService<IProjectRepository>();
