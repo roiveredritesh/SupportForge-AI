@@ -120,8 +120,8 @@ describe('SettingsProjectsPage', () => {
     await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/ingestion/dead-letters/dl1'));
   });
 
-  // U8: Existing Projects renders as a card grid instead of a <ul>/<li> list.
-  it('renders 2 projects as cards inside a grid container', async () => {
+  // Existing Projects renders as a data table (rows/columns), not a card grid or a <ul>/<li> list.
+  it('renders 2 projects as rows inside a table', async () => {
     vi.mocked(apiClient.get).mockImplementation((url: string) => {
       if (url === '/projects')
         return Promise.resolve({
@@ -142,11 +142,11 @@ describe('SettingsProjectsPage', () => {
       </QueryClientProvider>,
     );
 
-    const projOne = await screen.findByText(/Proj One/);
+    await screen.findByText(/Proj One/);
     expect(screen.getByText(/Proj Two/)).toBeInTheDocument();
 
-    const card = projOne.closest('.rounded-lg');
-    expect(card?.parentElement).toHaveClass('grid');
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getAllByRole('row')).toHaveLength(3); // 1 header row + 2 data rows
   });
 
   it('shows the empty-state text and no grid when there are zero projects', async () => {

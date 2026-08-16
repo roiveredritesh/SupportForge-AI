@@ -15,7 +15,7 @@ export default function MyIssuesPage() {
   const open = filtered.find((e) => e.id === openId);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 p-6">
+    <div className="mx-auto max-w-4xl space-y-4 p-6">
       <h1 className="text-xl font-semibold">My Issues</h1>
 
       <div className="flex gap-2 text-sm">
@@ -34,15 +34,32 @@ export default function MyIssuesPage() {
       {filtered.length === 0 && !isLoading && <p className="text-sm text-gray-500">No issues here.</p>}
 
       {filtered.length > 0 && (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((e: Escalation) => (
-            <div key={e.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800">
-              <button className="text-left hover:underline" onClick={() => setOpenId(openId === e.id ? null : e.id)}>
-                Conversation {e.conversationId} — {e.status}
-                {e.claimedAt ? ` — claimed ${new Date(e.claimedAt).toLocaleString()}` : ''}
-              </button>
-            </div>
-          ))}
+        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-gray-700">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-500">
+                <th className="py-2 px-3">Conversation</th>
+                <th className="py-2 px-3">Status</th>
+                <th className="py-2 px-3">Claimed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((e: Escalation) => (
+                <tr
+                  key={e.id}
+                  className={`border-b border-slate-100 dark:border-gray-800 ${openId === e.id ? 'bg-indigo-50 dark:bg-indigo-950' : 'bg-white dark:bg-gray-800'}`}
+                >
+                  <td className="py-2 px-3">
+                    <button className="text-left hover:underline" onClick={() => setOpenId(openId === e.id ? null : e.id)}>
+                      {e.conversationId}
+                    </button>
+                  </td>
+                  <td className="py-2 px-3">{e.status}</td>
+                  <td className="py-2 px-3">{e.claimedAt ? new Date(e.claimedAt).toLocaleString() : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
