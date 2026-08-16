@@ -142,4 +142,36 @@ describe('RegisterPage', () => {
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
   });
+
+  it('surfaces the server-returned validation messages instead of a hardcoded guess', async () => {
+    vi.mocked(apiClient.post).mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        data: [
+          'Passwords must have at least one non alphanumeric character.',
+          "Passwords must have at least one uppercase ('A'-'Z').",
+        ],
+      },
+    });
+    renderPage();
+    fillRequiredFields();
+
+    fireEvent.click(screen.getByText('Create account'));
+
+    expect(
+      await screen.findByText('Passwords must have at least one non alphanumeric character.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Passwords must have at least one uppercase ('A'-'Z').")).toBeInTheDocument();
+    expect(screen.queryByText(/username may already be taken/)).not.toBeInTheDocument();
+  });
+
+  it('falls back to the generic message when the server error has no usable body', async () => {
+    vi.mocked(apiClient.post).mockRejectedValueOnce({ isAxiosError: true, response: undefined });
+    renderPage();
+    fillRequiredFields();
+
+    fireEvent.click(screen.getByText('Create account'));
+
+    expect(await screen.findByText(/username may already be taken/)).toBeInTheDocument();
+  });
 });
