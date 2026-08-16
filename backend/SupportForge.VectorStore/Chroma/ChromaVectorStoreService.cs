@@ -80,6 +80,13 @@ public sealed class ChromaVectorStoreService : IVectorStoreService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task DeleteByMetadataAsync(string collection, IReadOnlyDictionary<string, string> metadataFilter, CancellationToken ct = default)
+    {
+        var collectionId = await ResolveCollectionIdAsync(collection, ct);
+        var response = await _http.PostAsJsonAsync($"{_collectionsPath}/{collectionId}/delete", new { where = metadataFilter }, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task DeleteCollectionAsync(string collection, CancellationToken ct = default)
     {
         var response = await _http.DeleteAsync($"{_collectionsPath}/{collection}", ct);

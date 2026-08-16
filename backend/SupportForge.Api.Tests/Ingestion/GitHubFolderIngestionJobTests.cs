@@ -53,6 +53,9 @@ public class GitHubFolderIngestionJobTests
         llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        // GitHubFolderIngestionJob always passes a PruneScope now; an empty known-refs list means
+        // nothing looks stale, matching every existing test's fresh-hash-repo assumption.
+        hashes.Setup(h => h.GetSourceRefsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<string>());
         return new KbVectorIndexer(
             llm.Object, vectorStore ?? new Mock<IVectorStoreService>().Object, hashes.Object, new Mock<ITokenUsageRepository>().Object,
             NullLogger<KbVectorIndexer>.Instance);

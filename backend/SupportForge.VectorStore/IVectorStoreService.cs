@@ -15,6 +15,10 @@ public interface IVectorStoreService
 
     Task DeleteAsync(string collection, IReadOnlyList<string> ids, CancellationToken ct = default);
 
+    // Deletes every chunk matching the given metadata (e.g. {"source": sourceRef}) without the
+    // caller needing to know their exact chunk ids -- used to prune a removed source's stale chunks.
+    Task DeleteByMetadataAsync(string collection, IReadOnlyDictionary<string, string> metadataFilter, CancellationToken ct = default);
+
     Task DeleteCollectionAsync(string collection, CancellationToken ct = default);
 
     Task<long> CountAsync(string collection, CancellationToken ct = default);

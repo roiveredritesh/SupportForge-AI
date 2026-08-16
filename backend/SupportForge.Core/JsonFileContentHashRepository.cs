@@ -61,4 +61,29 @@ public sealed class JsonFileContentHashRepository : IContentHashRepository
         }
         finally { _lock.Release(); }
     }
+
+    public async Task<IReadOnlyList<string>> GetSourceRefsAsync(string projectId, CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var all = await ReadAllAsync(ct);
+            var prefix = $"{projectId}:";
+            return all.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(k => k[prefix.Length..]).ToList();
+        }
+        finally { _lock.Release(); }
+    }
+
+    public async Task DeleteAsync(string projectId, string sourceRef, CancellationToken ct = default)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var all = await ReadAllAsync(ct);
+            all.Remove(Key(projectId, sourceRef));
+            await WriteAllAsync(all, ct);
+        }
+        finally { _lock.Release(); }
+    }
 }

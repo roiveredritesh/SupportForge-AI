@@ -380,4 +380,82 @@ public class KbVectorIndexerTests
         Assert.Contains("0", warning.Message);
         Assert.NotNull(warning.Exception);
     }
+
+    // Bug fix: a source removed between syncs (e.g. a deleted file) previously left its old hash
+    // entry and vector chunks behind forever. IndexAsync's optional PruneScope closes that gap.
+    [Fact]
+    public async Task IndexAsync_WithPruneScope_DeletesHashAndVectorChunks_ForRefsNoLongerPresent()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ReturnsAsync(new float[] { 0.1f });
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        IReadOnlyDictionary<string, string>? deletedFilter = null;
+        vectorStore.Setup(v => v.DeleteByMetadataAsync("proj1-kb", It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyDictionary<string, string>, CancellationToken>((_, filter, _) => deletedFilter = filter)
+            .Returns(Task.CompletedTask);
+        var contentHashes = new Mock<IContentHashRepository>();
+        contentHashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        contentHashes.Setup(h => h.GetSourceRefsAsync("proj1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { "/docs/still-here.md", "/docs/deleted.md" });
+        string? deletedRef = null;
+        contentHashes.Setup(h => h.DeleteAsync("proj1", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, CancellationToken>((_, r, _) => deletedRef = r)
+            .Returns(Task.CompletedTask);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, contentHashes.Object, NoOpTokenUsage(), NoOpLogger());
+
+        await indexer.IndexAsync(
+            "proj1", [("/docs/still-here.md", "content", null)], CancellationToken.None,
+            prune: new PruneScope("/docs/", new HashSet<string> { "/docs/still-here.md" }));
+
+        Assert.Equal("/docs/deleted.md", deletedRef);
+        Assert.NotNull(deletedFilter);
+        Assert.Equal("/docs/deleted.md", deletedFilter!["source"]);
+        contentHashes.Verify(h => h.DeleteAsync("proj1", "/docs/still-here.md", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IndexAsync_WithPruneScope_DoesNotPruneRefsOutsideItsOwnPrefix()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ReturnsAsync(new float[] { 0.1f });
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var contentHashes = new Mock<IContentHashRepository>();
+        contentHashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        // "/other-source/page.md" belongs to a different KB source on the same project -- pruning
+        // "/docs/" must not touch it even though it's absent from this run's current refs.
+        contentHashes.Setup(h => h.GetSourceRefsAsync("proj1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { "/docs/still-here.md", "/other-source/page.md" });
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, contentHashes.Object, NoOpTokenUsage(), NoOpLogger());
+
+        await indexer.IndexAsync(
+            "proj1", [("/docs/still-here.md", "content", null)], CancellationToken.None,
+            prune: new PruneScope("/docs/", new HashSet<string> { "/docs/still-here.md" }));
+
+        contentHashes.Verify(h => h.DeleteAsync("proj1", "/other-source/page.md", It.IsAny<CancellationToken>()), Times.Never);
+        vectorStore.Verify(v => v.DeleteByMetadataAsync(
+            It.IsAny<string>(), It.Is<IReadOnlyDictionary<string, string>>(f => f["source"] == "/other-source/page.md"), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IndexAsync_WithoutPruneScope_NeverCallsPruneRelatedMethods()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>()))
+            .ReturnsAsync(new float[] { 0.1f });
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), NoOpTokenUsage(), NoOpLogger());
+
+        await indexer.IndexAsync("proj1", [("/docs/a.md", "content", null)], CancellationToken.None);
+
+        vectorStore.Verify(v => v.DeleteByMetadataAsync(
+            It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, string>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }
