@@ -10,4 +10,9 @@ public sealed class McpConnection
     public required string ServerType { get; init; }
     public required string Credential { get; init; }
     public List<string> EnabledTools { get; init; } = new();
+
+    // U7: populated from GitHub's `github-authentication-token-expiration` response header at
+    // connect-time for classic PATs. Null for fine-grained PATs (no such header) and whenever the
+    // probe call itself fails -- this field is best-effort, not a guarantee.
+    public DateTimeOffset? ExpiresAt { get; init; }
 }
