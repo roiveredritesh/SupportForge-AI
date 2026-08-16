@@ -69,6 +69,22 @@ public static class CodeGraphExtractor
         "\\A\\s*[rRuU]?(\"\"\"|''')(?<body>.*?)\\1",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
+    // Tier 1 coverage ladder (U4): a language with both a definition pattern AND import resolution
+    // gets "full" extraction; a definition pattern alone gets "partial" (definitions but no import
+    // edges -- true today for csharp/java/go, whose import/using statements name a namespace or
+    // package rather than a file path, so AddImportEdges never handles them); no definition pattern
+    // gets "minimal" (file node only). This never blocks a file from getting *a* node -- R3.
+    private static readonly HashSet<string> LanguagesWithImportResolution =
+        new(StringComparer.Ordinal) { "javascript", "typescript", "python" };
+
+    // Best-effort language fallback for a file whose extension isn't in FileTypeByExtension: a
+    // shebang line names its interpreter directly, so a Python/Node script with no ".py"/".js"
+    // extension still resolves to a real, indexable language instead of "unknown". Extend this table,
+    // not FileTypeByExtension, when a new interpreter needs recognizing -- adding a language here does
+    // not by itself grant it a definition pattern (that's still Full/Partial coverage above).
+    private static readonly Dictionary<string, string> ShebangInterpreterToLanguage =
+        new(StringComparer.OrdinalIgnoreCase) { ["python"] = "python", ["python3"] = "python", ["node"] = "javascript" };
+
     // U23: ASP.NET Core attribute-routing heuristic, bounded to this codebase's own controller style
     // (see ChatController.cs: [Route("api/chat")] class + [HttpPost("query")] action) -- not a
     // general ASP.NET Core route resolver (doesn't handle [ApiController] convention routing,
@@ -93,21 +109,35 @@ public static class CodeGraphExtractor
 
     private const int MaxSummaryLength = 500;
 
+    // Minified content has nothing meaningful for a regex definition-pattern to match, and a
+    // multi-hundred-KB single-line file would dominate header-comment extraction cost for no benefit
+    // -- cap what's read for summary purposes to the first 2KB (reused as-is by the Tier 2 enrichment
+    // prompt input in a later phase of the same plan).
+    private const int MinifiedSummaryInputCap = 2048;
+
     public static CodeGraphFile Extract(string repoDir)
     {
         var graph = new CodeGraphFile();
         if (!Directory.Exists(repoDir)) return graph;
 
-        var filesByRelativePath = EnumerateSourceFiles(repoDir)
-            .ToDictionary(f => ToRelativePath(repoDir, f), f => f, StringComparer.OrdinalIgnoreCase);
+        var filesByRelativePath = BuildRelativePathIndex(repoDir);
 
         foreach (var (relativePath, fullPath) in filesByRelativePath)
         {
-            var fileType = FileTypeByExtension[Path.GetExtension(fullPath)];
+            byte[] bytes;
+            try { bytes = File.ReadAllBytes(fullPath); }
+            catch (IOException) { continue; }
+
+            var admissibility = CodeFileAdmissibility.Classify(Path.GetFileName(fullPath), bytes);
+            if (!admissibility.IsAdmissible) continue; // Tier 0 reject: binary, undecodable, or empty
 
             string text;
             try { text = File.ReadAllText(fullPath); }
             catch (IOException) { continue; }
+
+            var fileType = DetermineLanguage(fullPath, text);
+            var isMinified = admissibility.Shape.HasFlag(CodeFileShape.Minified);
+            var summaryInput = isMinified ? CapForMinifiedSummary(text) : text;
 
             graph.Nodes.Add(new CodeGraphNode
             {
@@ -116,10 +146,13 @@ public static class CodeGraphExtractor
                 FileType = fileType,
                 SourceFile = relativePath,
                 SourceLocation = "L1",
-                Summary = ExtractFileHeaderComment(text, fileType),
+                Summary = ExtractFileHeaderComment(summaryInput, fileType),
+                Shape = ShapeFlagsToNames(admissibility.Shape),
+                CoverageLevel = DetermineCoverageLevel(fileType),
             });
 
-            if (DefinitionPatternByFileType.TryGetValue(fileType, out var definitionPattern))
+            // Minified content isn't source a definition-pattern regex can meaningfully match against.
+            if (!isMinified && DefinitionPatternByFileType.TryGetValue(fileType, out var definitionPattern))
                 AddDefinitionNodesAndEdges(graph, relativePath, fileType, text, definitionPattern);
 
             AddImportEdges(graph, relativePath, fileType, text, filesByRelativePath.Keys);
@@ -129,6 +162,59 @@ public static class CodeGraphExtractor
 
         return graph;
     }
+
+    // Bug fix (E18): a case-only path collision (two real files differing only by case, a legitimate
+    // state on a case-sensitive filesystem) used to throw ArgumentException out of ToDictionary and
+    // crash extraction for the *entire* repo, not just those two files. Keep the first match and skip
+    // the rest instead -- a rare naming collision degrades gracefully rather than aborting everything
+    // (every other admissible file in the repo still gets a node).
+    private static Dictionary<string, string> BuildRelativePathIndex(string repoDir)
+    {
+        var index = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fullPath in EnumerateSourceFiles(repoDir))
+            index.TryAdd(ToRelativePath(repoDir, fullPath), fullPath);
+        return index;
+    }
+
+    private static string CapForMinifiedSummary(string text) =>
+        text.Length <= MinifiedSummaryInputCap ? text : text[..MinifiedSummaryInputCap];
+
+    // R3: extension -> shebang -> "unknown", never a crash and never "no node at all". A recognized
+    // extension always wins even if a shebang is also present (an extension is a stronger signal than
+    // a first-line guess).
+    private static string DetermineLanguage(string fullPath, string text) =>
+        FileTypeByExtension.TryGetValue(Path.GetExtension(fullPath), out var byExtension)
+            ? byExtension
+            : DetectShebangLanguage(text) ?? "unknown";
+
+    private static string? DetectShebangLanguage(string text)
+    {
+        var firstLine = text.Split('\n', 2)[0].TrimEnd('\r');
+        if (!firstLine.StartsWith("#!", StringComparison.Ordinal)) return null;
+
+        var parts = firstLine[2..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return null;
+
+        // "#!/usr/bin/env python3" names the real interpreter in the second token; a direct
+        // "#!/usr/bin/python3" names it as the last path segment of the first token.
+        var interpreterToken = Path.GetFileName(parts[0]).Equals("env", StringComparison.OrdinalIgnoreCase) && parts.Length > 1
+            ? parts[1]
+            : Path.GetFileName(parts[0]);
+
+        return ShebangInterpreterToLanguage.GetValueOrDefault(interpreterToken);
+    }
+
+    private static string DetermineCoverageLevel(string fileType)
+    {
+        if (!DefinitionPatternByFileType.ContainsKey(fileType)) return "minimal";
+        return LanguagesWithImportResolution.Contains(fileType) ? "full" : "partial";
+    }
+
+    private static List<string> ShapeFlagsToNames(CodeFileShape shape) =>
+        Enum.GetValues<CodeFileShape>()
+            .Where(v => v != CodeFileShape.None && shape.HasFlag(v))
+            .Select(v => v.ToString())
+            .ToList();
 
     // U23: endpoint node type -- one per [HttpGet]/[HttpPost]/etc action found in a csharp file,
     // combining the controller's [Route] prefix (if any) with the action's own route template.
@@ -321,10 +407,17 @@ public static class CodeGraphExtractor
         return Truncate(string.Join(' ', lines));
     }
 
+    // U4: no longer filtered by extension -- every file reaches CodeFileAdmissibility in Extract(),
+    // which is the actual admission gate now (R3: any admissible file gets at least a file node,
+    // regardless of language).
     private static IEnumerable<string> EnumerateSourceFiles(string repoDir) =>
-        EnumerateFiles(repoDir).Where(f => FileTypeByExtension.ContainsKey(Path.GetExtension(f)));
+        EnumerateFiles(repoDir, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
-    private static IEnumerable<string> EnumerateFiles(string dir)
+    // E17: a symlinked subdirectory is resolved and tracked before recursing into it, so a circular
+    // symlink structure (a link pointing back at an already-visited real directory) terminates instead
+    // of recursing forever. Ordinary (non-symlinked) directories can't cycle -- the filesystem is a
+    // tree -- so only symlinked entries pay this check.
+    private static IEnumerable<string> EnumerateFiles(string dir, HashSet<string> visitedRealDirs)
     {
         foreach (var file in Directory.EnumerateFiles(dir))
             yield return file;
@@ -332,7 +425,15 @@ public static class CodeGraphExtractor
         foreach (var subDir in Directory.EnumerateDirectories(dir))
         {
             if (SkipDirNames.Contains(Path.GetFileName(subDir))) continue;
-            foreach (var file in EnumerateFiles(subDir))
+
+            var info = new DirectoryInfo(subDir);
+            if (info.LinkTarget is not null)
+            {
+                var resolved = info.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? subDir;
+                if (!visitedRealDirs.Add(resolved)) continue; // already visited -- cycle, skip
+            }
+
+            foreach (var file in EnumerateFiles(subDir, visitedRealDirs))
                 yield return file;
         }
     }

@@ -35,6 +35,19 @@ public sealed class CodeGraphNode
     // this extractor recovers WHY, since it never parses a real AST and has no other way to know.
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = "";
+
+    // Tier 0 admissibility marks (CodeFileAdmissibility) as flag names, e.g. ["Minified", "Banner"].
+    // Never an exclusion decision on its own -- consumed by later classification-pipeline stages
+    // (docs/plans/2026-08-16-001-feat-code-graph-classification-plan.md). Empty for a plain
+    // hand-written file with no shape marks.
+    [JsonPropertyName("shape")]
+    public List<string> Shape { get; set; } = [];
+
+    // Tier 1 coverage ladder: "full" (definitions + import edges), "partial" (definitions only), or
+    // "minimal" (file node only -- no definition pattern registered for this FileType). Always set on
+    // a file node; "" on a definition/endpoint node, which doesn't have its own coverage level.
+    [JsonPropertyName("coverage_level")]
+    public string CoverageLevel { get; set; } = "";
 }
 
 public sealed class CodeGraphEdge
