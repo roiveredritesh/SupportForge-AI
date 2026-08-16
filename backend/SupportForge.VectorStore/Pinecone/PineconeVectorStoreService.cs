@@ -82,6 +82,13 @@ public sealed class PineconeVectorStoreService : IVectorStoreService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task DeleteByMetadataAsync(string collection, IReadOnlyDictionary<string, string> metadataFilter, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync(
+            "/vectors/delete", new { filter = ToPineconeFilter(metadataFilter), @namespace = collection }, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task DeleteCollectionAsync(string collection, CancellationToken ct = default)
     {
         // deleteAll=true wipes every vector in the namespace but leaves the (implicit, schema-less)

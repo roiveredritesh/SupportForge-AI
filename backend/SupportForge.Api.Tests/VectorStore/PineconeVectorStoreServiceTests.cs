@@ -156,4 +156,26 @@ public class PineconeVectorStoreServiceTests
 
         Assert.Equal(0, await sut.CountAsync("proj-with-no-data-yet"));
     }
+
+    [Fact]
+    public async Task DeleteByMetadataAsync_PostsFilter_ToDeleteEndpoint_NotDeleteAll()
+    {
+        var (handler, sut) = MakeSut();
+        JsonElement? capturedBody = null;
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.RequestUri!.AbsolutePath.EndsWith("/vectors/delete")),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((req, _) =>
+                capturedBody = JsonSerializer.Deserialize<JsonElement>(req.Content!.ReadAsStringAsync().Result))
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") });
+
+        await sut.DeleteByMetadataAsync("proj1-kb", new Dictionary<string, string> { ["source"] = "file.md" });
+
+        Assert.NotNull(capturedBody);
+        Assert.Equal("proj1-kb", capturedBody!.Value.GetProperty("namespace").GetString());
+        var filter = capturedBody!.Value.GetProperty("filter");
+        Assert.Equal("file.md", filter.GetProperty("source").GetProperty("$eq").GetString());
+        Assert.False(capturedBody!.Value.TryGetProperty("deleteAll", out _));
+    }
 }

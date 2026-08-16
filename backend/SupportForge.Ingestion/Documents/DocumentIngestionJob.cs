@@ -35,7 +35,8 @@ public sealed class DocumentIngestionJob : IIngestionJob
             throw new DirectoryNotFoundException($"KB folder '{_folderPath}' (source '{_sourceLocation}') not found for project '{ProjectId}'.");
 
         var files = Directory.EnumerateFiles(_folderPath, "*.*", SearchOption.AllDirectories)
-            .Where(f => SupportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
+            .Where(f => SupportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .ToList();
 
         var documents = new List<(string SourceRef, string Text, string? Title)>();
         foreach (var file in files)
@@ -63,7 +64,8 @@ public sealed class DocumentIngestionJob : IIngestionJob
             documents.Add((file, text, null));
         }
 
-        await _indexer.IndexAsync(ProjectId, documents, ct, _triggeredByUserId);
+        await _indexer.IndexAsync(
+            ProjectId, documents, ct, _triggeredByUserId, new PruneScope(_folderPath, files.ToHashSet()));
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _sourceLocation, ct);
     }
 }

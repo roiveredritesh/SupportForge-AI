@@ -59,7 +59,8 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
                 $"KB source '{_sourceLocation}' resolved to '{folderPath}' after cloning, but that path doesn't exist in the repo.");
 
         var files = Directory.EnumerateFiles(folderPath, "*.*", SearchOption.AllDirectories)
-            .Where(f => SupportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
+            .Where(f => SupportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+            .ToList();
 
         var documents = new List<(string SourceRef, string Text, string? Title)>();
         foreach (var file in files)
@@ -87,7 +88,8 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
             documents.Add((file, text, null));
         }
 
-        await _indexer.IndexAsync(ProjectId, documents, ct, _triggeredByUserId);
+        await _indexer.IndexAsync(
+            ProjectId, documents, ct, _triggeredByUserId, new PruneScope(folderPath, files.ToHashSet()));
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _sourceLocation, ct);
     }
 }

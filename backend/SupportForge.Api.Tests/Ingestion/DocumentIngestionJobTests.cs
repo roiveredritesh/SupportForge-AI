@@ -20,6 +20,9 @@ public class DocumentIngestionJobTests
         var vectorStore = new Mock<IVectorStoreService>();
         var hashes = new Mock<IContentHashRepository>();
         hashes.Setup(h => h.GetHashAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        // DocumentIngestionJob always passes a PruneScope now; an empty known-refs list means
+        // nothing looks stale, matching every existing test's fresh-hash-repo assumption.
+        hashes.Setup(h => h.GetSourceRefsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<string>());
         return (llm, vectorStore, new KbVectorIndexer(
             llm.Object, vectorStore.Object, hashes.Object, new Mock<ITokenUsageRepository>().Object, NullLogger<KbVectorIndexer>.Instance));
     }

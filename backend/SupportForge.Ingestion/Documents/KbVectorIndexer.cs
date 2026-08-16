@@ -9,6 +9,17 @@ using SupportForge.VectorStore.Models;
 
 namespace SupportForge.Ingestion.Documents;
 
+// Bug fix: a file/page removed from a source between syncs previously left its old hash entry and
+// vector-store chunks behind forever (IndexAsync only ever adds/updates, never deletes), so a
+// deleted file kept showing up in chat answers even after Force Reindex. A caller that can name a
+// stable ref-prefix its source owns (Documents/GitHubFolder: the folder path every sourceRef is
+// rooted under) and enumerate every ref that currently exists (regardless of whether extraction
+// succeeded this run) can opt into pruning via this scope. Website/Confluence don't pass one:
+// Website's crawl is non-exhaustive by design (a page unreachable this run isn't necessarily
+// deleted) and Confluence is a single page per source with no "still exists" listing to check
+// against, so neither can safely tell "removed" apart from "just not seen this run".
+public sealed record PruneScope(string RefPrefix, IReadOnlySet<string> CurrentSourceRefs);
+
 /// <summary>
 /// Shared chunk-embed-upsert path for every KB source type (Documents, GitHub-folder, Confluence,
 /// Website): each source's raw text is chunked, embedded, and upserted into the project's
@@ -38,7 +49,7 @@ public sealed class KbVectorIndexer
     // for sources with no natural title distinct from their SourceRef (Documents file paths).
     public async Task IndexAsync(
         string projectId, IEnumerable<(string SourceRef, string Text, string? Title)> documents,
-        CancellationToken ct, string? triggeredByUserId = null)
+        CancellationToken ct, string? triggeredByUserId = null, PruneScope? prune = null)
     {
         var vectorDocs = new List<VectorDocument>();
         var tokensUsed = 0;
@@ -96,6 +107,25 @@ public sealed class KbVectorIndexer
         if (tokensUsed > 0)
             await _tokenUsage.AddAsync(
                 new TokenUsageEntry(projectId, tokensUsed, DateTimeOffset.UtcNow, "ingestion", UserId: triggeredByUserId), ct);
+
+        if (prune is not null)
+            await PruneRemovedSourcesAsync(projectId, prune, ct);
+    }
+
+    private async Task PruneRemovedSourcesAsync(string projectId, PruneScope prune, CancellationToken ct)
+    {
+        var knownRefs = await _contentHashes.GetSourceRefsAsync(projectId, ct);
+        var staleRefs = knownRefs.Where(r =>
+            r.StartsWith(prune.RefPrefix, StringComparison.Ordinal) && !prune.CurrentSourceRefs.Contains(r));
+
+        foreach (var sourceRef in staleRefs)
+        {
+            await _vectorStore.DeleteByMetadataAsync(
+                $"{projectId}-kb", new Dictionary<string, string> { ["source"] = sourceRef }, ct);
+            await _contentHashes.DeleteAsync(projectId, sourceRef, ct);
+            _logger.LogInformation(
+                "Pruned stale KB source '{SourceRef}' for project '{ProjectId}' -- no longer present", sourceRef, projectId);
+        }
     }
 
     private static string ComputeHash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));

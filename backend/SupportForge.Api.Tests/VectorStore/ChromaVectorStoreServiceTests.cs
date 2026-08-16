@@ -85,4 +85,25 @@ public class ChromaVectorStoreServiceTests
 
         Assert.Empty(results);
     }
+
+    [Fact]
+    public async Task DeleteByMetadataAsync_PostsWhereFilter_ToDeleteEndpoint_NotIds()
+    {
+        var (handler, sut) = MakeSut();
+        HttpRequestMessage? captured = null;
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.RequestUri!.AbsolutePath.EndsWith("/delete")),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((req, _) => captured = req)
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK));
+
+        await sut.DeleteByMetadataAsync("proj1-kb", new Dictionary<string, string> { ["source"] = "file.md" });
+
+        Assert.NotNull(captured);
+        var body = await captured!.Content!.ReadAsStringAsync();
+        Assert.Contains("\"where\"", body);
+        Assert.Contains("file.md", body);
+        Assert.DoesNotContain("\"ids\"", body);
+    }
 }
