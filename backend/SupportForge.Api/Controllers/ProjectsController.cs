@@ -78,6 +78,51 @@ public class ProjectsController : ControllerBase
         return Ok(new TokenUsageSummary(bySource.Values.Sum(), bySource));
     }
 
+    // U4: chat query volume by day, last 30 days -- feeds the Dashboard's line chart.
+    [HttpGet("{id}/query-volume")]
+    public async Task<ActionResult<IReadOnlyList<QueryVolumePoint>>> GetQueryVolume(string id, CancellationToken ct = default)
+    {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), id, ct)) return Forbid();
+
+        var since = DateTimeOffset.UtcNow.AddDays(-30);
+        var entries = await _tokenUsage.GetEntriesForProjectAsync(id, ct);
+        var byDay = entries
+            .Where(e => e.Source == "chat" && e.CreatedAt >= since)
+            .GroupBy(e => e.CreatedAt.UtcDateTime.Date)
+            .OrderBy(g => g.Key)
+            .Select(g => new QueryVolumePoint(g.Key.ToString("yyyy-MM-dd"), g.Count()));
+        return Ok(byDay.ToList());
+    }
+
+    // U4: useful vs. not-useful feedback counts for the project -- role-open (any member), distinct
+    // from FeedbackController.Dashboard which is Admin-only and org-scoped.
+    [HttpGet("{id}/feedback-summary")]
+    public async Task<ActionResult<FeedbackSummary>> GetFeedbackSummary(string id, CancellationToken ct = default)
+    {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), id, ct)) return Forbid();
+
+        var all = await _feedback.GetAllAsync(ct);
+        var forProject = all.Where(f => f.ProjectId == id).ToList();
+        return Ok(new FeedbackSummary(
+            forProject.Count(f => f.Useful == true),
+            forProject.Count(f => f.Useful == false)));
+    }
+
+    // U4: open/claimed/resolved escalation counts for the project -- mirrors
+    // EscalationsController.Queue's existing in-memory-filter-by-project pattern.
+    [HttpGet("{id}/escalation-stats")]
+    public async Task<ActionResult<EscalationStats>> GetEscalationStats(string id, CancellationToken ct = default)
+    {
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), id, ct)) return Forbid();
+
+        var all = await _escalations.GetAllAsync(ct);
+        var forProject = all.Where(e => e.ProjectId == id).ToList();
+        return Ok(new EscalationStats(
+            forProject.Count(e => e.Status == EscalationStatus.Open),
+            forProject.Count(e => e.Status == EscalationStatus.Claimed),
+            forProject.Count(e => e.Status == EscalationStatus.Resolved)));
+    }
+
     // B1: project creation stays self-service (agreed design) -- any authenticated user can create a
     // project and is auto-granted membership. Updating an *existing* project id requires the caller
     // already be a member, so a non-member can't silently take over another org's project by reusing
