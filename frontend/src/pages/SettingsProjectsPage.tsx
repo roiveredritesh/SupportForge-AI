@@ -7,9 +7,7 @@ import { useDeleteProject } from '../hooks/useDeleteProject';
 import { useFreshness } from '../hooks/useFreshness';
 import { useDeadLetters, useDismissDeadLetter } from '../hooks/useDeadLetters';
 import { useAppStore } from '../store/useAppStore';
-import { EmployeesSection } from '../components/EmployeesSection';
-import { ConnectedAppsSection } from '../components/ConnectedAppsSection';
-import { FeedbackDashboardSection } from '../components/FeedbackDashboardSection';
+import { SettingsNav } from '../components/SettingsNav';
 
 function FreshnessBadge({ projectId }: { projectId: string }) {
   const { data } = useFreshness(projectId);
@@ -68,7 +66,7 @@ const emptyKbSource: ProjectKbSource = { type: 'Documents', location: '' };
 const inputClass =
   'mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900';
 
-export default function AdminPage() {
+export default function SettingsProjectsPage() {
   const { data: projects } = useProjects();
   const saveProject = useCreateProject();
   const triggerIngestion = useTriggerIngestion();
@@ -141,7 +139,8 @@ export default function AdminPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <h1 className="text-xl font-semibold">Project Administration</h1>
+      <h1 className="text-xl font-semibold">Settings</h1>
+      <SettingsNav />
 
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center justify-between">
@@ -363,10 +362,6 @@ export default function AdminPage() {
           ))}
         </ul>
       </section>
-
-      <EmployeesSection />
-      <ConnectedAppsSection />
-      <FeedbackDashboardSection />
     </div>
   );
 }

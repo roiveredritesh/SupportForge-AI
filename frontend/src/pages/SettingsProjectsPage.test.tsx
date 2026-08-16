@@ -1,7 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import AdminPage from './AdminPage';
+import SettingsProjectsPage from './SettingsProjectsPage';
 import { apiClient } from '../lib/apiClient';
 
 vi.mock('../lib/apiClient', () => ({
@@ -12,12 +13,14 @@ vi.mock('../lib/apiClient', () => ({
   },
 }));
 
-describe('AdminPage', () => {
+describe('SettingsProjectsPage', () => {
   it('submits a new project with the entered id and name', async () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
-        <AdminPage />
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -37,7 +40,9 @@ describe('AdminPage', () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
-        <AdminPage />
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -55,7 +60,9 @@ describe('AdminPage', () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
-        <AdminPage />
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -99,7 +106,9 @@ describe('AdminPage', () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
-        <AdminPage />
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
 
