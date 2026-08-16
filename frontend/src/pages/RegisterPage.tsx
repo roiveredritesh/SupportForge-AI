@@ -1,7 +1,28 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { isAxiosError } from 'axios';
 import { useRegister } from '../hooks/useRegister';
 import { type FieldErrors, validatePasswordLength, validateRequired } from '../lib/formValidation';
+
+// AuthController.Register returns BadRequest(string[]) for Identity validation failures (password
+// complexity, duplicate username, etc.) or BadRequest(string) for a missing-field check -- surface
+// whichever the server actually said instead of a hardcoded guess, since a password-complexity
+// rejection and a duplicate-username rejection look identical to the user otherwise.
+function getServerErrors(error: unknown) {
+  if (!isAxiosError(error)) return null;
+  const data = error.response?.data;
+  if (Array.isArray(data) && data.every((d) => typeof d === 'string') && data.length > 0) {
+    return (
+      <ul className="list-disc space-y-0.5 pl-4">
+        {data.map((message, i) => (
+          <li key={i}>{message}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof data === 'string' && data.length > 0) return <p>{data}</p>;
+  return null;
+}
 
 // Self-service org+Admin signup -- mirrors LoginPage.tsx exactly. AuthController.Register creates
 // a new user, a new Org, and makes the user that org's Admin (one org per admin). Employees are
@@ -175,9 +196,11 @@ export default function RegisterPage() {
           />
         </label>
         {register.isError && (
-          <p className="text-sm text-red-600 dark:text-red-400">
-            Could not create your account. That username may already be taken.
-          </p>
+          <div className="text-sm text-red-600 dark:text-red-400">
+            {getServerErrors(register.error) ?? (
+              <p>Could not create your account. That username may already be taken.</p>
+            )}
+          </div>
         )}
         <button
           type="submit"
