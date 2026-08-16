@@ -61,7 +61,9 @@ public sealed class GraphImportJob : IIngestionJob
                     n.fileType = node.fileType,
                     n.sourceFile = node.sourceFile,
                     n.sourceLocation = node.sourceLocation,
-                    n.summary = node.summary
+                    n.summary = node.summary,
+                    n.shape = node.shape,
+                    n.coverageLevel = node.coverageLevel
                 """,
                 new
                 {
@@ -71,6 +73,9 @@ public sealed class GraphImportJob : IIngestionJob
                     // C# name (case-sensitive) -- every property must be explicitly lower-cased here to
                     // match the lowercase field names ("node.id", "node.label", ...) referenced in the
                     // Cypher above, or that field silently binds to null in the query instead of erroring.
+                    // shape/coverageLevel (U5, Tier 0/1 of the code-graph classification plan) are
+                    // purely additive here -- this unit only carries them through to Neo4j, it does not
+                    // yet change which nodes get written (that's the hard-delete policy step, U9).
                     nodes = graph.Nodes.Select(n => new
                     {
                         id = n.Id,
@@ -79,6 +84,8 @@ public sealed class GraphImportJob : IIngestionJob
                         sourceFile = n.SourceFile,
                         sourceLocation = n.SourceLocation,
                         summary = n.Summary,
+                        shape = n.Shape,
+                        coverageLevel = n.CoverageLevel,
                     }),
                 });
 
