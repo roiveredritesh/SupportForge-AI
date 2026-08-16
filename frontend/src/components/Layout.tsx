@@ -78,6 +78,12 @@ export default function Layout() {
       <div className="flex flex-1 flex-col">
         <header className="flex h-14 items-center justify-end gap-3 border-b border-slate-200 px-6 dark:border-gray-700">
           <ThemeToggle />
+          <NavLink
+            to="/account"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            Account
+          </NavLink>
           <button
             onClick={handleLogout}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"

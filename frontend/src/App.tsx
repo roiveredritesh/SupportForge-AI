@@ -13,6 +13,7 @@ import RegisterPage from './pages/RegisterPage';
 import EscalationQueuePage from './pages/EscalationQueuePage';
 import MyIssuesPage from './pages/MyIssuesPage';
 import HelpPage from './pages/HelpPage';
+import AccountPage from './pages/AccountPage';
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/escalations" element={<EscalationQueuePage />} />
             <Route path="/my-issues" element={<MyIssuesPage />} />
             <Route path="/help" element={<HelpPage />} />
+            <Route path="/account" element={<AccountPage />} />
           </Route>
         </Route>
       </Routes>
