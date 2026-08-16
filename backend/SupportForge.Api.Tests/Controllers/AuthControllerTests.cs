@@ -1,3 +1,6 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using SupportForge.Api.Controllers;
@@ -14,6 +17,7 @@ public class AuthControllerTests : IDisposable
     private readonly JsonFileUserRepository _users;
     private readonly JsonFileOrgRepository _orgs;
     private readonly JsonFileOrgMembershipRepository _orgMemberships;
+    private readonly UserManager<AppUser> _userManager;
     private readonly AuthController _controller;
 
     public AuthControllerTests()
@@ -22,7 +26,8 @@ public class AuthControllerTests : IDisposable
         _users = new JsonFileUserRepository(_tempDir);
         _orgs = new JsonFileOrgRepository(_tempDir);
         _orgMemberships = new JsonFileOrgMembershipRepository(_tempDir);
-        _controller = new AuthController(OrgsControllerTests.MakeUserManager(_users), new ConfigurationBuilder().Build(), _orgs, _orgMemberships);
+        _userManager = OrgsControllerTests.MakeUserManager(_users);
+        _controller = new AuthController(_userManager, new ConfigurationBuilder().Build(), _orgs, _orgMemberships);
     }
 
     public void Dispose()
@@ -119,5 +124,73 @@ public class AuthControllerTests : IDisposable
 
         var allOrgs = await _orgs.GetAllAsync();
         Assert.Equal(2, allOrgs.Count);
+    }
+
+    // U9: self-service change password.
+    private async Task<AppUser> RegisterAndGetUser(string userName = "alice")
+    {
+        await _controller.Register(MakeRequest(userName: userName));
+        return Assert.Single(await _users.GetAllAsync());
+    }
+
+    private void SetAsCurrentUser(AppUser user) =>
+        _controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, user.Id) }, "TestAuth")),
+            },
+        };
+
+    [Fact]
+    public async Task ChangePassword_CorrectCurrentAndValidNew_SucceedsAndNewPasswordWorks()
+    {
+        var user = await RegisterAndGetUser();
+        SetAsCurrentUser(user);
+
+        var result = await _controller.ChangePassword(new AuthController.ChangePasswordRequest("Passw0rd!", "NewPassw0rd!"));
+
+        Assert.IsType<OkResult>(result);
+        var reloaded = await _users.GetByIdAsync(user.Id);
+        Assert.NotNull(reloaded);
+        Assert.True(await _userManager.CheckPasswordAsync(reloaded!, "NewPassw0rd!"));
+    }
+
+    [Fact]
+    public async Task ChangePassword_WrongCurrentPassword_ReturnsBadRequestWithMismatchError()
+    {
+        var user = await RegisterAndGetUser();
+        SetAsCurrentUser(user);
+
+        var result = await _controller.ChangePassword(new AuthController.ChangePasswordRequest("WrongPassword!", "NewPassw0rd!"));
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        var errors = Assert.IsAssignableFrom<IEnumerable<string>>(badRequest.Value);
+        Assert.Contains(errors, e => e.Contains("incorrect", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ChangePassword_NewPasswordFailsStrengthRules_ReturnsBadRequestWithValidatorError()
+    {
+        var user = await RegisterAndGetUser();
+        SetAsCurrentUser(user);
+
+        var result = await _controller.ChangePassword(new AuthController.ChangePasswordRequest("Passw0rd!", "short"));
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task ChangePassword_ThenLogin_NewPasswordWorksAndOldPasswordRejected()
+    {
+        var user = await RegisterAndGetUser();
+        SetAsCurrentUser(user);
+        await _controller.ChangePassword(new AuthController.ChangePasswordRequest("Passw0rd!", "NewPassw0rd!"));
+
+        var loginWithNew = await _controller.Token(new AuthController.TokenRequest("alice", "NewPassw0rd!"));
+        Assert.IsType<OkObjectResult>(loginWithNew.Result);
+
+        var loginWithOld = await _controller.Token(new AuthController.TokenRequest("alice", "Passw0rd!"));
+        Assert.IsType<UnauthorizedResult>(loginWithOld.Result);
     }
 }
