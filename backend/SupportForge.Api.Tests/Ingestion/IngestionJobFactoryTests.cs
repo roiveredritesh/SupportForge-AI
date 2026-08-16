@@ -57,7 +57,7 @@ public class IngestionJobFactoryTests
             },
         };
 
-        var job = Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project).Single());
+        var job = Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project, null).Single());
 
         var folderPath = (string)job.GetType()
             .GetField("_folderPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
@@ -81,7 +81,7 @@ public class IngestionJobFactoryTests
             },
         };
 
-        Assert.Throws<InvalidOperationException>(() => factory.CreateJobs(project).ToList());
+        Assert.Throws<InvalidOperationException>(() => factory.CreateJobs(project, null).ToList());
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class IngestionJobFactoryTests
             KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "/standalone/docs", null) },
         };
 
-        var job = Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project).Single());
+        var job = Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project, null).Single());
 
         var folderPath = (string)job.GetType()
             .GetField("_folderPath", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
@@ -120,7 +120,7 @@ public class IngestionJobFactoryTests
             },
         };
 
-        var job = Assert.IsType<GitHubFolderIngestionJob>(factory.CreateJobs(project).Single());
+        var job = Assert.IsType<GitHubFolderIngestionJob>(factory.CreateJobs(project, null).Single());
         Assert.Equal("proj1", job.ProjectId);
     }
 
@@ -142,7 +142,7 @@ public class IngestionJobFactoryTests
             },
         };
 
-        Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project).Single());
+        Assert.IsType<DocumentIngestionJob>(factory.CreateJobs(project, null).Single());
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class IngestionJobFactoryTests
             },
         };
 
-        var jobs = factory.CreateJobs(project).ToList();
+        var jobs = factory.CreateJobs(project, null).ToList();
 
         Assert.Single(jobs.OfType<WebsiteIngestionJob>());
         Assert.Single(jobs.OfType<ConfluenceIngestionJob>());
@@ -183,7 +183,7 @@ public class IngestionJobFactoryTests
             },
         };
 
-        var jobs = factory.CreateJobs(project).ToList();
+        var jobs = factory.CreateJobs(project, null).ToList();
 
         Assert.Equal(2, jobs.Count);
         Assert.All(jobs, j => Assert.Equal("proj1", j.ProjectId));

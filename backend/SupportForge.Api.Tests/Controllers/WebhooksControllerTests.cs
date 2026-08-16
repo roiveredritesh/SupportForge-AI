@@ -25,9 +25,11 @@ public class WebhooksControllerTests
     private sealed class RecordingJobFactory : IIngestionJobFactory
     {
         public List<Project> CallsWithProjectSnapshot { get; } = new();
-        public IEnumerable<IIngestionJob> CreateJobs(Project project)
+        public List<string?> TriggeredByUserIds { get; } = new();
+        public IEnumerable<IIngestionJob> CreateJobs(Project project, string? triggeredByUserId)
         {
             CallsWithProjectSnapshot.Add(project);
+            TriggeredByUserIds.Add(triggeredByUserId);
             yield return new NoOpJob(project.Id);
         }
     }
@@ -162,6 +164,8 @@ public class WebhooksControllerTests
         Assert.Equal("widget-api", repo.Repo);
         Assert.Empty(snapshot.KbSources); // pseudo-project carries no KB sources -- a push shouldn't re-sync Confluence
         Assert.True(queue.IsBusy("proj1"));
+        // U7/KTD4: a webhook has no authenticated caller to attribute.
+        Assert.Null(Assert.Single(factory.TriggeredByUserIds));
 
         Directory.Delete(tempDir, recursive: true);
     }
@@ -272,6 +276,8 @@ public class WebhooksControllerTests
         Assert.Equal("98765", source.Location);
         Assert.Empty(snapshot.Repos); // pseudo-project carries no repos -- a page edit shouldn't re-clone code
         Assert.True(queue.IsBusy("proj1"));
+        // U7/KTD4: a webhook has no authenticated caller to attribute.
+        Assert.Null(Assert.Single(factory.TriggeredByUserIds));
 
         Directory.Delete(tempDir, recursive: true);
     }

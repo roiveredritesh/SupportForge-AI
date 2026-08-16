@@ -197,6 +197,33 @@ public class KbVectorIndexerTests
         Assert.Equal("proj1", recorded!.ProjectId);
         Assert.Equal(25, recorded.TotalTokens);
         Assert.Equal("ingestion", recorded.Source);
+        // Characterization baseline (U7): no triggeredByUserId argument -- today's default,
+        // unattributed behavior, unchanged by U7's optional parameter.
+        Assert.Null(recorded.UserId);
+    }
+
+    // U7: an interactive Trigger/ForceReindex run threads the calling Admin's id all the way
+    // through to this TokenUsageEntry write.
+    [Fact]
+    public async Task IndexAsync_WithTriggeredByUserId_StampsUserIdOnTokenUsageEntry()
+    {
+        var llm = new Mock<ILlmEmbeddingClient>();
+        llm.Setup(l => l.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<EmbeddingPurpose>())).ReturnsAsync(new float[] { 0.1f });
+        llm.Setup(l => l.LastTotalTokens).Returns(10);
+        var vectorStore = new Mock<IVectorStoreService>();
+        vectorStore.Setup(v => v.UpsertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<VectorDocument>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var tokenUsage = new Mock<ITokenUsageRepository>();
+        TokenUsageEntry? recorded = null;
+        tokenUsage.Setup(t => t.AddAsync(It.IsAny<TokenUsageEntry>(), It.IsAny<CancellationToken>()))
+            .Callback<TokenUsageEntry, CancellationToken>((e, _) => recorded = e)
+            .Returns(Task.CompletedTask);
+        var indexer = new KbVectorIndexer(llm.Object, vectorStore.Object, AlwaysUnseenHashes(), tokenUsage.Object, NoOpLogger());
+
+        await indexer.IndexAsync("proj1", [("a.md", "one", null)], CancellationToken.None, triggeredByUserId: "admin1");
+
+        Assert.NotNull(recorded);
+        Assert.Equal("admin1", recorded!.UserId);
     }
 
     [Fact]

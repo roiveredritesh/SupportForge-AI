@@ -73,7 +73,9 @@ public sealed class ScheduledKbSyncService : BackgroundService
                 continue;
             }
 
-            foreach (var job in _docFactory.CreateJobs(project))
+            // A scheduled sync runs outside any authenticated request -- triggeredByUserId is
+            // null, same as a webhook-triggered run (KTD4).
+            foreach (var job in _docFactory.CreateJobs(project, triggeredByUserId: null))
                 _queue.Enqueue(job);
             enqueued++;
         }

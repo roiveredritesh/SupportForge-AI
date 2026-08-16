@@ -22,13 +22,14 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
     private readonly KbVectorIndexer _indexer;
     private readonly IProjectRepository _projects;
     private readonly ILogger<GitHubFolderIngestionJob> _logger;
+    private readonly string? _triggeredByUserId;
 
     public string ProjectId { get; }
 
     public GitHubFolderIngestionJob(
         string projectId, string repoUrl, string branch, string localRepoPath, string subPath, string sourceLocation,
         GitRepoSyncService gitSync, KbVectorIndexer indexer, IProjectRepository projects,
-        ILogger<GitHubFolderIngestionJob> logger)
+        ILogger<GitHubFolderIngestionJob> logger, string? triggeredByUserId = null)
     {
         ProjectId = projectId;
         _repoUrl = repoUrl;
@@ -40,6 +41,7 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
         _indexer = indexer;
         _projects = projects;
         _logger = logger;
+        _triggeredByUserId = triggeredByUserId;
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -85,7 +87,7 @@ public sealed class GitHubFolderIngestionJob : IIngestionJob
             documents.Add((file, text, null));
         }
 
-        await _indexer.IndexAsync(ProjectId, documents, ct);
+        await _indexer.IndexAsync(ProjectId, documents, ct, _triggeredByUserId);
         await KbSourceSync.MarkSyncedAsync(_projects, ProjectId, _sourceLocation, ct);
     }
 }
