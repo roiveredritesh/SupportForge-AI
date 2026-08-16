@@ -16,6 +16,9 @@ export interface McpServerCatalogEntry {
 export interface McpConnection {
   serverType: string;
   enabledTools: string[];
+  // U7: null when GitHub reported no expiration header (e.g. fine-grained PATs) or the connect-time
+  // probe failed -- see McpConnectionsController.Connect.
+  expiresAt: string | null;
 }
 
 export interface ConnectMcpServerRequest {

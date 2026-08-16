@@ -4,6 +4,10 @@ public sealed class Org
 {
     public required string Id { get; init; }
     public required string Name { get; init; }
+    public required string ContactPerson { get; init; }
+    public required string ContactNumber { get; init; }
+    public required string Industry { get; init; }
+    public string? Address { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
     // Sprint 3 (U13): connected MCP servers (GitHub today, more later) -- JSON-file-backed via

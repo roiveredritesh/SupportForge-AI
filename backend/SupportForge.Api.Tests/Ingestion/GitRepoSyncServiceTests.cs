@@ -57,7 +57,7 @@ public class GitRepoSyncServiceTests : IDisposable
     public async Task ResolveTokenAsync_OrgWithNoMcpConnection_FallsBackToGlobalConfigUnchanged()
     {
         var orgs = new JsonFileOrgRepository(_tempDir);
-        await orgs.UpsertAsync(new Org { Id = "org1", Name = "Acme" }); // no Connections
+        await orgs.UpsertAsync(new Org { Id = "org1", Name = "Acme", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" }); // no Connections
 
         var sut = new GitRepoSyncService(ConfigWithGlobalToken("global-token"), orgs);
 
@@ -84,6 +84,9 @@ public class GitRepoSyncServiceTests : IDisposable
         {
             Id = "org1",
             Name = "Acme",
+            ContactPerson = "Jane Doe",
+            ContactNumber = "555-0100",
+            Industry = "Software",
             Connections = [new McpConnection { ServerType = "github", Credential = "mcp-connection-token", EnabledTools = ["list_commits"] }],
         });
 

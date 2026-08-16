@@ -1,7 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import AdminPage from './AdminPage';
+import SettingsProjectsPage from './SettingsProjectsPage';
 import { apiClient } from '../lib/apiClient';
 
 vi.mock('../lib/apiClient', () => ({
@@ -12,12 +13,14 @@ vi.mock('../lib/apiClient', () => ({
   },
 }));
 
-describe('AdminPage', () => {
+describe('SettingsProjectsPage', () => {
   it('submits a new project with the entered id and name', async () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
-        <AdminPage />
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -37,7 +40,9 @@ describe('AdminPage', () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
-        <AdminPage />
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -55,7 +60,9 @@ describe('AdminPage', () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
-        <AdminPage />
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -99,7 +106,9 @@ describe('AdminPage', () => {
     const client = new QueryClient();
     render(
       <QueryClientProvider client={client}>
-        <AdminPage />
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
 
@@ -109,5 +118,49 @@ describe('AdminPage', () => {
     fireEvent.click(screen.getByText('Dismiss'));
 
     await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith('/ingestion/dead-letters/dl1'));
+  });
+
+  // U8: Existing Projects renders as a card grid instead of a <ul>/<li> list.
+  it('renders 2 projects as cards inside a grid container', async () => {
+    vi.mocked(apiClient.get).mockImplementation((url: string) => {
+      if (url === '/projects')
+        return Promise.resolve({
+          data: [
+            { id: 'proj1', name: 'Proj One', repos: [], kbSources: [] },
+            { id: 'proj2', name: 'Proj Two', repos: [], kbSources: [] },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const projOne = await screen.findByText(/Proj One/);
+    expect(screen.getByText(/Proj Two/)).toBeInTheDocument();
+
+    const card = projOne.closest('.rounded-lg');
+    expect(card?.parentElement).toHaveClass('grid');
+  });
+
+  it('shows the empty-state text and no grid when there are zero projects', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: [] });
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('No projects yet.')).toBeInTheDocument();
   });
 });

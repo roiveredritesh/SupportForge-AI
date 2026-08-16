@@ -222,6 +222,231 @@ public class ProjectsControllerTests
     }
 
     [Fact]
+    public async Task GetQueryVolume_BucketsChatEntriesByDay_ForMemberOfProject()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var tokenUsage = new JsonFileTokenUsageRepository(tempDir);
+        var day1 = DateTimeOffset.UtcNow.AddDays(-2);
+        var day2 = DateTimeOffset.UtcNow.AddDays(-1);
+        var day3 = DateTimeOffset.UtcNow;
+        await tokenUsage.AddAsync(new TokenUsageEntry("proj1", 10, day1, "chat"));
+        await tokenUsage.AddAsync(new TokenUsageEntry("proj1", 20, day2, "chat"));
+        await tokenUsage.AddAsync(new TokenUsageEntry("proj1", 30, day2, "chat"));
+        await tokenUsage.AddAsync(new TokenUsageEntry("proj1", 40, day3, "chat"));
+        await tokenUsage.AddAsync(new TokenUsageEntry("proj1", 50, day3, "ingestion")); // excluded: not chat
+        await tokenUsage.AddAsync(new TokenUsageEntry("proj2", 60, day3, "chat")); // excluded: other project
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            tokenUsage,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+
+        var result = await controller.GetQueryVolume("proj1");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var points = Assert.IsAssignableFrom<IReadOnlyList<Api.Contracts.QueryVolumePoint>>(ok.Value);
+        Assert.Equal(3, points.Count);
+        Assert.Equal(1, points.Single(p => p.Date == day1.UtcDateTime.Date.ToString("yyyy-MM-dd")).Count);
+        Assert.Equal(2, points.Single(p => p.Date == day2.UtcDateTime.Date.ToString("yyyy-MM-dd")).Count);
+        Assert.Equal(1, points.Single(p => p.Date == day3.UtcDateTime.Date.ToString("yyyy-MM-dd")).Count);
+
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task GetQueryVolume_NonMember_ReturnsForbidden()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller, "owner");
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+        SetTestUser(controller, "someone-else");
+
+        var result = await controller.GetQueryVolume("proj1");
+
+        Assert.IsType<ForbidResult>(result.Result);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task GetFeedbackSummary_CountsUsefulAndNotUseful_ForMemberOfProject()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var feedback = new JsonFileFeedbackRepository(tempDir);
+        await feedback.AddAsync(new FeedbackEntry("proj1", "q1", true, false, DateTimeOffset.UtcNow));
+        await feedback.AddAsync(new FeedbackEntry("proj1", "q2", true, false, DateTimeOffset.UtcNow));
+        await feedback.AddAsync(new FeedbackEntry("proj1", "q3", false, false, DateTimeOffset.UtcNow, ReasonCode: FeedbackReasonCode.Incomplete));
+        await feedback.AddAsync(new FeedbackEntry("proj2", "q4", true, false, DateTimeOffset.UtcNow)); // excluded: other project
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
+            new Mock<IVectorStoreService>().Object,
+            feedback,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+
+        var result = await controller.GetFeedbackSummary("proj1");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var summary = Assert.IsType<Api.Contracts.FeedbackSummary>(ok.Value);
+        Assert.Equal(2, summary.Useful);
+        Assert.Equal(1, summary.NotUseful);
+
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task GetFeedbackSummary_NonMember_ReturnsForbidden()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller, "owner");
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+        SetTestUser(controller, "someone-else");
+
+        var result = await controller.GetFeedbackSummary("proj1");
+
+        Assert.IsType<ForbidResult>(result.Result);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task GetEscalationStats_CountsByStatus_ForMemberOfProject_ExcludingOtherProjects()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var escalations = new JsonFileEscalationRepository(tempDir);
+        await escalations.UpsertAsync(new Escalation("e1", "conv1", "proj1", "u1", DateTimeOffset.UtcNow, "md", EscalationStatus.Open));
+        await escalations.UpsertAsync(new Escalation("e2", "conv2", "proj1", "u1", DateTimeOffset.UtcNow, "md", EscalationStatus.Claimed));
+        await escalations.UpsertAsync(new Escalation("e3", "conv3", "proj1", "u1", DateTimeOffset.UtcNow, "md", EscalationStatus.Resolved));
+        await escalations.UpsertAsync(new Escalation("e4", "conv4", "proj1", "u1", DateTimeOffset.UtcNow, "md", EscalationStatus.Resolved));
+        await escalations.UpsertAsync(new Escalation("e5", "conv5", "proj2", "u1", DateTimeOffset.UtcNow, "md", EscalationStatus.Open)); // excluded: other project
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            escalations,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+
+        var result = await controller.GetEscalationStats("proj1");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var stats = Assert.IsType<Api.Contracts.EscalationStats>(ok.Value);
+        Assert.Equal(1, stats.Open);
+        Assert.Equal(1, stats.Claimed);
+        Assert.Equal(2, stats.Resolved);
+
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task GetEscalationStats_NonMember_ReturnsForbidden()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller, "owner");
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+        SetTestUser(controller, "someone-else");
+
+        var result = await controller.GetEscalationStats("proj1");
+
+        Assert.IsType<ForbidResult>(result.Result);
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    [Fact]
     public async Task Delete_RetriesWhenRepoDirFileIsMomentarilyLocked()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
