@@ -7,6 +7,9 @@ const SETTINGS_NAV_ITEMS = [
   { to: '/settings/employees', label: 'Employees' },
   { to: '/settings/connected-apps', label: 'Connected Apps' },
   { to: '/settings/feedback', label: 'Feedback' },
+  // U8: nav link always renders, same as the other Admin-only settings pages -- each page's own
+  // RequireRole gate (not this nav) is what actually hides content from non-Admins.
+  { to: '/settings/token-usage', label: 'Token Usage' },
 ];
 
 export function SettingsNav() {
