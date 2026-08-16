@@ -1,5 +1,5 @@
-import { useEffect, type ComponentType } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useEffect, useState, type ComponentType } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
 import { useAuthStore, type AppRole } from '../store/useAuthStore';
 import { useAppStore } from '../store/useAppStore';
@@ -20,9 +20,11 @@ export default function Layout() {
   const logout = useAuthStore((s) => s.logout);
   const role = useAuthStore((s) => s.role);
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: projects } = useProjects();
   const { selectedProjectId, setSelectedProjectId } = useAppStore();
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.roles || (role && item.roles.includes(role)));
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // A projectId persisted from a previous session (deleted project, different
   // backend, stale browser profile) doesn't match any option in the project
@@ -34,68 +36,118 @@ export default function Layout() {
     }
   }, [projects, selectedProjectId, setSelectedProjectId]);
 
+  // Below the md breakpoint the sidebar is an off-canvas drawer -- close it on every navigation
+  // so picking a nav item doesn't leave the drawer covering the page it just opened.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
   const handleLogout = () => {
     logout();
     navigate('/login', { replace: true });
   };
 
+  const sidebarContent = (
+    <>
+      <div className="flex items-center gap-2 px-5 py-5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
+          S
+        </span>
+        <div>
+          <p className="text-sm font-semibold leading-tight">SupportForge AI</p>
+          <p className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-gray-500">
+            Support Pipeline
+          </p>
+        </div>
+      </div>
+
+      <nav className="flex-1 space-y-1 px-3">
+        {visibleNavItems.map(({ to, label, end, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            onClick={() => setMobileNavOpen(false)}
+            className={({ isActive }) =>
+              `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-gray-700'
+              }`
+            }
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+    </>
+  );
+
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-gray-900 dark:text-gray-100">
-      <aside className="w-60 shrink-0 border-r border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-800 flex flex-col">
-        <div className="flex items-center gap-2 px-5 py-5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-            S
-          </span>
-          <div>
-            <p className="text-sm font-semibold leading-tight">SupportForge AI</p>
-            <p className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-gray-500">
-              Support Pipeline
-            </p>
-          </div>
-        </div>
-
-        <nav className="flex-1 space-y-1 px-3">
-          {visibleNavItems.map(({ to, label, end, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400'
-                    : 'text-slate-600 hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                }`
-              }
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
+      {/* Desktop: static sidebar, always visible from md up. */}
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-800 md:flex">
+        {sidebarContent}
       </aside>
 
-      <div className="flex flex-1 flex-col">
-        <header className="flex h-14 items-center justify-end gap-3 border-b border-slate-200 px-6 dark:border-gray-700">
-          <ThemeToggle />
-          <NavLink
-            to="/account"
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            Account
-          </NavLink>
+      {/* Mobile: off-canvas drawer + backdrop, only mounted below md. */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setMobileNavOpen(false)}
+            aria-hidden="true"
+          />
+          <aside className="absolute inset-y-0 left-0 flex w-60 flex-col border-r border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 items-center justify-between gap-3 border-b border-slate-200 px-4 dark:border-gray-700 sm:px-6">
           <button
-            onClick={handleLogout}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            className="rounded-lg border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 md:hidden"
+            aria-label="Open navigation"
           >
-            Log out
+            <MenuIcon className="h-5 w-5" />
           </button>
+          <div className="flex flex-1 items-center justify-end gap-3">
+            <ThemeToggle />
+            <NavLink
+              to="/account"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              Account
+            </NavLink>
+            <button
+              onClick={handleLogout}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              Log out
+            </button>
+          </div>
         </header>
-        <main className="flex-1">
+        <main className="min-w-0 flex-1 overflow-x-hidden">
           <Outlet />
         </main>
       </div>
     </div>
+  );
+}
+
+function MenuIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm1 4a1 1 0 100 2h12a1 1 0 100-2H4z"
+        clipRule="evenodd"
+      />
+    </svg>
   );
 }
 
