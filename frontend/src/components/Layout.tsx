@@ -12,7 +12,7 @@ const NAV_ITEMS: { to: string; label: string; end: boolean; icon: ComponentType<
   // client-side convenience mirror, same convention EmployeesSection's RequireRole established.
   { to: '/escalations', label: 'Escalations', end: false, icon: EscalationIcon, roles: ['L2', 'L3', 'Admin'] },
   { to: '/my-issues', label: 'My Issues', end: false, icon: EscalationIcon, roles: ['L2', 'L3', 'Admin'] },
-  { to: '/admin', label: 'Settings', end: false, icon: SettingsIcon },
+  { to: '/settings', label: 'Settings', end: false, icon: SettingsIcon },
 ];
 
 export default function Layout() {
