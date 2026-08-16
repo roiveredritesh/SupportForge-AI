@@ -8,6 +8,7 @@ import { useFreshness } from '../hooks/useFreshness';
 import { useDeadLetters, useDismissDeadLetter } from '../hooks/useDeadLetters';
 import { useAppStore } from '../store/useAppStore';
 import { SettingsNav } from '../components/SettingsNav';
+import { type FieldErrors, validateRequired } from '../lib/formValidation';
 
 function FreshnessBadge({ projectId }: { projectId: string }) {
   const { data } = useFreshness(projectId);
@@ -80,6 +81,7 @@ export default function SettingsProjectsPage() {
   const [repos, setRepos] = useState<ProjectRepo[]>([]);
   const [kbSources, setKbSources] = useState<ProjectKbSource[]>([]);
   const [syncIntervalHours, setSyncIntervalHours] = useState('');
+  const [errors, setErrors] = useState<FieldErrors>({});
 
   const resetForm = () => {
     setEditingId(null);
@@ -88,6 +90,7 @@ export default function SettingsProjectsPage() {
     setRepos([]);
     setKbSources([]);
     setSyncIntervalHours('');
+    setErrors({});
   };
 
   const startEdit = (p: Project) => {
@@ -116,6 +119,12 @@ export default function SettingsProjectsPage() {
   };
 
   const handleSave = () => {
+    const fieldErrors = validateRequired(editingId ? { name } : { id, name });
+    if (Object.keys(fieldErrors).length > 0) {
+      setErrors(fieldErrors);
+      return;
+    }
+    setErrors({});
     const parsedInterval = syncIntervalHours.trim() === '' ? null : Number(syncIntervalHours);
     saveProject.mutate(
       {
@@ -152,14 +161,41 @@ export default function SettingsProjectsPage() {
           )}
         </div>
 
-        <label className="block text-sm">
-          Project ID
-          <input className={inputClass} value={id} onChange={(e) => setId(e.target.value)} disabled={!!editingId} />
-        </label>
-        <label className="block text-sm">
-          Project Name
-          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
+        <div>
+          <label className="block text-sm">
+            Project ID
+            <input
+              className={inputClass}
+              value={id}
+              onChange={(e) => setId(e.target.value)}
+              disabled={!!editingId}
+              aria-invalid={!!errors.id}
+              aria-describedby={errors.id ? 'id-error' : undefined}
+            />
+          </label>
+          {errors.id && (
+            <p id="id-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {errors.id}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm">
+            Project Name
+            <input
+              className={inputClass}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? 'name-error' : undefined}
+            />
+          </label>
+          {errors.name && (
+            <p id="name-error" role="alert" className="text-xs text-red-600 dark:text-red-400">
+              {errors.name}
+            </p>
+          )}
+        </div>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -277,7 +313,11 @@ export default function SettingsProjectsPage() {
           />
         </label>
 
-        <button className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700" onClick={handleSave} disabled={saveProject.isPending}>
+        <button
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
+          onClick={handleSave}
+          disabled={saveProject.isPending}
+        >
           {editingId ? 'Save Changes' : 'Create Project'}
         </button>
       </section>

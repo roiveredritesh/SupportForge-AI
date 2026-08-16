@@ -163,4 +163,53 @@ describe('SettingsProjectsPage', () => {
 
     expect(await screen.findByText('No projects yet.')).toBeInTheDocument();
   });
+
+  // U4: required-field inline validation on the add/edit-project form (previously had none).
+  it('shows inline errors for both fields and does not submit when id and name are empty', async () => {
+    vi.mocked(apiClient.post).mockClear();
+    vi.mocked(apiClient.get).mockResolvedValue({ data: [] });
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByText('Create Project'));
+
+    expect(await screen.findAllByText('This field is required.')).toHaveLength(2);
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('requires only name (not id) when editing an existing project', async () => {
+    vi.mocked(apiClient.post).mockClear();
+    vi.mocked(apiClient.get).mockImplementation((url: string) => {
+      if (url === '/projects')
+        return Promise.resolve({ data: [{ id: 'proj1', name: 'Proj One', repos: [], kbSources: [] }] });
+      if (url.includes('/freshness'))
+        return Promise.resolve({ data: { isFresh: true, staleSources: [], sources: [] } });
+      return Promise.resolve({ data: [] });
+    });
+
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByText('Edit'));
+    fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: '' } });
+    fireEvent.click(screen.getByText('Save Changes'));
+
+    // Only Project Name's error should appear -- Project ID is disabled while editing and its
+    // required check is skipped.
+    expect(await screen.findAllByText('This field is required.')).toHaveLength(1);
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
 });
