@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using SupportForge.Api.Identity;
@@ -29,6 +30,7 @@ public class AuthController : ControllerBase
     public sealed record RegisterRequest(
         string OrgName, string UserName, string Password, string ContactPerson, string ContactNumber,
         string Industry, string? Address);
+    public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
     [HttpPost("token")]
     public async Task<ActionResult<TokenResponse>> Token([FromBody] TokenRequest request)
@@ -80,5 +82,22 @@ public class AuthController : ControllerBase
 
         var (accessToken, expiresAt) = JwtTokenFactory.Create(user, _configuration);
         return Ok(new TokenResponse(accessToken, expiresAt));
+    }
+
+    // U9: self-service change password. ChangePasswordAsync verifies CurrentPassword and applies
+    // the same strength validators Register/CreateAsync use, in one Identity call.
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var user = await _userManager.FindByIdAsync(this.CurrentUserId());
+        if (user is null)
+            return Unauthorized();
+
+        var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!result.Succeeded)
+            return BadRequest(result.Errors.Select(e => e.Description));
+
+        return Ok();
     }
 }
