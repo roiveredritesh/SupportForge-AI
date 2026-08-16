@@ -56,4 +56,23 @@ public class TokenUsageTests
         Assert.All(entries, e => Assert.Equal("proj1", e.ProjectId));
         Directory.Delete(tempDir, recursive: true);
     }
+
+    [Fact]
+    public async Task GetEntriesForProjectsAsync_ReturnsEntriesFromMultipleProjects_ExcludesOthers()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileTokenUsageRepository(tempDir);
+
+        await repo.AddAsync(new TokenUsageEntry("proj1", 100, DateTimeOffset.UtcNow, "chat"));
+        await repo.AddAsync(new TokenUsageEntry("proj2", 50, DateTimeOffset.UtcNow, "chat"));
+        await repo.AddAsync(new TokenUsageEntry("proj3", 999, DateTimeOffset.UtcNow, "chat"));
+
+        var entries = await repo.GetEntriesForProjectsAsync(new[] { "proj1", "proj2" });
+
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.ProjectId == "proj1");
+        Assert.Contains(entries, e => e.ProjectId == "proj2");
+        Assert.DoesNotContain(entries, e => e.ProjectId == "proj3");
+        Directory.Delete(tempDir, recursive: true);
+    }
 }

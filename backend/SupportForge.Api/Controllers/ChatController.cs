@@ -291,7 +291,7 @@ public partial class ChatController : ControllerBase
 
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(
-            new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow, "chat", request.ProductVersion, request.Config), ct);
+            new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow, "chat", request.ProductVersion, request.Config, this.CurrentUserId()), ct);
         _logger.LogInformation("TokenUsage project={ProjectId} total={Total} byAgent={ByAgent}",
             request.ProjectId, result.TotalTokensUsed, JsonSerializer.Serialize(result.TokensByAgent));
 
@@ -465,7 +465,7 @@ public partial class ChatController : ControllerBase
         }
 
         await _tokenUsage.AddAsync(
-            new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow, "chat", request.ProductVersion, request.Config), ct);
+            new TokenUsageEntry(request.ProjectId, context.TotalTokensUsed, DateTimeOffset.UtcNow, "chat", request.ProductVersion, request.Config, this.CurrentUserId()), ct);
         _logger.LogInformation("TokenUsage project={ProjectId} total={Total} byAgent={ByAgent}",
             request.ProjectId, context.TotalTokensUsed, JsonSerializer.Serialize(context.TokensByAgent));
 
