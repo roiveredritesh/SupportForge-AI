@@ -10,5 +10,8 @@ public interface ITokenUsageRepository
     // U4: raw entries for a project -- ProjectsController.GetQueryVolume day-buckets these itself
     // (Source=="chat" filter + CreatedAt grouping), no new aggregate method needed for that shape.
     Task<IReadOnlyList<TokenUsageEntry>> GetEntriesForProjectAsync(string projectId, CancellationToken ct = default);
+    // U6: org-wide token usage (OrgsController) needs entries across every project in an org at
+    // once -- same read-then-filter shape as GetEntriesForProjectAsync, just filtered by a set.
+    Task<IReadOnlyList<TokenUsageEntry>> GetEntriesForProjectsAsync(IEnumerable<string> projectIds, CancellationToken ct = default);
     Task DeleteByProjectIdAsync(string projectId, CancellationToken ct = default);
 }

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using SupportForge.Api.Contracts;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 
@@ -21,6 +22,7 @@ public class OrgsController : ControllerBase
     private readonly IProjectMembershipRepository _projectMemberships;
     private readonly IUserRepository _users;
     private readonly UserManager<AppUser> _userManager;
+    private readonly ITokenUsageRepository _tokenUsage;
     private readonly ILogger<OrgsController> _logger;
 
     public OrgsController(
@@ -30,6 +32,7 @@ public class OrgsController : ControllerBase
         IProjectMembershipRepository projectMemberships,
         IUserRepository users,
         UserManager<AppUser> userManager,
+        ITokenUsageRepository tokenUsage,
         ILogger<OrgsController> logger)
     {
         _repo = repo;
@@ -38,6 +41,7 @@ public class OrgsController : ControllerBase
         _projectMemberships = projectMemberships;
         _users = users;
         _userManager = userManager;
+        _tokenUsage = tokenUsage;
         _logger = logger;
     }
 
@@ -151,5 +155,52 @@ public class OrgsController : ControllerBase
             adminId, user.Id, orgId, request.Role, string.Join(",", request.ProjectIds));
 
         return Ok(new EmployeeSummary(user.Id, user.UserName, user.Role, request.ProjectIds));
+    }
+
+    // U6: org-wide token usage for the Token Usage page -- Admin-only, additive sibling to
+    // ProjectsController.GetTokenUsage (which is per-project and open to any member). Per KTD9,
+    // the role attribute alone doesn't prove the caller belongs to *this* org, so an explicit
+    // IsMemberAsync check (same belt-and-suspenders pattern as GetEmployees/RegisterEmployee)
+    // guards against an Admin of one org querying another org's usage.
+    [HttpGet("{orgId}/token-usage")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<OrgTokenUsage>> GetOrgTokenUsage(
+        string orgId, [FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to,
+        [FromQuery] string? projectId, [FromQuery] string? userId, CancellationToken ct = default)
+    {
+        if (this.CurrentUserRole() != AppRole.Admin) return Forbid();
+        if (!await _memberships.IsMemberAsync(this.CurrentUserId(), orgId, ct)) return Forbid();
+
+        var since = from ?? DateTimeOffset.UtcNow.AddDays(-30);
+        var until = to ?? DateTimeOffset.UtcNow;
+
+        var allProjects = await _projects.GetAllAsync(ct);
+        var orgProjectIds = allProjects.Where(p => p.OrgId == orgId).Select(p => p.Id).ToHashSet();
+
+        var orgEntries = await _tokenUsage.GetEntriesForProjectsAsync(orgProjectIds, ct);
+        var inRange = orgEntries.Where(e => e.CreatedAt >= since && e.CreatedAt <= until).ToList();
+
+        var filtered = inRange
+            .Where(e => projectId is null || e.ProjectId == projectId)
+            .Where(e => userId is null || e.UserId == userId)
+            .ToList();
+
+        var chart = filtered
+            .Where(e => e.Source == "chat")
+            .GroupBy(e => e.CreatedAt.UtcDateTime.Date)
+            .OrderBy(g => g.Key)
+            .Select(g => new QueryVolumePoint(g.Key.ToString("yyyy-MM-dd"), g.Count()))
+            .ToList();
+
+        var entries = filtered
+            .Select(e => new OrgTokenUsageEntry(e.ProjectId, e.UserId, e.TotalTokens, e.CreatedAt, e.Source))
+            .ToList();
+
+        // Distinct ProjectIds come from the day-range-filtered but projectId-unfiltered set (per
+        // KTD10) -- the frontend's project filter should reflect what the org has usage for, not
+        // be narrowed by whatever projectId the caller already picked.
+        var projectIds = inRange.Select(e => e.ProjectId).Distinct().ToList();
+
+        return Ok(new OrgTokenUsage(chart, entries, projectIds));
     }
 }

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SupportForge.Api.Contracts;
 using SupportForge.Api.Controllers;
 using SupportForge.Api.Identity;
 using SupportForge.Core;
@@ -19,6 +20,7 @@ public class OrgsControllerTests : IDisposable
     private readonly JsonFileProjectMembershipRepository _projectMemberships;
     private readonly JsonFileUserRepository _users;
     private readonly UserManager<AppUser> _userManager;
+    private readonly JsonFileTokenUsageRepository _tokenUsage;
     private readonly OrgsController _controller;
 
     public OrgsControllerTests()
@@ -28,6 +30,7 @@ public class OrgsControllerTests : IDisposable
         _projectMemberships = new JsonFileProjectMembershipRepository(_tempDir);
         _users = new JsonFileUserRepository(_tempDir);
         _userManager = MakeUserManager(_users);
+        _tokenUsage = new JsonFileTokenUsageRepository(_tempDir);
         _controller = new OrgsController(
             new JsonFileOrgRepository(_tempDir),
             new JsonFileOrgMembershipRepository(_tempDir),
@@ -35,6 +38,7 @@ public class OrgsControllerTests : IDisposable
             _projectMemberships,
             _users,
             _userManager,
+            _tokenUsage,
             NullLogger<OrgsController>.Instance);
         SetUser("test-user");
     }
@@ -242,5 +246,131 @@ public class OrgsControllerTests : IDisposable
         var result = await _controller.GetEmployees(orgId);
 
         Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    // U6: org-wide token usage endpoint.
+    private async Task SeedTokenUsageAsync(params (string ProjectId, int Tokens, string? UserId, string Source)[] entries)
+    {
+        foreach (var (projectId, tokens, userId, source) in entries)
+            await _tokenUsage.AddAsync(new TokenUsageEntry(projectId, tokens, DateTimeOffset.UtcNow, source, UserId: userId));
+    }
+
+    [Fact]
+    public async Task GetOrgTokenUsage_ReturnsEntriesAcrossAllOfOrgsProjects()
+    {
+        await SeedOrgWithProjectAsync("org1", "proj1");
+        await _projects.UpsertAsync(new Project { Id = "proj2", Name = "Proj2", OrgId = "org1" });
+        await SeedTokenUsageAsync(("proj1", 100, "alice", "chat"), ("proj2", 50, "bob", "chat"), ("proj-other-org", 999, "eve", "chat"));
+
+        var result = await _controller.GetOrgTokenUsage("org1", null, null, null, null);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var usage = Assert.IsType<OrgTokenUsage>(ok.Value);
+        Assert.Equal(2, usage.Entries.Count);
+        Assert.Contains(usage.Entries, e => e.ProjectId == "proj1" && e.TotalTokens == 100);
+        Assert.Contains(usage.Entries, e => e.ProjectId == "proj2" && e.TotalTokens == 50);
+    }
+
+    // Covers AE5: userId filter narrows results org-wide, not per-project.
+    [Fact]
+    public async Task GetOrgTokenUsage_UserIdFilter_ReturnsOnlyThatUsersEntriesAcrossProjects()
+    {
+        await SeedOrgWithProjectAsync("org1", "proj1");
+        await _projects.UpsertAsync(new Project { Id = "proj2", Name = "Proj2", OrgId = "org1" });
+        await SeedTokenUsageAsync(("proj1", 100, "alice", "chat"), ("proj2", 50, "alice", "chat"), ("proj1", 20, "bob", "chat"));
+
+        var result = await _controller.GetOrgTokenUsage("org1", null, null, null, "alice");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var usage = Assert.IsType<OrgTokenUsage>(ok.Value);
+        Assert.Equal(2, usage.Entries.Count);
+        Assert.All(usage.Entries, e => Assert.Equal("alice", e.UserId));
+    }
+
+    [Fact]
+    public async Task GetOrgTokenUsage_NonAdminCaller_ReturnsForbid()
+    {
+        await SeedOrgWithProjectAsync("org1", "proj1");
+        SetUser("test-user", AppRole.L1);
+
+        var result = await _controller.GetOrgTokenUsage("org1", null, null, null, null);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    // Covers KTD9: an Admin who belongs to a different org must not see this org's usage.
+    [Fact]
+    public async Task GetOrgTokenUsage_AdminOfDifferentOrg_ReturnsForbid()
+    {
+        await SeedOrgWithProjectAsync("org1", "proj1");
+        SetUser("second-admin", AppRole.Admin);
+        await _controller.CreateOrUpdate(new Org { Id = "org2", Name = "Other Org", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" });
+
+        var result = await _controller.GetOrgTokenUsage("org1", null, null, null, null);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetOrgTokenUsage_GridEntriesExcludeConfig_AndIncludeDistinctProjectIds()
+    {
+        await SeedOrgWithProjectAsync("org1", "proj1");
+        await _projects.UpsertAsync(new Project { Id = "proj2", Name = "Proj2", OrgId = "org1" });
+        await _tokenUsage.AddAsync(new TokenUsageEntry(
+            "proj1", 100, DateTimeOffset.UtcNow, "chat", Config: new Dictionary<string, string> { ["secret"] = "value" }));
+        await _tokenUsage.AddAsync(new TokenUsageEntry("proj2", 50, DateTimeOffset.UtcNow, "chat"));
+
+        var result = await _controller.GetOrgTokenUsage("org1", null, null, null, null);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var usage = Assert.IsType<OrgTokenUsage>(ok.Value);
+        // OrgTokenUsageEntry has no Config property at all -- compile-time proof it's excluded.
+        Assert.Equal(new[] { "ProjectId", "UserId", "TotalTokens", "CreatedAt", "Source" },
+            typeof(OrgsController).Assembly.GetType("SupportForge.Api.Contracts.OrgTokenUsageEntry")!
+                .GetProperties().Select(p => p.Name).ToArray());
+        Assert.Equal(new[] { "proj1", "proj2" }, usage.ProjectIds.OrderBy(p => p).ToArray());
+    }
+
+    [Fact]
+    public async Task GetOrgTokenUsage_DayRangeFilter_NarrowsResults_DefaultsToLast30Days()
+    {
+        await SeedOrgWithProjectAsync("org1", "proj1");
+        await _tokenUsage.AddAsync(new TokenUsageEntry("proj1", 100, DateTimeOffset.UtcNow.AddDays(-2), "chat"));
+        await _tokenUsage.AddAsync(new TokenUsageEntry("proj1", 999, DateTimeOffset.UtcNow.AddDays(-45), "chat"));
+
+        var defaultResult = await _controller.GetOrgTokenUsage("org1", null, null, null, null);
+        var defaultOk = Assert.IsType<OkObjectResult>(defaultResult.Result);
+        var defaultUsage = Assert.IsType<OrgTokenUsage>(defaultOk.Value);
+        Assert.Single(defaultUsage.Entries);
+        Assert.Equal(100, defaultUsage.Entries[0].TotalTokens);
+
+        var narrowedResult = await _controller.GetOrgTokenUsage(
+            "org1", DateTimeOffset.UtcNow.AddDays(-60), DateTimeOffset.UtcNow, null, null);
+        var narrowedOk = Assert.IsType<OkObjectResult>(narrowedResult.Result);
+        var narrowedUsage = Assert.IsType<OrgTokenUsage>(narrowedOk.Value);
+        Assert.Equal(2, narrowedUsage.Entries.Count);
+    }
+
+    [Fact]
+    public async Task GetOrgTokenUsage_ProjectIdFilter_ScopedToOrg_RejectsOtherOrgsProject()
+    {
+        await SeedOrgWithProjectAsync("org1", "proj1");
+        await _projects.UpsertAsync(new Project { Id = "proj2", Name = "Proj2", OrgId = "org1" });
+        await _projects.UpsertAsync(new Project { Id = "other-org-proj", Name = "Other", OrgId = "org2" });
+        await SeedTokenUsageAsync(("proj1", 100, "alice", "chat"), ("proj2", 50, "bob", "chat"), ("other-org-proj", 999, "eve", "chat"));
+
+        var scoped = await _controller.GetOrgTokenUsage("org1", null, null, "proj1", null);
+        var scopedOk = Assert.IsType<OkObjectResult>(scoped.Result);
+        var scopedUsage = Assert.IsType<OrgTokenUsage>(scopedOk.Value);
+        Assert.Single(scopedUsage.Entries);
+        Assert.Equal("proj1", scopedUsage.Entries[0].ProjectId);
+
+        // "other-org-proj" doesn't belong to org1, so it can never contribute entries regardless of
+        // the projectId filter passed -- GetEntriesForProjectsAsync is only ever called with org1's
+        // own project IDs.
+        var otherOrgProject = await _controller.GetOrgTokenUsage("org1", null, null, "other-org-proj", null);
+        var otherOk = Assert.IsType<OkObjectResult>(otherOrgProject.Result);
+        var otherUsage = Assert.IsType<OrgTokenUsage>(otherOk.Value);
+        Assert.Empty(otherUsage.Entries);
     }
 }

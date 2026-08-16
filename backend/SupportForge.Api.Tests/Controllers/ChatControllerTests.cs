@@ -559,6 +559,8 @@ public class ChatControllerTests
 
         Assert.NotNull(recorded);
         Assert.Equal(35, recorded!.TotalTokens);
+        // U6: chat writes stamp the authenticated caller's ID (MakeController sets TestUser()).
+        Assert.Equal(TestUserId, recorded.UserId);
     }
 
     [Fact]

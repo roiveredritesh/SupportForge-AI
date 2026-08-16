@@ -70,6 +70,20 @@ public sealed class JsonFileTokenUsageRepository : ITokenUsageRepository
         finally { _lock.Release(); }
     }
 
+    public async Task<IReadOnlyList<TokenUsageEntry>> GetEntriesForProjectsAsync(IEnumerable<string> projectIds, CancellationToken ct = default)
+    {
+        if (!File.Exists(_filePath)) return Array.Empty<TokenUsageEntry>();
+
+        var projectIdSet = projectIds.ToHashSet();
+        await _lock.WaitAsync(ct);
+        try
+        {
+            var all = JsonSerializer.Deserialize<List<TokenUsageEntry>>(await File.ReadAllTextAsync(_filePath, ct)) ?? new();
+            return all.Where(e => projectIdSet.Contains(e.ProjectId)).ToList();
+        }
+        finally { _lock.Release(); }
+    }
+
     public async Task DeleteByProjectIdAsync(string projectId, CancellationToken ct = default)
     {
         await _lock.WaitAsync(ct);
