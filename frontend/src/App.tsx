@@ -8,6 +8,7 @@ import SettingsProjectsPage from './pages/SettingsProjectsPage';
 import SettingsEmployeesPage from './pages/SettingsEmployeesPage';
 import SettingsConnectedAppsPage from './pages/SettingsConnectedAppsPage';
 import SettingsFeedbackPage from './pages/SettingsFeedbackPage';
+import SettingsTokenUsagePage from './pages/SettingsTokenUsagePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import EscalationQueuePage from './pages/EscalationQueuePage';
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/settings/employees" element={<SettingsEmployeesPage />} />
             <Route path="/settings/connected-apps" element={<SettingsConnectedAppsPage />} />
             <Route path="/settings/feedback" element={<SettingsFeedbackPage />} />
+            <Route path="/settings/token-usage" element={<SettingsTokenUsagePage />} />
             {/* U21: server-side gate is GET /api/escalations' [Authorize(Roles="L2,L3,Admin")] --
                 the page itself renders empty/403-from-API for an L1 session that navigates here
                 directly; Layout's nav (client-side mirror, same RequireRole convention as
