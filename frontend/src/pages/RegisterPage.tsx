@@ -7,15 +7,34 @@ import { useRegister } from '../hooks/useRegister';
 // added afterward by that Admin from AdminPage's Employees section (POST /api/orgs/{orgId}/employees),
 // not through this form.
 export default function RegisterPage() {
+  const [orgName, setOrgName] = useState('');
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
+  const [contactPerson, setContactPerson] = useState('');
+  const [contactNumber, setContactNumber] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [address, setAddress] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
   const register = useRegister();
   const navigate = useNavigate();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!orgName || !userName || !password || !contactPerson || !contactNumber || !industry) {
+      setValidationError('Please fill in all required fields.');
+      return;
+    }
+    setValidationError(null);
     register.mutate(
-      { userName, password },
+      {
+        orgName,
+        userName,
+        password,
+        contactPerson,
+        contactNumber,
+        industry,
+        address: address || undefined,
+      },
       { onSuccess: () => navigate('/', { replace: true }) },
     );
   };
@@ -33,12 +52,20 @@ export default function RegisterPage() {
           </p>
         </div>
         <label className="block text-sm">
+          Organization Name
+          <input
+            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+            value={orgName}
+            onChange={(e) => setOrgName(e.target.value)}
+            autoFocus
+          />
+        </label>
+        <label className="block text-sm">
           Username
           <input
             className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
             value={userName}
             onChange={(e) => setUserName(e.target.value)}
-            autoFocus
           />
         </label>
         <label className="block text-sm">
@@ -50,6 +77,41 @@ export default function RegisterPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
+        <label className="block text-sm">
+          Contact Person
+          <input
+            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+            value={contactPerson}
+            onChange={(e) => setContactPerson(e.target.value)}
+          />
+        </label>
+        <label className="block text-sm">
+          Contact Number
+          <input
+            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+            value={contactNumber}
+            onChange={(e) => setContactNumber(e.target.value)}
+          />
+        </label>
+        <label className="block text-sm">
+          Industry
+          <input
+            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+            value={industry}
+            onChange={(e) => setIndustry(e.target.value)}
+          />
+        </label>
+        <label className="block text-sm">
+          Address (optional)
+          <input
+            className="mt-1 w-full rounded-lg border border-slate-300 p-2 focus:border-indigo-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+          />
+        </label>
+        {validationError && (
+          <p className="text-sm text-red-600 dark:text-red-400">{validationError}</p>
+        )}
         {register.isError && (
           <p className="text-sm text-red-600 dark:text-red-400">
             Could not create your account. That username may already be taken.

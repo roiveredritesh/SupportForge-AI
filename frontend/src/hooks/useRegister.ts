@@ -3,8 +3,13 @@ import { apiClient } from '../lib/apiClient';
 import { useAuthStore } from '../store/useAuthStore';
 
 interface RegisterRequest {
+  orgName: string;
   userName: string;
   password: string;
+  contactPerson: string;
+  contactNumber: string;
+  industry: string;
+  address?: string;
 }
 
 interface TokenResponse {
