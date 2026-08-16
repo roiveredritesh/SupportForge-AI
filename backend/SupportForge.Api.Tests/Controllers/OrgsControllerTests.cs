@@ -82,7 +82,7 @@ public class OrgsControllerTests : IDisposable
     [Fact]
     public async Task CreateOrg_AutoJoinsCreator()
     {
-        var org = new Org { Id = "org1", Name = "Acme" };
+        var org = new Org { Id = "org1", Name = "Acme", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" };
 
         await _controller.CreateOrUpdate(org);
         var result = await _controller.GetAll();
@@ -96,10 +96,10 @@ public class OrgsControllerTests : IDisposable
     [Fact]
     public async Task GetAll_SecondUsersOrgs_DoNotLeakIntoFirstUsersList()
     {
-        await _controller.CreateOrUpdate(new Org { Id = "org1", Name = "First User's Org" });
+        await _controller.CreateOrUpdate(new Org { Id = "org1", Name = "First User's Org", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" });
 
         SetUser("second-user");
-        await _controller.CreateOrUpdate(new Org { Id = "org2", Name = "Second User's Org" });
+        await _controller.CreateOrUpdate(new Org { Id = "org2", Name = "Second User's Org", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" });
         var secondUserResult = await _controller.GetAll();
 
         SetUser("test-user");
@@ -117,7 +117,7 @@ public class OrgsControllerTests : IDisposable
     // U4/U7: employee-registration scenarios.
     private async Task<string> SeedOrgWithProjectAsync(string orgId, string projectId)
     {
-        await _controller.CreateOrUpdate(new Org { Id = orgId, Name = "Acme" });
+        await _controller.CreateOrUpdate(new Org { Id = orgId, Name = "Acme", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" });
         await _projects.UpsertAsync(new Project { Id = projectId, Name = "Proj", OrgId = orgId });
         return orgId;
     }

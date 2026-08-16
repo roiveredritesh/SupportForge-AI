@@ -26,6 +26,9 @@ public class AuthController : ControllerBase
 
     public sealed record TokenRequest(string UserName, string Password);
     public sealed record TokenResponse(string AccessToken, DateTimeOffset ExpiresAt);
+    public sealed record RegisterRequest(
+        string OrgName, string UserName, string Password, string ContactPerson, string ContactNumber,
+        string Industry, string? Address);
 
     [HttpPost("token")]
     public async Task<ActionResult<TokenResponse>> Token([FromBody] TokenRequest request)
@@ -44,8 +47,17 @@ public class AuthController : ControllerBase
     // my company" path, distinct from OrgsController.RegisterEmployee (Admin-gated, no org creation).
     // Every self-service registrant becomes Admin of a brand-new org, one org per admin.
     [HttpPost("register")]
-    public async Task<ActionResult<TokenResponse>> Register([FromBody] TokenRequest request)
+    public async Task<ActionResult<TokenResponse>> Register([FromBody] RegisterRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.OrgName))
+            return BadRequest("OrgName is required.");
+        if (string.IsNullOrWhiteSpace(request.ContactPerson))
+            return BadRequest("ContactPerson is required.");
+        if (string.IsNullOrWhiteSpace(request.ContactNumber))
+            return BadRequest("ContactNumber is required.");
+        if (string.IsNullOrWhiteSpace(request.Industry))
+            return BadRequest("Industry is required.");
+
         if (await _userManager.FindByNameAsync(request.UserName) is not null)
             return Conflict("Username is already taken.");
 
@@ -54,7 +66,15 @@ public class AuthController : ControllerBase
         if (!result.Succeeded)
             return BadRequest(result.Errors.Select(e => e.Description));
 
-        var org = new Org { Id = Guid.NewGuid().ToString("n"), Name = $"{request.UserName}'s Org" };
+        var org = new Org
+        {
+            Id = Guid.NewGuid().ToString("n"),
+            Name = request.OrgName,
+            ContactPerson = request.ContactPerson,
+            ContactNumber = request.ContactNumber,
+            Industry = request.Industry,
+            Address = request.Address,
+        };
         await _orgs.UpsertAsync(org);
         await _orgMemberships.AddAsync(user.Id, org.Id);
 

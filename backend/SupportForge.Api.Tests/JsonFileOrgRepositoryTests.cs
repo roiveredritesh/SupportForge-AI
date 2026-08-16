@@ -30,7 +30,7 @@ public class JsonFileOrgRepositoryTests : IDisposable
     [Fact]
     public async Task UpsertAsync_Then_GetByIdAsync_ReturnsOrg()
     {
-        var org = new Org { Id = "org1", Name = "Acme" };
+        var org = new Org { Id = "org1", Name = "Acme", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" };
         await _repo.UpsertAsync(org);
 
         var found = await _repo.GetByIdAsync("org1");
@@ -42,8 +42,8 @@ public class JsonFileOrgRepositoryTests : IDisposable
     [Fact]
     public async Task UpsertAsync_ExistingId_ReplacesInsteadOfDuplicating()
     {
-        await _repo.UpsertAsync(new Org { Id = "org1", Name = "Old Name" });
-        await _repo.UpsertAsync(new Org { Id = "org1", Name = "New Name" });
+        await _repo.UpsertAsync(new Org { Id = "org1", Name = "Old Name", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" });
+        await _repo.UpsertAsync(new Org { Id = "org1", Name = "New Name", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" });
 
         var all = await _repo.GetAllAsync();
 
@@ -54,7 +54,7 @@ public class JsonFileOrgRepositoryTests : IDisposable
     [Fact]
     public async Task DeleteAsync_RemovesOrg()
     {
-        await _repo.UpsertAsync(new Org { Id = "org1", Name = "Acme" });
+        await _repo.UpsertAsync(new Org { Id = "org1", Name = "Acme", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" });
 
         await _repo.DeleteAsync("org1");
 
@@ -76,6 +76,9 @@ public class JsonFileOrgRepositoryTests : IDisposable
         {
             Id = "org1",
             Name = "Acme",
+            ContactPerson = "Jane Doe",
+            ContactNumber = "555-0100",
+            Industry = "Software",
             Connections = [new McpConnection { ServerType = "github", Credential = "ghp_secret", EnabledTools = ["list_commits"] }],
         };
 
@@ -95,6 +98,9 @@ public class JsonFileOrgRepositoryTests : IDisposable
         {
             Id = "org1",
             Name = "Acme",
+            ContactPerson = "Jane Doe",
+            ContactNumber = "555-0100",
+            Industry = "Software",
             Connections =
             [
                 new McpConnection { ServerType = "github", Credential = "ghp_secret", EnabledTools = ["list_commits"] },

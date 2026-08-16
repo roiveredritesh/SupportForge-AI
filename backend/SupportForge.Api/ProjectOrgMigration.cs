@@ -20,7 +20,7 @@ public static class ProjectOrgMigration
         var defaultOrg = await orgs.GetByIdAsync(DefaultOrgId, ct);
         if (defaultOrg is null)
         {
-            defaultOrg = new Org { Id = DefaultOrgId, Name = "Default Org" };
+            defaultOrg = new Org { Id = DefaultOrgId, Name = "Default Org", ContactPerson = "Unknown", ContactNumber = "Unknown", Industry = "Unknown" };
             await orgs.UpsertAsync(defaultOrg, ct);
         }
 

@@ -41,7 +41,7 @@ public class McpConnectionsControllerTests : IDisposable
 
     private async Task SeedOrgAsync(string orgId, string adminUserId)
     {
-        await _orgs.UpsertAsync(new Org { Id = orgId, Name = "Acme" });
+        await _orgs.UpsertAsync(new Org { Id = orgId, Name = "Acme", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software" });
         await _memberships.AddAsync(adminUserId, orgId);
     }
 
