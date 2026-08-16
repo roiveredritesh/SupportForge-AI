@@ -12,6 +12,7 @@ import {
   Legend,
 } from 'recharts';
 import { ProjectSelector } from '../components/ProjectSelector';
+import { TokenExpiryAlert } from '../components/TokenExpiryAlert';
 import { useAppStore } from '../store/useAppStore';
 import { useQueryVolume } from '../hooks/useQueryVolume';
 import { useFeedbackSummary } from '../hooks/useFeedbackSummary';
@@ -150,6 +151,8 @@ export default function DashboardPage() {
           Pick a project, then ask the AI agent or manage its knowledge base.
         </p>
       </div>
+
+      <TokenExpiryAlert />
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-gray-500">
