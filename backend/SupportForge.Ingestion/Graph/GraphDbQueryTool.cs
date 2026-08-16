@@ -32,6 +32,17 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     private const int MaxTraversalSeeds = 5;
     private const double RelevanceFloor = 0.65;
 
+    // ponytail: RelevanceFloor alone is relative to topScore, so a question whose only matches are
+    // all noise still has its own noise clear the floor -- observed live against project 001's
+    // (still vendor-polluted, pre-Phase-1-cleanup) graph: a totally unrelated query ("vehicle insert
+    // null exception") scored 1.69-1.94 on pure incidental word overlap with generic vendored
+    // function names (prism.js's matchPattern/parseRange), and this file's own originally-reported
+    // incident query ("enable disable") scored 3.03 against rater-js's enable/disable. 3.2 sits just
+    // above that incident's actual noise ceiling. This is a starting value with no genuine-match data
+    // to calibrate against yet (nothing in this graph matched "vehicle" at all) -- revisit once
+    // Phase 1-3 cleanup lets a real business-relevant match's score be observed and compared.
+    private const double MinimumAbsoluteScore = 3.2;
+
     private readonly IDriver _driver;
     private readonly string _database;
 
@@ -68,8 +79,12 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         var topScore = matchRecords[0]["score"].As<double>();
         var relevantMatches = matchRecords
             .Select(r => (Node: r["node"].As<INode>(), Score: r["score"].As<double>()))
-            .Where(r => r.Score >= topScore * RelevanceFloor)
+            .Where(r => ClearsRelevanceFloor(r.Score, topScore))
             .ToList();
+
+        // Both floors passed and nothing survived (e.g. the top match itself is below the absolute
+        // floor) -- "no relevant code found" rather than surfacing the best-scoring noise.
+        if (relevantMatches.Count == 0) return null;
 
         var seedIds = relevantMatches.Take(MaxTraversalSeeds)
             .Select(r => r.Node.Properties["id"].As<string>()).ToArray();
@@ -161,6 +176,12 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     // ponytail: chars/4 token estimate -- exact tokenizer parity isn't required, this only needs to
     // stop growth in the right ballpark.
     private static int EstimatedTokens(StringBuilder sb) => sb.Length / 4;
+
+    // A match must clear both floors: relative (close enough to the top match) AND absolute (a
+    // genuinely strong Lucene score on its own). Relative-only lets an all-noise result set pass
+    // itself off as relevant, since the top match is always >= itself; see MinimumAbsoluteScore.
+    internal static bool ClearsRelevanceFloor(double score, double topScore) =>
+        score >= topScore * RelevanceFloor && score >= MinimumAbsoluteScore;
 
     // $question reaches Neo4j as a Lucene query string, not a plain search string -- an unescaped
     // special char (a "/" in a file path, a stray quote, etc.) throws a Lucene TokenMgrError that
