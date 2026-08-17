@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SupportForge.Agents\SupportForge.Agents.csproj" />
+    <ProjectReference Include="..\SupportForge.Core\SupportForge.Core.csproj" />
+    <ProjectReference Include="..\SupportForge.Ingestion\SupportForge.Ingestion.csproj" />
   </ItemGroup>
 
   <ItemGroup>

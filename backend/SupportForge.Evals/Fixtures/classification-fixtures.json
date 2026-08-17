@@ -1,0 +1,30 @@
+[
+  {
+    "id": "moment-vendor-minified-banner",
+    "domain": "vendor-detection",
+    "fileName": "assets/vendor/moment.js",
+    "content": "/*! moment.js v2.29.4 | Copyright (c) 2024 Moment.js contributors */\nfunction enable(){var a=1,b=2,c=3,d=4,e=5,f=6,g=7,h=8,i=9,j=10;return a+b+c+d+e+f+g+h+i+j;}\nfunction disable(){return enable()*0;}\n",
+    "expectKind": "vendored"
+  },
+  {
+    "id": "rater-js-vendor-minified-banner",
+    "domain": "vendor-detection",
+    "fileName": "html/assets/libs/rater-js/index.js",
+    "content": "/*! rater-js v1.0.6 | Copyright (c) 2023 rater-js contributors */\nfunction enable(){var x=1,y=2,z=3,w=4,v=5,u=6,t=7,s=8,r=9,q=10;return x+y+z+w+v+u+t+s+r+q;}\nfunction disable(){return enable()*0;}\n",
+    "expectKind": "vendored"
+  },
+  {
+    "id": "vehicle-service-handwritten",
+    "domain": "business-logic",
+    "fileName": "src/VehicleService.cs",
+    "content": "namespace AajLogistics;\n\n// Registers a new vehicle for a driver's duty assignment and validates the plate number.\npublic sealed class VehicleService\n{\n    public void RegisterVehicle(string driverId, string plateNumber)\n    {\n        if (string.IsNullOrWhiteSpace(plateNumber)) throw new ArgumentException(\"Plate number is required.\");\n    }\n}\n",
+    "expectKind": "handwritten"
+  },
+  {
+    "id": "business-logic-in-vendor-named-folder",
+    "domain": "path-heuristic-false-positive",
+    "fileName": "vendor/VendorApprovalService.cs",
+    "content": "namespace AajLogistics.Vendor;\n\n// Approves a new supplier and records their negotiated payment terms.\npublic sealed class VendorApprovalService\n{\n    public void ApproveSupplier(string supplierId, int paymentTermsDays)\n    {\n    }\n}\n",
+    "expectKind": "handwritten"
+  }
+]
