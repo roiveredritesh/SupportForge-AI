@@ -48,6 +48,30 @@ public sealed class CodeGraphNode
     // a file node; "" on a definition/endpoint node, which doesn't have its own coverage level.
     [JsonPropertyName("coverage_level")]
     public string CoverageLevel { get; set; } = "";
+
+    // Tier 2 (CodeNodeClassifier) observations -- never an inclusion decision by themselves (that's
+    // CodeNodeClassificationPolicy's job). "" / empty / 0 means unclassified: either the org/project
+    // consent gate is off, or classification failed and fell back per R6 (fail-open, never cached).
+    // KTD4: classification happens at file level, and Kind/Confidence/Layer are copied onto each of
+    // the file's definition nodes too -- GraphImportJob's hard-delete filter (U9) operates per node,
+    // so a definition node needs its own copy of the verdict to cascade its file's exclusion/inclusion
+    // correctly. Purpose is derived independently per definition (same LLM call, richer signal than
+    // the file's own Purpose). DomainTerms stays file-only -- supplementary retrieval metadata, not
+    // needed for policy, and not worth deriving per-definition.
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "";
+
+    [JsonPropertyName("confidence")]
+    public double Confidence { get; set; }
+
+    [JsonPropertyName("purpose")]
+    public string Purpose { get; set; } = "";
+
+    [JsonPropertyName("domain_terms")]
+    public List<string> DomainTerms { get; set; } = [];
+
+    [JsonPropertyName("layer")]
+    public string Layer { get; set; } = "";
 }
 
 public sealed class CodeGraphEdge

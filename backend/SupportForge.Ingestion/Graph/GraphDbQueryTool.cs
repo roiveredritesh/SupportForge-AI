@@ -64,7 +64,7 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         {
             var cursor = await tx.RunAsync(
                 """
-                CALL db.index.fulltext.queryNodes('graphNodeSearch', $question) YIELD node, score
+                CALL db.index.fulltext.queryNodes('graphNodeSearchV2', $question) YIELD node, score
                 WHERE node.projectId = $projectId
                 RETURN node, score
                 ORDER BY score DESC

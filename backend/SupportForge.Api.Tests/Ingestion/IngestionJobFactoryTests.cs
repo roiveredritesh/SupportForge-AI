@@ -34,6 +34,9 @@ public class IngestionJobFactoryTests
         services.AddSingleton(hashes.Object);
         services.AddSingleton(new Mock<ITokenUsageRepository>().Object);
         services.AddSingleton<KbVectorIndexer>();
+        services.AddSingleton(new Mock<IOrgRepository>().Object);
+        services.AddSingleton(new Mock<ILlmChatClient>().Object);
+        services.AddLogging();
         return services.BuildServiceProvider();
     }
 
