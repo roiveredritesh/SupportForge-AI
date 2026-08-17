@@ -68,6 +68,45 @@ public class ProjectsControllerTests
         Directory.Delete(tempDir, recursive: true);
     }
 
+    // Consent-toggle prerequisite for the code-graph Tier 2 classification stage: CodeClassificationEnabled
+    // must round-trip through CreateOrUpdate's explicit toSave reconstruction, not silently reset to false
+    // on every save (as ScheduledSyncIntervalHours already had to be added there for the same reason).
+    [Fact]
+    public async Task CreateProject_WithCodeClassificationEnabled_RoundTripsOnUpdate()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var repo = new JsonFileProjectRepository(tempDir);
+        var memberships = new JsonFileProjectMembershipRepository(tempDir);
+        var env = new Mock<IWebHostEnvironment>();
+        env.Setup(e => e.ContentRootPath).Returns(tempDir);
+        var controller = new ProjectsController(
+            repo,
+            memberships,
+            new JsonFileOrgMembershipRepository(tempDir),
+            new Mock<IVectorStoreService>().Object,
+            new Mock<IFeedbackRepository>().Object,
+            new Mock<ITokenUsageRepository>().Object,
+            new Mock<IConversationRepository>().Object,
+            new Mock<IDeadLetterRepository>().Object,
+            new Mock<IContentHashRepository>().Object,
+            new Mock<IEscalationRepository>().Object,
+            env.Object,
+            new IngestionQueue(),
+            Mock.Of<ILogger<ProjectsController>>());
+        SetTestUser(controller);
+
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project" });
+        await controller.CreateOrUpdate(new Project { Id = "proj1", Name = "Test Project", CodeClassificationEnabled = true });
+
+        var result = await controller.GetAll();
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var projects = Assert.IsAssignableFrom<IReadOnlyList<Project>>(ok.Value);
+
+        Assert.True(Assert.Single(projects).CodeClassificationEnabled);
+
+        Directory.Delete(tempDir, recursive: true);
+    }
+
     // Regression test: CreateOrUpdate must stamp OrgId from the caller's own org membership on
     // creation, not leave it null (ProjectOrgMigration only backfills projects that existed before
     // it ran -- every project created afterward needs OrgId set here or it silently stays null

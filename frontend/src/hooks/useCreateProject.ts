@@ -8,6 +8,7 @@ export interface CreateProjectRequest {
   repos: ProjectRepo[];
   kbSources: ProjectKbSource[];
   scheduledSyncIntervalHours?: number | null;
+  codeClassificationEnabled?: boolean;
 }
 
 export function useCreateProject() {

@@ -33,6 +33,9 @@ export interface Project {
   // Overrides the server's global scheduled-sync cadence for this project's KB sources.
   // Null/omitted falls back to the server default (Freshness:ScheduledSyncIntervalHours).
   scheduledSyncIntervalHours?: number | null;
+  // Per-project opt-in for the code-graph Tier 2 LLM classification stage -- also requires the
+  // org-wide toggle (useOrgs.ts's Org.codeClassificationEnabled) to be on; neither alone enables it.
+  codeClassificationEnabled?: boolean;
 }
 
 export function useProjects() {

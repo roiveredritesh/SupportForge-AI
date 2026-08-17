@@ -161,6 +161,7 @@ public class ProjectsController : ControllerBase
             KbSources = project.KbSources,
             CreatedAt = project.CreatedAt,
             ScheduledSyncIntervalHours = project.ScheduledSyncIntervalHours,
+            CodeClassificationEnabled = project.CodeClassificationEnabled,
         };
 
         await _repo.UpsertAsync(toSave, ct);
