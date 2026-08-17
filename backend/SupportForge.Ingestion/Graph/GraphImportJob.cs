@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Neo4j.Driver;
+using SupportForge.Ingestion.Code;
 
 namespace SupportForge.Ingestion.Graph;
 
@@ -40,11 +41,32 @@ public sealed class GraphImportJob : IIngestionJob
         // execute Write query after executing Schema modification"), so the index create needs its
         // own transaction before the node/edge MERGEs below. Indexed on summary as well as label so
         // the start-node search in GraphDbQueryTool can match a question against captured doc-comment
-        // prose ("why"), not just identifier names ("what") -- named graphNodeSearch, not the old
-        // graphNodeLabel, since changing an existing index's ON EACH fields requires DROP+CREATE and
-        // "IF NOT EXISTS" would otherwise silently keep pre-existing deployments on the label-only index.
+        // prose ("why"), not just identifier names ("what") -- named graphNodeSearchV2, not the old
+        // graphNodeSearch, following the same rename-rather-than-drop precedent already used once
+        // before for this exact index (graphNodeLabel -> graphNodeSearch): changing an existing
+        // index's ON EACH fields requires DROP+CREATE, but a live DROP here would make full-text
+        // search error out for every project mid-reindex, not just this one, since this index isn't
+        // scoped per-project. Creating a new-named index instead needs no DROP and no downtime -- the
+        // old graphNodeSearch index is simply left orphaned (harmless, unused going forward).
+        // U10: purpose/domainTerms are the reason for this particular rename -- they're new fields no
+        // prior index definition covers.
         await session.ExecuteWriteAsync(tx => tx.RunAsync(
-            "CREATE FULLTEXT INDEX graphNodeSearch IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label, n.summary]"));
+            "CREATE FULLTEXT INDEX graphNodeSearchV2 IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label, n.summary, n.purpose, n.domainTerms]"));
+
+        // U9/KTD1: a fresh extraction+classification is a complete, authoritative snapshot of this
+        // repo -- clear its existing graph before writing it, same "full re-embed replaces, not just
+        // adds" fix already applied to the KB vector store (KbVectorIndexer's PruneScope). Without
+        // this, a file removed (or newly excluded by policy) since the last import kept its stale
+        // node in the graph forever.
+        await session.ExecuteWriteAsync(tx => tx.RunAsync(
+            "MATCH (n:GraphNode {projectId: $projectId, repo: $repo}) DETACH DELETE n",
+            new { projectId = ProjectId, repo = _repo }));
+
+        // U9/KTD1 (hard delete): CodeNodeClassificationPolicy.Include is applied here, before any
+        // node reaches Neo4j -- an excluded node is never written at all, not written-then-filtered.
+        // A node with no Tier 2 observation (Kind == "", consent off or classification failed/skipped)
+        // always passes: Include("") falls through to the default-true case (R6).
+        var includedNodes = graph.Nodes.Where(n => CodeNodeClassificationPolicy.Include(n.Kind, n.Confidence, n.Shape)).ToList();
 
         await session.ExecuteWriteAsync(async tx =>
         {
@@ -63,7 +85,12 @@ public sealed class GraphImportJob : IIngestionJob
                     n.sourceLocation = node.sourceLocation,
                     n.summary = node.summary,
                     n.shape = node.shape,
-                    n.coverageLevel = node.coverageLevel
+                    n.coverageLevel = node.coverageLevel,
+                    n.purpose = node.purpose,
+                    n.domainTerms = node.domainTerms,
+                    n.kind = node.kind,
+                    n.confidence = node.confidence,
+                    n.layer = node.layer
                 """,
                 new
                 {
@@ -73,10 +100,14 @@ public sealed class GraphImportJob : IIngestionJob
                     // C# name (case-sensitive) -- every property must be explicitly lower-cased here to
                     // match the lowercase field names ("node.id", "node.label", ...) referenced in the
                     // Cypher above, or that field silently binds to null in the query instead of erroring.
-                    // shape/coverageLevel (U5, Tier 0/1 of the code-graph classification plan) are
-                    // purely additive here -- this unit only carries them through to Neo4j, it does not
-                    // yet change which nodes get written (that's the hard-delete policy step, U9).
-                    nodes = graph.Nodes.Select(n => new
+                    // U9 (hard delete): only includedNodes -- an excluded node is never sent to Neo4j at
+                    // all. U10: purpose/domainTerms (Tier 2) are written alongside summary (Tier 0/1) --
+                    // summary is never overwritten by the derived purpose field, they stay distinct.
+                    // kind/confidence/layer persist too (not just used transiently for the policy
+                    // decision above) so a future eval pass can query the live graph for low-confidence
+                    // or near-threshold classifications as candidate golden-set cases (U11), without
+                    // needing to re-run classification to see what a node was classified as.
+                    nodes = includedNodes.Select(n => new
                     {
                         id = n.Id,
                         label = n.Label,
@@ -86,6 +117,11 @@ public sealed class GraphImportJob : IIngestionJob
                         summary = n.Summary,
                         shape = n.Shape,
                         coverageLevel = n.CoverageLevel,
+                        purpose = n.Purpose,
+                        domainTerms = n.DomainTerms,
+                        kind = n.Kind,
+                        confidence = n.Confidence,
+                        layer = n.Layer,
                     }),
                 });
 
