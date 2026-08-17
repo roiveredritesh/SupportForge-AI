@@ -14,11 +14,22 @@ public class OpenAiLlmClient : ILlmClient
     // any configured value (LlmServiceCollectionExtensions reads "Llm:{Provider}:Seed") overrides it.
     private const long DefaultSeed = 42;
 
+    // Bug fix: CompleteAsync never set a max-output-token cap, so the underlying provider's own
+    // server-side default applied silently -- for a NIM-hosted lightweight model that default can be
+    // quite small. CodeNodeClassifier's structured multi-file JSON responses were being truncated
+    // mid-array well before the model finished (observed live: a single file with 3 definitions cut
+    // off after ~441 bytes), causing every classification in the batch to fail to parse and fall back
+    // to unenriched. Anthropic/Bedrock already require an explicit MaxTokens (AnthropicOptions/
+    // BedrockOptions both default to 4096); this brings the OpenAI-compatible path (OpenAI/NIM/Ollama/
+    // Azure) to the same parity instead of relying on an unstated provider default.
+    private const int DefaultMaxOutputTokens = 4096;
+
     private readonly IChatClient _chatClient;
     private readonly EmbeddingClient _embeddingClient;
     private readonly string _embeddingModel;
     private readonly string? _embeddingInputType;
     private readonly long _seed;
+    private readonly int _maxOutputTokens;
 
     // The raw OpenAI.Chat.ChatClient (and its Azure/NIM variants) is built inline by
     // LlmServiceCollectionExtensions with no HttpClient seam to attach a Polly DelegatingHandler to
@@ -64,7 +75,8 @@ public class OpenAiLlmClient : ILlmClient
         string embeddingModel,
         string? embeddingInputType = null,
         bool supportsVision = true,
-        long? seed = null)
+        long? seed = null,
+        int? maxOutputTokens = null)
     {
         _chatClient = chatClient;
         _embeddingClient = embeddingClient;
@@ -72,6 +84,7 @@ public class OpenAiLlmClient : ILlmClient
         _embeddingInputType = embeddingInputType;
         SupportsVision = supportsVision;
         _seed = seed ?? DefaultSeed;
+        _maxOutputTokens = maxOutputTokens ?? DefaultMaxOutputTokens;
     }
 
     public virtual async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
@@ -79,7 +92,7 @@ public class OpenAiLlmClient : ILlmClient
         // KTD7/U8: judge/drafter completions must be deterministic across runs on the same input,
         // so temperature is pinned to 0 and a seed is always passed (StreamCompleteAsync/AnalyzeImageAsync
         // are out of scope -- they weren't flagged as flaky).
-        var options = new ChatOptions { Temperature = 0f, Seed = _seed };
+        var options = new ChatOptions { Temperature = 0f, Seed = _seed, MaxOutputTokens = _maxOutputTokens };
         var response = await _resilience.ExecuteAsync(
             callback: rct => new ValueTask<ChatResponse>(_chatClient.GetResponseAsync(
                 [new ChatMessage(ChatRole.System, systemPrompt), new ChatMessage(ChatRole.User, userPrompt)],

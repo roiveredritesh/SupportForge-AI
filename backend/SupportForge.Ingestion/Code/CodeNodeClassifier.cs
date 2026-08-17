@@ -132,7 +132,13 @@ public sealed class CodeNodeClassifier
         // Matched by echoed id, never by array position -- a response with fewer items than
         // submitted must not silently shift every classification by one slot, and an id that wasn't
         // in this batch (a possible prompt-injection artifact) is simply never looked up below.
-        var byId = items.Where(i => i.Id is not null).ToDictionary(i => i.Id!, i => i, StringComparer.Ordinal);
+        // Bug fix: since ParseResponse now merges items from possibly-multiple top-level arrays (see
+        // its own comment), the same file id can legitimately appear more than once in the merged
+        // list if the model repeated itself across arrays -- ToDictionary would throw on that
+        // duplicate key. Keep the first occurrence per id rather than failing the whole batch.
+        var byId = new Dictionary<string, ClassificationResponseItem>(StringComparer.Ordinal);
+        foreach (var item in items)
+            if (item.Id is not null) byId.TryAdd(item.Id, item);
 
         foreach (var file in batch)
         {
@@ -232,17 +238,82 @@ public sealed class CodeNodeClassifier
         return sb.ToString();
     }
 
-    // Defensive against a model that wraps the array in prose despite instructions -- extract the
-    // outermost [...] span before parsing rather than requiring the whole response to be bare JSON.
+    // Bug fix: despite the system prompt's explicit "respond with ONLY a JSON array" instruction,
+    // the configured model was observed live emitting multiple separate top-level arrays instead of
+    // one combined array -- e.g. "[{...file1}]\n\n[{...file2}]" instead of
+    // "[{...file1}, {...file2}]". The original version of this method took the substring from the
+    // first '[' to the last ']', which spans every array in a multi-array response as one blob and
+    // is not valid JSON on its own (System.Text.Json throws "'[' is invalid after a single JSON
+    // value"), failing the *entire* batch even when most of the files' arrays were complete and
+    // well-formed. Scanning for each top-level [...] span (bracket-depth tracking, respecting string
+    // escaping) and parsing them independently salvages every complete array in the response --
+    // only a genuinely incomplete trailing array (real truncation) is skipped, per-file, rather than
+    // discarding the whole batch for one bad segment.
     private static List<ClassificationResponseItem> ParseResponse(string raw)
     {
-        var start = raw.IndexOf('[');
-        var end = raw.LastIndexOf(']');
-        if (start < 0 || end < start) throw new JsonException("No JSON array found in classification response.");
+        var items = new List<ClassificationResponseItem>();
+        var foundAnyArray = false;
 
-        var json = raw[start..(end + 1)];
-        return JsonSerializer.Deserialize<List<ClassificationResponseItem>>(json, JsonOptions)
-            ?? throw new JsonException("Classification response deserialized to null.");
+        foreach (var segment in ExtractTopLevelJsonArrays(raw))
+        {
+            foundAnyArray = true;
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<List<ClassificationResponseItem>>(segment, JsonOptions);
+                if (parsed is not null) items.AddRange(parsed);
+            }
+            catch (JsonException)
+            {
+                // This segment didn't parse (e.g. it's a truncated trailing array) -- skip it and
+                // keep whatever earlier segments in this same response already parsed successfully.
+            }
+        }
+
+        if (!foundAnyArray) throw new JsonException("No JSON array found in classification response.");
+        return items;
+    }
+
+    // Defensive against a model that wraps the array in prose despite instructions, or emits
+    // multiple top-level arrays -- yields each top-level [...] span in the text (bracket-depth
+    // tracking, with string-escape awareness so a literal '[' or ']' inside a quoted purpose/text
+    // value doesn't miscount as a structural bracket).
+    private static IEnumerable<string> ExtractTopLevelJsonArrays(string raw)
+    {
+        var depth = 0;
+        var start = -1;
+        var inString = false;
+        var escaped = false;
+
+        for (var i = 0; i < raw.Length; i++)
+        {
+            var c = raw[i];
+            if (inString)
+            {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+
+            switch (c)
+            {
+                case '"':
+                    inString = true;
+                    break;
+                case '[':
+                    if (depth == 0) start = i;
+                    depth++;
+                    break;
+                case ']':
+                    depth--;
+                    if (depth == 0 && start >= 0)
+                    {
+                        yield return raw[start..(i + 1)];
+                        start = -1;
+                    }
+                    break;
+            }
+        }
     }
 
     private static string ComputeHash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
