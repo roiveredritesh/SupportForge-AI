@@ -97,6 +97,26 @@ public class OrgsControllerTests : IDisposable
         Assert.Equal("Acme", orgs[0].Name);
     }
 
+    // Org-wide master switch for the code-graph Tier 2 classification stage (Org.CodeClassificationEnabled)
+    // -- CreateOrUpdate does a raw upsert of the whole posted body, so this should already round-trip;
+    // a regression test since this flag gates whether customer source content ever reaches the LLM.
+    [Fact]
+    public async Task CreateOrg_WithCodeClassificationEnabled_RoundTrips()
+    {
+        var org = new Org
+        {
+            Id = "org1", Name = "Acme", ContactPerson = "Jane Doe", ContactNumber = "555-0100", Industry = "Software",
+            CodeClassificationEnabled = true,
+        };
+
+        await _controller.CreateOrUpdate(org);
+        var result = await _controller.GetAll();
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var orgs = Assert.IsAssignableFrom<IReadOnlyList<Org>>(ok.Value);
+        Assert.True(Assert.Single(orgs).CodeClassificationEnabled);
+    }
+
     [Fact]
     public async Task GetAll_SecondUsersOrgs_DoNotLeakIntoFirstUsersList()
     {

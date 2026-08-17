@@ -70,14 +70,16 @@ describe('SettingsProjectsPage', () => {
     fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: 'Project Three' } });
     fireEvent.click(screen.getByText('+ Add source'));
 
-    // Defaults to "Documents" -- no crawl-linked-pages checkbox until the type is Website.
-    expect(screen.queryByRole('checkbox')).toBeNull();
+    // Defaults to "Documents" -- no crawl-linked-pages checkbox until the type is Website. The
+    // page's own "Enable AI code classification" checkbox is always present, so this asserts on
+    // the crawl-linked-pages one specifically, not "any checkbox on the page".
+    expect(screen.queryByLabelText(/Also index pages linked/)).toBeNull();
 
     // First combobox is the KB source type selector; a second (repo-association) combobox only
     // appears while type === 'Documents', which is the default this test starts from.
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'Website' } });
     fireEvent.change(screen.getByPlaceholderText('Website URL'), { target: { value: 'https://example.com/docs' } });
-    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByLabelText(/Also index pages linked/));
     fireEvent.click(screen.getByText('Create Project'));
 
     await waitFor(() =>
@@ -86,6 +88,29 @@ describe('SettingsProjectsPage', () => {
         expect.objectContaining({
           kbSources: [expect.objectContaining({ type: 'Website', location: 'https://example.com/docs', crawlLinkedPages: true })],
         }),
+      ),
+    );
+  });
+
+  it('includes codeClassificationEnabled: false by default, true when the checkbox is checked', async () => {
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SettingsProjectsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText('Project ID'), { target: { value: 'proj5' } });
+    fireEvent.change(screen.getByLabelText('Project Name'), { target: { value: 'Project Five' } });
+    fireEvent.click(screen.getByLabelText('Enable AI code classification for this project'));
+    fireEvent.click(screen.getByText('Create Project'));
+
+    await waitFor(() =>
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/projects',
+        expect.objectContaining({ id: 'proj5', codeClassificationEnabled: true }),
       ),
     );
   });

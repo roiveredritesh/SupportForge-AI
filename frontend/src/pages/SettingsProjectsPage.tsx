@@ -8,6 +8,7 @@ import { useFreshness } from '../hooks/useFreshness';
 import { useDeadLetters, useDismissDeadLetter } from '../hooks/useDeadLetters';
 import { useAppStore } from '../store/useAppStore';
 import { SettingsNav } from '../components/SettingsNav';
+import { OrgCodeClassificationSection } from '../components/OrgCodeClassificationSection';
 import { type FieldErrors, validateRequired } from '../lib/formValidation';
 
 function FreshnessBadge({ projectId }: { projectId: string }) {
@@ -81,6 +82,7 @@ export default function SettingsProjectsPage() {
   const [repos, setRepos] = useState<ProjectRepo[]>([]);
   const [kbSources, setKbSources] = useState<ProjectKbSource[]>([]);
   const [syncIntervalHours, setSyncIntervalHours] = useState('');
+  const [codeClassificationEnabled, setCodeClassificationEnabled] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
 
   const resetForm = () => {
@@ -90,6 +92,7 @@ export default function SettingsProjectsPage() {
     setRepos([]);
     setKbSources([]);
     setSyncIntervalHours('');
+    setCodeClassificationEnabled(false);
     setErrors({});
   };
 
@@ -100,6 +103,7 @@ export default function SettingsProjectsPage() {
     setRepos(p.repos.map((r) => ({ ...r })));
     setKbSources(p.kbSources.map((k) => ({ ...k })));
     setSyncIntervalHours(p.scheduledSyncIntervalHours != null ? String(p.scheduledSyncIntervalHours) : '');
+    setCodeClassificationEnabled(p.codeClassificationEnabled ?? false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -133,6 +137,7 @@ export default function SettingsProjectsPage() {
         repos: repos.filter((r) => r.owner && r.repo),
         kbSources: kbSources.filter((k) => k.location),
         scheduledSyncIntervalHours: parsedInterval != null && !Number.isNaN(parsedInterval) ? parsedInterval : null,
+        codeClassificationEnabled,
       },
       { onSuccess: resetForm },
     );
@@ -150,6 +155,8 @@ export default function SettingsProjectsPage() {
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <h1 className="text-xl font-semibold">Settings</h1>
       <SettingsNav />
+
+      <OrgCodeClassificationSection />
 
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center justify-between">
@@ -312,6 +319,21 @@ export default function SettingsProjectsPage() {
             onChange={(e) => setSyncIntervalHours(e.target.value)}
           />
         </label>
+
+        <div>
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={codeClassificationEnabled}
+              onChange={(e) => setCodeClassificationEnabled(e.target.checked)}
+            />
+            Enable AI code classification for this project
+          </label>
+          <p className="mt-1 text-xs text-gray-500">
+            Sends file content to the configured AI model to tell business logic apart from
+            vendored/generated code. Also requires the org-level toggle above to be on.
+          </p>
+        </div>
 
         <button
           className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
