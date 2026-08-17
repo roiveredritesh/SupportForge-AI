@@ -61,4 +61,41 @@ public class OpenAiLlmClientTests
 
         Assert.Equal(12345, captured!.Seed);
     }
+
+    // Bug fix: CompleteAsync previously never set MaxOutputTokens at all, so the provider's own
+    // (sometimes small) server-side default applied silently -- observed live truncating
+    // CodeNodeClassifier's structured JSON responses mid-array.
+    [Fact]
+    public async Task CompleteAsync_PassesDefaultMaxOutputTokens_WhenNoneConfigured()
+    {
+        var chatClient = new Mock<IChatClient>();
+        ChatOptions? captured = null;
+        chatClient
+            .Setup(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<IEnumerable<ChatMessage>, ChatOptions?, CancellationToken>((_, options, _) => captured = options)
+            .ReturnsAsync(new ChatResponse(new ChatMessage(ChatRole.Assistant, "hello")));
+
+        var sut = new OpenAiLlmClient(chatClient.Object, null!, "unused-model");
+
+        await sut.CompleteAsync("system", "user");
+
+        Assert.Equal(4096, captured!.MaxOutputTokens);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_PassesConfiguredMaxOutputTokens_WhenProvided()
+    {
+        var chatClient = new Mock<IChatClient>();
+        ChatOptions? captured = null;
+        chatClient
+            .Setup(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<IEnumerable<ChatMessage>, ChatOptions?, CancellationToken>((_, options, _) => captured = options)
+            .ReturnsAsync(new ChatResponse(new ChatMessage(ChatRole.Assistant, "hello")));
+
+        var sut = new OpenAiLlmClient(chatClient.Object, null!, "unused-model", maxOutputTokens: 8192);
+
+        await sut.CompleteAsync("system", "user");
+
+        Assert.Equal(8192, captured!.MaxOutputTokens);
+    }
 }

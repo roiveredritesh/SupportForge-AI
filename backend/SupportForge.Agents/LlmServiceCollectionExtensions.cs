@@ -279,6 +279,9 @@ public static class LlmServiceCollectionExtensions
         // U8/KTD7: optional override for OpenAiLlmClient's deterministic-completion seed; unset/unparseable
         // falls back to OpenAiLlmClient.DefaultSeed.
         var seed = long.TryParse(section["Seed"], out var configuredSeed) ? configuredSeed : (long?)null;
+        // Bug fix: optional override for the max-output-token cap (see OpenAiLlmClient's
+        // DefaultMaxOutputTokens comment); unset/unparseable falls back to that default.
+        var maxOutputTokens = int.TryParse(section["MaxTokens"], out var configuredMaxTokens) ? configuredMaxTokens : (int?)null;
 
         var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
         // Ollama's server ignores the Authorization header entirely (no auth), but the OpenAI SDK's
@@ -290,7 +293,8 @@ public static class LlmServiceCollectionExtensions
             new OpenAI.Embeddings.EmbeddingClient(embeddingModel, credential, options),
             embeddingModel,
             embeddingInputType,
-            seed: seed);
+            seed: seed,
+            maxOutputTokens: maxOutputTokens);
     }
 
     private static OpenAiLlmClient BuildAzureClient(IConfiguration configuration, bool cheapTier = false)
@@ -310,6 +314,8 @@ public static class LlmServiceCollectionExtensions
         var embeddingInputType = section["EmbeddingInputType"];
         // U8/KTD7: see BuildOpenAiCompatibleClient's Seed comment.
         var seed = long.TryParse(section["Seed"], out var configuredSeed) ? configuredSeed : (long?)null;
+        // Bug fix: see BuildOpenAiCompatibleClient's MaxTokens comment.
+        var maxOutputTokens = int.TryParse(section["MaxTokens"], out var configuredMaxTokens) ? configuredMaxTokens : (int?)null;
 
         var azureClient = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey ?? string.Empty));
         return new OpenAiLlmClient(
@@ -317,6 +323,7 @@ public static class LlmServiceCollectionExtensions
             azureClient.GetEmbeddingClient(embeddingDeployment),
             embeddingDeployment,
             embeddingInputType,
-            seed: seed);
+            seed: seed,
+            maxOutputTokens: maxOutputTokens);
     }
 }

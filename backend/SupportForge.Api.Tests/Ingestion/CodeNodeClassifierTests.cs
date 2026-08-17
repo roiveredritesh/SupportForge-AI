@@ -129,6 +129,68 @@ public class CodeNodeClassifierTests : IDisposable
         Assert.Equal("", graph.Nodes.Single(n => n.Id == "A.cs").Kind);
     }
 
+    // Bug fix: observed live against the real configured model -- despite the system prompt's
+    // explicit "respond with ONLY a JSON array" instruction, some responses came back as multiple
+    // separate top-level arrays ("[{...file1}]\n\n[{...file2}]") instead of one combined array. The
+    // original substring-based parser treated that as one malformed blob and failed the whole batch.
+    [Fact]
+    public async Task ClassifyAsync_MultipleConcatenatedJsonArrays_ParsesAndMergesAll()
+    {
+        WriteFile("a.cs", "namespace Demo;\npublic class A {}\n");
+        WriteFile("b.cs", "namespace Demo;\npublic class B {}\n");
+        var graph = CodeGraphExtractor.Extract(_repoDir);
+        SetLlmResponse("""
+            [{"id": "a.cs", "kind": "handwritten", "confidence": 0.8, "purpose": "A.", "domainTerms": [], "layer": "util", "definitions": []}]
+
+            [{"id": "b.cs", "kind": "test", "confidence": 0.9, "purpose": "B.", "domainTerms": [], "layer": "test", "definitions": []}]
+            """);
+
+        await MakeClassifier().ClassifyAsync(graph, _repoDir, "proj1", "repo1", CancellationToken.None);
+
+        Assert.Equal("handwritten", graph.Nodes.Single(n => n.Id == "a.cs").Kind);
+        Assert.Equal("test", graph.Nodes.Single(n => n.Id == "b.cs").Kind);
+    }
+
+    // A trailing array that never closed (real truncation) must not sink an earlier, complete array
+    // in the same response -- only the file(s) in the broken segment stay unenriched.
+    [Fact]
+    public async Task ClassifyAsync_TruncatedTrailingArray_SalvagesEarlierCompleteArray()
+    {
+        WriteFile("a.cs", "namespace Demo;\npublic class A {}\n");
+        WriteFile("b.cs", "namespace Demo;\npublic class B {}\n");
+        var graph = CodeGraphExtractor.Extract(_repoDir);
+        SetLlmResponse("""
+            [{"id": "a.cs", "kind": "handwritten", "confidence": 0.8, "purpose": "A.", "domainTerms": [], "layer": "util", "definitions": []}]
+
+            [{"id": "b.cs", "kind": "test", "confidence": 0.9, "purpose": "B truncated mid
+            """);
+
+        await MakeClassifier().ClassifyAsync(graph, _repoDir, "proj1", "repo1", CancellationToken.None);
+
+        Assert.Equal("handwritten", graph.Nodes.Single(n => n.Id == "a.cs").Kind);
+        Assert.Equal("", graph.Nodes.Single(n => n.Id == "b.cs").Kind);
+    }
+
+    // Bug fix: observed live -- the model repeated the same file's id across two of its separate
+    // top-level arrays. Once ParseResponse merges items from multiple arrays, that duplicate id
+    // must not crash batch processing; the first occurrence wins.
+    [Fact]
+    public async Task ClassifyAsync_DuplicateIdAcrossMergedArrays_DoesNotThrow_KeepsFirstOccurrence()
+    {
+        WriteFile("a.cs", "namespace Demo;\npublic class A {}\n");
+        var graph = CodeGraphExtractor.Extract(_repoDir);
+        SetLlmResponse("""
+            [{"id": "a.cs", "kind": "handwritten", "confidence": 0.8, "purpose": "first", "domainTerms": [], "layer": "util", "definitions": []}]
+
+            [{"id": "a.cs", "kind": "vendored", "confidence": 0.9, "purpose": "second", "domainTerms": [], "layer": "util", "definitions": []}]
+            """);
+
+        await MakeClassifier().ClassifyAsync(graph, _repoDir, "proj1", "repo1", CancellationToken.None);
+
+        Assert.Equal("handwritten", graph.Nodes.Single(n => n.Id == "a.cs").Kind);
+        Assert.Equal("first", graph.Nodes.Single(n => n.Id == "a.cs").Purpose);
+    }
+
     [Fact]
     public async Task ClassifyAsync_MalformedResponse_LeavesFileUnenriched_NoExceptionPropagates()
     {
