@@ -293,7 +293,7 @@ public class RagPipelineE2ETests : IClassFixture<WebApplicationFactory<Program>>
                 StringSplitOptions.RemoveEmptyEntries);
             foreach (var word in words)
             {
-                var bucket = Math.Abs(word.GetHashCode()) % Dimensions;
+                var bucket = Math.Abs(StableHash(word)) % Dimensions;
                 vector[bucket] += 1f;
             }
             var magnitude = MathF.Sqrt(vector.Sum(v => v * v));
@@ -303,6 +303,31 @@ public class RagPipelineE2ETests : IClassFixture<WebApplicationFactory<Program>>
 
             LastTotalTokens = words.Length;
             return Task.FromResult(vector);
+        }
+
+        // Bug fix: string.GetHashCode() is randomized per process in .NET (a hash-flooding
+        // mitigation), so the word-to-bucket assignment above -- and therefore the resulting
+        // vectors' relative distances -- silently changed on every test run despite this class's
+        // own doc comment claiming "deterministic". ChromaMaxDistance_FiltersOutLowRelevanceMatches_
+        // AgainstRealChroma hardcodes a threshold (1.1) between two specific measured distances
+        // (~1.055 on-topic, ~1.175 off-topic); a shifted bucket assignment could change which side
+        // of that threshold either distance landed on, making the test intermittently fail. FNV-1a
+        // is a fixed, well-known 32-bit hash with no per-process seed, so the same word always maps
+        // to the same bucket across every run.
+        private static int StableHash(string s)
+        {
+            unchecked
+            {
+                const uint fnvOffsetBasis = 2166136261;
+                const uint fnvPrime = 16777619;
+                var hash = fnvOffsetBasis;
+                foreach (var c in s)
+                {
+                    hash ^= c;
+                    hash *= fnvPrime;
+                }
+                return (int)hash;
+            }
         }
     }
 }
