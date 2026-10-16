@@ -51,7 +51,18 @@ public sealed class ScheduledKbSyncService : BackgroundService
         // interval before the first check.
         do
         {
-            await RunOnceAsync(stoppingToken);
+            // An exception escaping ExecuteAsync stops the whole host (.NET's default
+            // BackgroundServiceExceptionBehavior.StopHost), so one bad pass -- an unreadable
+            // projects file, a provider that can't be constructed -- would take the API down with
+            // it. Log and try again on the next poll instead.
+            try
+            {
+                await RunOnceAsync(stoppingToken);
+            }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "ScheduledKbSyncService: sync pass failed; retrying on the next poll");
+            }
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }
@@ -74,10 +85,20 @@ public sealed class ScheduledKbSyncService : BackgroundService
             }
 
             // A scheduled sync runs outside any authenticated request -- triggeredByUserId is
-            // null, same as a webhook-triggered run (KTD4).
-            foreach (var job in _docFactory.CreateJobs(project, triggeredByUserId: null))
-                _queue.Enqueue(job);
-            enqueued++;
+            // null, same as a webhook-triggered run (KTD4). CreateJobs builds the whole list before
+            // returning, so a project whose jobs can't be built (e.g. a Documents source pointing at
+            // a repo the project no longer has) enqueues nothing and is skipped on its own, rather
+            // than stopping every other project's re-sync in this pass.
+            try
+            {
+                foreach (var job in _docFactory.CreateJobs(project, triggeredByUserId: null))
+                    _queue.Enqueue(job);
+                enqueued++;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "ScheduledKbSyncService: could not build re-sync jobs for project {ProjectId}; skipping it this pass", project.Id);
+            }
         }
 
         _logger.LogInformation("ScheduledKbSyncService: enqueued KB re-sync for {Count} project(s)", enqueued);
