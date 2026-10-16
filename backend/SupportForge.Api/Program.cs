@@ -12,6 +12,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using SupportForge.Agents;
 using SupportForge.Agents.Guard;
+using SupportForge.Agents.Jev;
 using SupportForge.Agents.Tools;
 using SupportForge.Agents.Triage;
 using SupportForge.Agents.Verification;
@@ -219,15 +220,20 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<VisionAnalyzerAgent>(),
     sp.GetRequiredService<VisionAnalyzerVerifier>(),
     sp.GetRequiredService<DrafterAgent>()));
+// U16/U17: every Jev-backed feature shares this one registration. It always binds JevOptions, and it
+// registers IJevClient only when Jev:ApiKey is set, so with the key blank every Jev-backed feature is inert.
+var jevConfigured = builder.Services.AddJev(builder.Configuration);
 // U17: input guard, screened by ChatController before the pipeline runs. Off by default (Guard:Mode in
 // appsettings.json), so these registrations cost nothing until a mode is set.
 var guardOptions = builder.Configuration.GetSection("Guard").Get<GuardOptions>() ?? new GuardOptions();
 builder.Services.AddSingleton(guardOptions);
 builder.Services.AddSingleton(new GuardRepeatTracker(TimeProvider.System));
 builder.Services.AddSingleton(sp => new HeuristicInputGuard(sp.GetRequiredService<GuardOptions>()));
-// jevGuard is null until the Jev client lands (U4/U16): the guard then runs heuristic-only, which is flag-only by design.
+// U16: the Jev guard is wired only when Jev is configured. Without it the guard runs heuristic-only,
+// which is flag-only by design.
 builder.Services.AddSingleton(sp => new GuardService(
-    sp.GetRequiredService<GuardOptions>(), sp.GetRequiredService<HeuristicInputGuard>(), jevGuard: null,
+    sp.GetRequiredService<GuardOptions>(), sp.GetRequiredService<HeuristicInputGuard>(),
+    jevConfigured ? new JevInputGuard(sp.GetRequiredService<IJevClient>(), sp.GetRequiredService<GuardOptions>()) : null,
     sp.GetRequiredService<GuardRepeatTracker>(), sp.GetRequiredService<ILogger<GuardService>>()));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddSingleton<SupportForge.Agents.Tools.IIngestionActivity>(sp => sp.GetRequiredService<IngestionQueue>());
@@ -329,11 +335,17 @@ var app = builder.Build();
 
 // U17: until a Jev guard is wired in, Shadow and Enforce only ever flag -- say so once at startup so
 // an operator who set Guard:Mode doesn't assume turns are being blocked.
-if (guardOptions.Mode != GuardMode.Off)
+if (guardOptions.Mode != GuardMode.Off && !jevConfigured)
 {
     app.Logger.LogWarning(
         "Input guard mode is {Mode} but no Jev guard is configured: the guard runs heuristic-only, which can flag but never block.",
         guardOptions.Mode);
+}
+
+// U16: with Jev configured, the guard is the full two-layer guard. Logged once so the mode in effect is visible.
+if (guardOptions.Mode != GuardMode.Off && jevConfigured)
+{
+    app.Logger.LogInformation("Input guard mode is {Mode} with the Jev guard", guardOptions.Mode);
 }
 
 // Sprint 7: must run before ProjectOrgMigration (or any other IOrgRepository consumer) ever reads
