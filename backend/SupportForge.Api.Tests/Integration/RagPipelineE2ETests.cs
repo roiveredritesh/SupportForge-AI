@@ -46,6 +46,11 @@ public class RagPipelineE2ETests : IClassFixture<WebApplicationFactory<Program>>
                 // GetRequiredService<T>(), so this replaces whichever real provider appsettings.json
                 // configured (default: NvidiaNim).
                 services.AddSingleton<ILlmEmbeddingClient, FakeEmbeddingClient>();
+                // Same reason for chat: KB ingestion builds IngestionImageCaptioner, which resolves
+                // ILlmChatClient, and the real provider can't even be constructed without an API key
+                // (CI runs with an empty OpenAI__ApiKey). A no-vision stand-in sends every image and
+                // diagram down the captioner's placeholder path, which is what these tests assert on.
+                services.AddSingleton<ILlmChatClient, NoVisionChatClient>();
             });
         });
     }
@@ -271,6 +276,25 @@ public class RagPipelineE2ETests : IClassFixture<WebApplicationFactory<Program>>
             mainPart.Document.Save();
         }
         return stream.ToArray();
+    }
+
+    /// <summary>Chat stand-in with no vision support. Nothing in these tests needs a real completion.</summary>
+    private sealed class NoVisionChatClient : ILlmChatClient
+    {
+        public bool SupportsVision => false;
+        public int LastTotalTokens => 0;
+
+        public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct = default) =>
+            Task.FromResult(string.Empty);
+
+        public async IAsyncEnumerable<string> StreamCompleteAsync(string systemPrompt, string userPrompt, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public Task<string> AnalyzeImageAsync(string base64Image, string prompt, CancellationToken ct = default) =>
+            throw new NotSupportedException("NoVisionChatClient has no vision support.");
     }
 
     /// <summary>

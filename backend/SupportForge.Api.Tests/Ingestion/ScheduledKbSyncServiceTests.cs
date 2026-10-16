@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using SupportForge.Agents;
+using SupportForge.Api.Tests.Agents;
 using SupportForge.Core;
 using SupportForge.Core.Entities;
 using SupportForge.Ingestion;
@@ -183,6 +185,60 @@ public class ScheduledKbSyncServiceTests
 
         Assert.False(queue.IsBusy("proj1"));
         Directory.Delete(tempDir, recursive: true);
+    }
+
+    // A project whose jobs can't be built (here: a Documents source naming a repo the project
+    // doesn't have) must be skipped on its own, not abort the rest of the pass.
+    [Fact]
+    public async Task RunOnceAsync_ProjectWhoseJobsCannotBeBuilt_IsSkipped_AndOtherProjectsStillEnqueued()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var projects = new JsonFileProjectRepository(tempDir);
+        await projects.UpsertAsync(new Project
+        {
+            Id = "broken",
+            Name = "Documents source for a repo the project doesn't have",
+            KbSources = new List<KbSourceConfig> { new(KbSourceType.Documents, "docs", null, RepoOwner: "acme", RepoName: "missing") },
+        });
+        await projects.UpsertAsync(new Project
+        {
+            Id = "healthy",
+            Name = "Website KB",
+            KbSources = new List<KbSourceConfig> { new(KbSourceType.Website, "https://example.com", null) },
+        });
+        var queue = new IngestionQueue();
+        var logger = new ListLogger<ScheduledKbSyncService>();
+        var sut = new ScheduledKbSyncService(projects, queue, MakeRealDocFactory(projects, tempDir), new ConfigurationBuilder().Build(), logger);
+
+        await sut.RunOnceAsync(default);
+
+        Assert.False(queue.IsBusy("broken"));
+        Assert.True(queue.IsBusy("healthy"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error && e.Message.Contains("broken"));
+        Directory.Delete(tempDir, recursive: true);
+    }
+
+    // An exception escaping ExecuteAsync stops the whole host by default, which is how a single
+    // failing pass used to take down the API (and, in integration tests, whichever test shared the
+    // host). The service must log it and keep running until the next poll.
+    [Fact]
+    public async Task ExecuteAsync_SyncPassThatThrows_IsLogged_AndTheServiceKeepsRunning()
+    {
+        var projects = new Mock<IProjectRepository>();
+        projects.Setup(p => p.GetAllAsync(It.IsAny<CancellationToken>())).ThrowsAsync(new IOException("projects.json unreadable"));
+        var logger = new ListLogger<ScheduledKbSyncService>();
+        var sut = new ScheduledKbSyncService(projects.Object, new IngestionQueue(), UnusableFactory(), new ConfigurationBuilder().Build(), logger);
+
+        await sut.StartAsync(CancellationToken.None);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!logger.Entries.ToArray().Any(e => e.Level == LogLevel.Error) && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
+
+        Assert.Contains(logger.Entries.ToArray(), e => e.Level == LogLevel.Error && e.Exception is IOException);
+        Assert.NotNull(sut.ExecuteTask);
+        Assert.False(sut.ExecuteTask!.IsCompleted);
+
+        await sut.StopAsync(CancellationToken.None);
     }
 
     private sealed class NoOpJob : IIngestionJob
