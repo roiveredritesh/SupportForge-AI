@@ -13,6 +13,7 @@ using OpenTelemetry.Trace;
 using SupportForge.Agents;
 using SupportForge.Agents.Guard;
 using SupportForge.Agents.Tools;
+using SupportForge.Agents.Triage;
 using SupportForge.Api;
 using SupportForge.Api.HealthChecks;
 using SupportForge.Api.Hubs;
@@ -168,7 +169,7 @@ builder.Services.AddLlmProviders(builder.Configuration);
 // LlmServiceCollectionExtensions.CheapTierKey) -- DrafterAgent, the retrieval specialists, and
 // CrossReferenceAgent stay on the default/main-tier client.
 builder.Services.AddScoped<TriageAgent>(sp => new TriageAgent(
-    sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
+    new LlmIntentClassifier(sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
     sp.GetRequiredService<ILogger<TriageAgent>>()));
 builder.Services.AddScoped<FreshnessGateAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();

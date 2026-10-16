@@ -56,7 +56,8 @@ public sealed class CodeAnalyzerVerifier : IAgent
         _logger.LogInformation("{Agent} starting: project={ProjectId} intent={Intent}", Name, context.ProjectId, context.Intent);
         try
         {
-            if (context.Intent is not ("code_issue" or "code_question"))
+            // U7: shared gate; see IntentRouting.
+            if (!IntentRouting.NeedsCode(context))
             {
                 _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: skipped, intent={Intent} not applicable", Name, sw.ElapsedMilliseconds, context.Intent);
                 return context;
