@@ -1,0 +1,88 @@
+name: Evals
+
+# Runs SupportForge.Evals against a live LLM provider and publishes the full report: the verifier
+# agreement checks plus the report-only triage, guard and findings-relevance sections. It makes a few
+# hundred cheap-tier LLM calls per run, so it never runs on ordinary pushes or pull requests.
+#
+# How to run:
+#   - Push any commit to a branch named evals/<anything>, e.g.
+#       git push origin feature/jev-integration:evals/baseline
+#     This works from any branch that contains this file, without it being on the default branch.
+#   - Or use "Run workflow" in the Actions tab. GitHub only offers that once this file is on the
+#     default branch.
+#
+# Needs the repository secret LLM_API_KEY: the API key for the chosen provider (NVIDIA NIM or an
+# OpenAI-compatible endpoint). The provider comes from the run input, then the EVALS_PROVIDER
+# repository variable, then NvidiaNim. Model names come from backend/SupportForge.Evals/appsettings.json.
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: LLM provider the evals call
+        type: choice
+        options: [NvidiaNim, OpenAI]
+        default: NvidiaNim
+  push:
+    branches: ["evals/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build
+        run: dotnet build backend/SupportForge.Evals/SupportForge.Evals.csproj --configuration Release
+
+      # The eval exits 1 when a verifier fixture disagrees with its expected verdict. That is a
+      # finding to read in the report, not a broken run, so it becomes a warning and the job stays
+      # green. Any other non-zero exit (a crash, a missing key) still fails the job.
+      - name: Run evals
+        env:
+          Llm__Provider: ${{ inputs.provider || vars.EVALS_PROVIDER || 'NvidiaNim' }}
+          Llm__ApiKey: ${{ secrets.LLM_API_KEY }}
+        run: |
+          if [ -z "$Llm__ApiKey" ]; then
+            echo "::error::Repository secret LLM_API_KEY is not set (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          echo "Provider: $Llm__Provider"
+          set +e
+          dotnet run --project backend/SupportForge.Evals --configuration Release --no-build 2>&1 | tee eval-report.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "## Eval report (provider: $Llm__Provider, exit code: $code)"
+            echo
+            echo '```'
+            cat eval-report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -eq 1 ]; then
+            echo "::warning::One or more verifier fixtures disagreed with their expected verdict. See the DISAGREE lines in the report."
+          elif [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-${{ github.run_number }}
+          path: eval-report.txt
+          if-no-files-found: ignore
