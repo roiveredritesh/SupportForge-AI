@@ -879,3 +879,8 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
   - U4: Jev client and a Jev-backed `IInputGuard`. Blocked on reading the official API reference.
   - U20: thresholds calibrated from a Jev eval run, then the Shadow rollout.
   - Deferred with their phases: U18, U19 and `CombineWithTriage`.
+- **Phase 1, first round** (LLM classifier still the only one):
+  - U1: triage eval with 103 labelled fixtures. It also reports accuracy on follow-ups that need conversation history, because the LLM classifier reads only the latest message today. That number is the baseline for the history-aware classifier (R3).
+  - U2/U3: `IIntentClassifier` seam, `LlmIntentClassifier` (prompt verified byte-identical) and the new `AgentContext` intent fields.
+  - U7: shared `IntentRouting` gates, with the secondary-intent rule present but off.
+  - Remaining for Phase 1: U4 (Jev client, shared with the guard), U5/U6 (Jev classifier, decision policy, modes), U8 (Drafter hint, persistence, telemetry) and U9.

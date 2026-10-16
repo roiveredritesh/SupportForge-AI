@@ -28,6 +28,8 @@ services.AddLlmProviders(configuration); // same DI wiring SupportForge.Api uses
 using var provider = services.BuildServiceProvider();
 
 var llm = provider.GetRequiredService<ILlmChatClient>();
+// Triage runs on the cheap tier, the same client production triage resolves (see LlmServiceCollectionExtensions.CheapTierKey).
+var triageLlm = provider.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey);
 var loggers = provider.GetRequiredService<ILoggerFactory>();
 
 var fixturesDir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
@@ -46,6 +48,11 @@ var guardResults = await RunGuardFixturesAsync("heuristic", null);
 ReportGuard(guardResults);
 // A Jev-backed IInputGuard gets a second call here once the Jev client exists:
 // ReportGuard(await RunGuardFixturesAsync("jev", jevGuard), jevSupplied: true);
+
+// Triage results are reported only and never affect the exit code: the eval is the measurement behind the R4 defaults
+// (MinConfidence, MinMargin), so it is a baseline rather than a pass/fail gate. The thresholds are read from the report.
+var triageResults = await RunTriageFixturesAsync();
+ReportTriage(triageResults);
 
 return results.Any(r => !r.Agreed) ? 1 : 0;
 
@@ -390,6 +397,143 @@ void ReportGuard(List<GuardCaseResult> guardCases, bool jevSupplied = false)
     }
 }
 
+// U1 triage eval (docs/plans/2026-10-16-002-feat-jev-intent-classification-plan.md, R11). Each fixture runs through the real
+// TriageAgent on the cheap tier. A per-case exception is recorded as "(error)" rather than thrown, so one provider error
+// cannot abort the run.
+async Task<List<TriageCaseResult>> RunTriageFixturesAsync()
+{
+    var fixtures = LoadFixtures<TriageFixture>("triage-fixtures.json");
+    var outcomes = new List<TriageCaseResult>();
+    foreach (var f in fixtures)
+    {
+        var context = new AgentContext
+        {
+            ProjectId = "eval",
+            Query = f.Query,
+            ScreenshotBase64 = f.HasScreenshot ? "eval-screenshot" : null,
+        };
+        foreach (var turn in f.History) context.History.Add((turn.Role, turn.Content));
+
+        var agent = new TriageAgent(triageLlm, loggers.CreateLogger<TriageAgent>());
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            await agent.RunAsync(context);
+            stopwatch.Stop();
+            outcomes.Add(new TriageCaseResult(f.Id, f.Domain, f.Query, f.ExpectIntent, context.Intent, f.Ambiguous, f.History.Count > 0,
+                context.IntentConfidence, context.IntentSource, stopwatch.ElapsedMilliseconds, context.TotalTokensUsed, null));
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            outcomes.Add(new TriageCaseResult(f.Id, f.Domain, f.Query, f.ExpectIntent, "(error)", f.Ambiguous, f.History.Count > 0,
+                null, "", stopwatch.ElapsedMilliseconds, context.TotalTokensUsed, ex.Message));
+        }
+    }
+    return outcomes;
+}
+
+// Accuracy (overall and on non-ambiguous cases), unclear rate on clear cases, per-label precision/recall, confusion pairs,
+// every wrong case, latency, tokens, and calibration. Recommends MinConfidence only when confidence actually varies.
+void ReportTriage(List<TriageCaseResult> cases)
+{
+    Console.WriteLine();
+    Console.WriteLine("=== Triage eval ===");
+    if (cases.Count == 0)
+    {
+        Console.WriteLine("  no fixtures loaded");
+        return;
+    }
+
+    var correct = cases.Count(r => r.Correct);
+    Console.WriteLine($"  overall accuracy: {Pct(correct, cases.Count)} ({correct}/{cases.Count})");
+
+    var clear = cases.Where(r => !r.Ambiguous).ToList();
+    var clearCorrect = clear.Count(r => r.Correct);
+    var sentToUnclear = clear.Count(r => r.Actual == "unclear");
+    Console.WriteLine($"  accuracy (non-ambiguous): {Pct(clearCorrect, clear.Count)} ({clearCorrect}/{clear.Count})");
+    Console.WriteLine($"  unclear rate (non-ambiguous): {Pct(sentToUnclear, clear.Count)} ({sentToUnclear}/{clear.Count})");
+
+    // The LLM classifier reads context.Query only, never the conversation, so follow-ups that only make sense with history
+    // are expected to suffer. Reported separately as the baseline a history-aware classifier (plan R3) has to beat.
+    var followUps = clear.Where(r => r.HasHistory).ToList();
+    var followUpsCorrect = followUps.Count(r => r.Correct);
+    Console.WriteLine($"  accuracy on follow-ups with history (non-ambiguous): {Pct(followUpsCorrect, followUps.Count)} ({followUpsCorrect}/{followUps.Count})");
+
+    string[] labels = ["kb_question", "code_issue", "code_question", "screenshot_error", "greeting", "unclear"];
+    Console.WriteLine("  per label (all cases):");
+    foreach (var label in labels)
+    {
+        var support = cases.Count(r => r.Expected == label);
+        var predicted = cases.Count(r => r.Actual == label);
+        var truePositives = cases.Count(r => r.Expected == label && r.Actual == label);
+        Console.WriteLine($"    {label,-18} support={support,3}  precision={Pct(truePositives, predicted)}  recall={Pct(truePositives, support)}");
+    }
+
+    Console.WriteLine("  confusion pairs (expected -> actual):");
+    var confusions = cases.Where(r => !r.Correct)
+        .GroupBy(r => (r.Expected, r.Actual))
+        .OrderByDescending(g => g.Count())
+        .ThenBy(g => g.Key.Expected, StringComparer.Ordinal)
+        .ThenBy(g => g.Key.Actual, StringComparer.Ordinal)
+        .ToList();
+    if (confusions.Count == 0) Console.WriteLine("    none");
+    foreach (var g in confusions)
+        Console.WriteLine($"    {g.Key.Expected} -> {g.Key.Actual}: {g.Count()}");
+
+    Console.WriteLine("  wrong cases:");
+    foreach (var wrong in cases.Where(r => !r.Correct))
+    {
+        var error = wrong.Error is null ? "" : $" error=\"{wrong.Error}\"";
+        Console.WriteLine($"    [{wrong.Id}] expected={wrong.Expected} actual={wrong.Actual}{error} query=\"{Truncate(wrong.Query, 80)}\"");
+    }
+
+    var latencies = cases.Select(r => r.LatencyMs).Order().ToList();
+    Console.WriteLine($"  latency p50={Percentile(latencies, 0.50)}ms p95={Percentile(latencies, 0.95)}ms");
+    Console.WriteLine($"  total tokens={cases.Sum(r => (long)r.Tokens)}");
+
+    Console.WriteLine("  calibration (non-error cases by confidence):");
+    var scored = cases.Where(r => r.Error is null).ToList();
+    var confidenceVaries = scored.Any(r => r.Confidence is { } c && c != 1.0);
+    if (!confidenceVaries)
+    {
+        Console.WriteLine("    the classifier reports no confidence (LLM classifier), so threshold recommendations need a confidence-reporting classifier");
+        return;
+    }
+
+    var withConfidence = scored.Where(r => r.Confidence is not null).ToList();
+    string[] bucketNames = ["[0.00,0.50)", "[0.50,0.70)", "[0.70,0.85)", "[0.85,1.00]"];
+    for (var b = 0; b < bucketNames.Length; b++)
+    {
+        var bucket = b;
+        var inBucket = withConfidence.Where(r => ConfidenceBucket(r.Confidence!.Value) == bucket).ToList();
+        var bucketCorrect = inBucket.Count(r => r.Correct);
+        Console.WriteLine($"    {bucketNames[b]}  n={inBucket.Count,3}  accuracy={Pct(bucketCorrect, inBucket.Count)}");
+    }
+
+    // Lowest candidate where non-ambiguous cases at or above it are >= 95% accurate and at most 10% of non-ambiguous cases fall below it.
+    double[] candidates = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9];
+    var clearScored = withConfidence.Where(r => !r.Ambiguous).ToList();
+    double? recommended = null;
+    foreach (var t in candidates)
+    {
+        var above = clearScored.Where(r => r.Confidence!.Value >= t).ToList();
+        if (above.Count == 0) continue;
+        var belowShare = (clearScored.Count - above.Count) / (double)clearScored.Count;
+        var aboveAccuracy = above.Count(r => r.Correct) / (double)above.Count;
+        if (aboveAccuracy >= 0.95 && belowShare <= 0.10)
+        {
+            recommended = t;
+            break;
+        }
+    }
+    Console.WriteLine(recommended is { } threshold
+        ? $"    recommended MinConfidence={threshold:F2}"
+        : "    no threshold meets both bars (>= 95% accuracy at or above the threshold, <= 10% of non-ambiguous cases below it)");
+}
+
+static int ConfidenceBucket(double confidence) => confidence < 0.5 ? 0 : confidence < 0.7 ? 1 : confidence < 0.85 ? 2 : 3;
+
 static string Pct(int part, int whole) => whole == 0 ? "n/a" : $"{100.0 * part / whole:F1}%";
 
 static double ScoreOf(GuardCaseResult r, string name) => r.Signals.TryGetValue(name, out var score) ? score : 0.0;
@@ -399,6 +543,12 @@ static long Percentile(IReadOnlyList<long> sorted, double p) => sorted[(int)Math
 sealed record CaseResult(string Verifier, string Id, string Domain, string Query, bool Expected, bool Actual, string? Reason)
 {
     public bool Agreed => Expected == Actual;
+}
+
+sealed record TriageCaseResult(string Id, string Domain, string Query, string Expected, string Actual, bool Ambiguous, bool HasHistory, double? Confidence,
+    string Source, long LatencyMs, int Tokens, string? Error)
+{
+    public bool Correct => Expected == Actual;
 }
 
 sealed class KbFixture
@@ -451,6 +601,23 @@ sealed class GuardFixture
 }
 
 sealed class GuardHistoryTurn
+{
+    public string Role { get; set; } = "";
+    public string Content { get; set; } = "";
+}
+
+sealed class TriageFixture
+{
+    public string Id { get; set; } = "";
+    public string Domain { get; set; } = "";
+    public string Query { get; set; } = "";
+    public List<TriageHistoryTurn> History { get; set; } = new();
+    public bool HasScreenshot { get; set; }
+    public string ExpectIntent { get; set; } = "";
+    public bool Ambiguous { get; set; }
+}
+
+sealed class TriageHistoryTurn
 {
     public string Role { get; set; } = "";
     public string Content { get; set; } = "";

@@ -1,0 +1,1037 @@
+[
+  {
+    "id": "kb-01",
+    "domain": "billing app",
+    "query": "How do I change the billing address on my account?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-02",
+    "domain": "logistics",
+    "query": "How do I add a second warehouse to my inventory settings?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-03",
+    "domain": "devtools API",
+    "query": "What is the maximum page size for the list endpoints?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-04",
+    "domain": "e-commerce",
+    "query": "How do I set up free shipping for orders over a certain amount?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-05",
+    "domain": "HR SaaS",
+    "query": "How do I request time off on behalf of someone on my team?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-06",
+    "domain": "project management",
+    "query": "Can guests see the comments on a task, or only the description?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-07",
+    "domain": "banking app",
+    "query": "How do I turn on two-factor sign-in for my profile?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-08",
+    "domain": "file storage",
+    "query": "How long are deleted files kept in the trash before they are removed for good?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-09",
+    "domain": "travel booking",
+    "query": "What is the cancellation policy for refundable fares?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-10",
+    "domain": "healthcare scheduling",
+    "query": "How do I move an appointment to a different clinic?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-11",
+    "domain": "CRM",
+    "query": "How do I export my contacts to a spreadsheet?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-12",
+    "domain": "devtools API",
+    "query": "Where is the webhook retry limit configured for my account?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-13",
+    "domain": "billing app",
+    "query": "Hi! How do I reset my password?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-14",
+    "domain": "billing app",
+    "query": "¿Cómo puedo cambiar la dirección de facturación de mi cuenta?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-15",
+    "domain": "LMS for schools",
+    "query": "Jak zmienić język interfejsu na polski?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-16",
+    "domain": "banking app",
+    "query": "म\u0947रा पासवर\u094dड क\u0948स\u0947 रीस\u0947ट कर\u0942\u0901?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-17",
+    "domain": "e-commerce",
+    "query": "How do I speed up exports for reports with more than 10,000 rows?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-18",
+    "domain": "billing app",
+    "query": "And for the PDF ones?",
+    "history": [
+      {
+        "role": "user",
+        "content": "How do I export invoices to CSV?"
+      },
+      {
+        "role": "assistant",
+        "content": "Go to Billing > Invoices, then choose Export > CSV."
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-19",
+    "domain": "SaaS subscriptions",
+    "query": "Is there a trial for the Business plan?",
+    "history": [
+      {
+        "role": "user",
+        "content": "Which plans include single sign-on?"
+      },
+      {
+        "role": "assistant",
+        "content": "Single sign-on is included in the Business and Enterprise plans."
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-20",
+    "domain": "devtools API",
+    "query": "Does the API rate limit at 100 requests per minute?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-21",
+    "domain": "e-commerce",
+    "query": "Good morning! Can you tell me how returns are processed for marketplace sellers?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-22",
+    "domain": "video streaming",
+    "query": "How do I add a profile for a child with restricted content?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "kb-23",
+    "domain": "HR SaaS",
+    "query": "Where do I find the payroll calendar for next year?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-01",
+    "domain": "billing app",
+    "query": "Export returns a 500 error since this morning. It worked yesterday.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-02",
+    "domain": "billing app",
+    "query": "The CSV export of invoices drops the last column. That looks like a bug.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-03",
+    "domain": "e-commerce",
+    "query": "Why does the cart total change after I apply a discount code? The discount is counted twice.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-04",
+    "domain": "logistics",
+    "query": "The tracking page shows 'delivered' for parcels that are still in transit.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-05",
+    "domain": "HR SaaS",
+    "query": "Payslip PDFs come out with blank pages for anyone whose name has an accent.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-06",
+    "domain": "devtools API",
+    "query": "We get 429 errors after 40 requests per minute, even though the docs say 100.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-07",
+    "domain": "project management",
+    "query": "The sync job has been stuck on 'queued' for two hours and never picks anything up.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-08",
+    "domain": "school LMS",
+    "query": "Thanks! Also, why is the CSV import rejecting my UTF-8 files?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-09",
+    "domain": "billing app",
+    "query": "Still the same error this time.",
+    "history": [
+      {
+        "role": "user",
+        "content": "The weekly summary export fails with error E-4021."
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks, I have noted that. Does it fail every time?"
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-10",
+    "domain": "analytics dashboard",
+    "query": "Last week, same problem as before.",
+    "history": [
+      {
+        "role": "user",
+        "content": "The dashboard totals are about 3% off from the transaction list."
+      },
+      {
+        "role": "assistant",
+        "content": "Which date range are you looking at?"
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-11",
+    "domain": "sales reporting app",
+    "query": "La aplicación se cierra al abrir el informe de ventas.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-12",
+    "domain": "invoicing",
+    "query": "Seit dem Update werden die Rechnungen doppelt versendet. Was ist da los?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-13",
+    "domain": "IoT dashboard",
+    "query": "Temperature readings freeze at the last value after about an hour of use.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-14",
+    "domain": "banking app",
+    "query": "The transfer confirmation shows the wrong amount after I edit the recipient.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-15",
+    "domain": "ticketing",
+    "query": "Checkout charges me twice when I refresh the payment page.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-16",
+    "domain": "mobile fitness app",
+    "query": "Notifications stopped arriving on Android after the last release.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-17",
+    "domain": "ERP",
+    "query": "The bulk price update ignores the category filter and changes every product.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ci-18",
+    "domain": "e-commerce catalogue",
+    "query": "Search returns no results for products that are visible in the catalogue list.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-01",
+    "domain": "logistics",
+    "query": "Which function calculates the delivery surcharge, and in which file does it live?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-02",
+    "domain": "billing app",
+    "query": "How does the proration logic decide the amount for a mid-cycle upgrade?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-03",
+    "domain": "devtools API",
+    "query": "Where in the source code is the webhook retry limit enforced?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-04",
+    "domain": "HR SaaS",
+    "query": "How does the leave accrual job choose which employees to process each night?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-05",
+    "domain": "e-commerce",
+    "query": "Walk me through the code path when a coupon is validated at checkout.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-06",
+    "domain": "project management",
+    "query": "Which class is responsible for sending the daily digest emails?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-07",
+    "domain": "banking app",
+    "query": "How is the transaction categoriser wired into the import pipeline?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-08",
+    "domain": "IoT dashboard",
+    "query": "Does the telemetry ingestion service use a queue, or does it write to the database directly?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-09",
+    "domain": "logistics",
+    "query": "Dans quel fichier est implémentée la logique de calcul du tarif de livraison ?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-10",
+    "domain": "invoicing",
+    "query": "Wo im Quellcode wird die Steuerberechnung durchgeführt?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-11",
+    "domain": "video streaming",
+    "query": "How does the recommendation service rank items before it returns them? Which module does that?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-12",
+    "domain": "food delivery",
+    "query": "What does the courier assignment code do when two orders are ready at the same time?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-13",
+    "domain": "billing app",
+    "query": "And does it also handle downgrades?",
+    "history": [
+      {
+        "role": "user",
+        "content": "Where is the proration logic implemented?"
+      },
+      {
+        "role": "assistant",
+        "content": "It lives in the billing calculator module, in the ProrationCalculator class."
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-14",
+    "domain": "devtools API",
+    "query": "Which test covers that case?",
+    "history": [
+      {
+        "role": "user",
+        "content": "How does the JSON parser handle empty arrays?"
+      },
+      {
+        "role": "assistant",
+        "content": "It returns an empty list instead of null, in the array reader."
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-15",
+    "domain": "identity service",
+    "query": "How are API keys hashed before they are stored? Show me the code path.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-16",
+    "domain": "accounting",
+    "query": "How does the ledger service handle rounding when an invoice is split across tax rates?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "cq-17",
+    "domain": "school LMS",
+    "query": "Which service writes grade changes to the audit log?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_question",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-01",
+    "domain": "billing app",
+    "query": "See the attached error. What does this popup mean?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-02",
+    "domain": "e-commerce",
+    "query": "What does this popup mean? I took a screenshot of it.",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-03",
+    "domain": "logistics",
+    "query": "The message in the screenshot says 'quota exceeded'. What should I do about it?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-04",
+    "domain": "banking app",
+    "query": "Please look at the attached image. What is the code in the red box?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-05",
+    "domain": "HR SaaS",
+    "query": "What does this warning icon next to the employee's name mean?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-06",
+    "domain": "devtools API",
+    "query": "See the attached error from my terminal. Is this my token or the server?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-07",
+    "domain": "IoT dashboard",
+    "query": "The tile in this screenshot shows a grey dot. What's going on?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-08",
+    "domain": "travel booking",
+    "query": "What does the yellow banner in the attached screenshot say?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-09",
+    "domain": "e-commerce",
+    "query": "Pode ver a imagem? O que significa esta mensagem de erro?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-10",
+    "domain": "invoicing",
+    "query": "添付のスクリーンショットのエラーは何ですか？",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-11",
+    "domain": "healthcare scheduling",
+    "query": "This is the message from the booking screen. What does 'slot unavailable' mean here?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-12",
+    "domain": "project management",
+    "query": "Here it is. See the attached error.",
+    "history": [
+      {
+        "role": "user",
+        "content": "I get an error when I open the reports tab."
+      },
+      {
+        "role": "assistant",
+        "content": "Could you send a screenshot of the error?"
+      }
+    ],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-13",
+    "domain": "video streaming",
+    "query": "Here's the error screen from my phone. Why does it say 'device not supported'?",
+    "history": [],
+    "hasScreenshot": true,
+    "expectIntent": "screenshot_error",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-14",
+    "domain": "billing app",
+    "query": "I attached a screenshot of the error, but the page only says 'Something went wrong' and nothing else.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "code_issue",
+    "ambiguous": false
+  },
+  {
+    "id": "ss-15",
+    "domain": "billing app",
+    "query": "See the screenshot I sent. Where do I change the invoice language?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "kb_question",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-01",
+    "domain": "support widget",
+    "query": "hello",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-02",
+    "domain": "support widget",
+    "query": "thanks, that fixed it",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-03",
+    "domain": "support widget",
+    "query": "bye for now",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-04",
+    "domain": "team chat app",
+    "query": "good morning team!",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-05",
+    "domain": "travel booking",
+    "query": "thank you so much, have a nice day",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-06",
+    "domain": "e-commerce",
+    "query": "こんにちは、ありがとうございました！",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-07",
+    "domain": "banking app",
+    "query": "Hola, muchas gracias por la ayuda",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-08",
+    "domain": "CRM",
+    "query": "hey! hope you're well",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-09",
+    "domain": "project management",
+    "query": "ok cheers",
+    "history": [
+      {
+        "role": "user",
+        "content": "How do I change my timezone?"
+      },
+      {
+        "role": "assistant",
+        "content": "Open Settings > Profile and pick your timezone."
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-10",
+    "domain": "billing app",
+    "query": "thanks, that's all I needed",
+    "history": [
+      {
+        "role": "user",
+        "content": "Where do I download my invoices?"
+      },
+      {
+        "role": "assistant",
+        "content": "Under Billing > History, use the download icon."
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-11",
+    "domain": "devtools API",
+    "query": "great, perfect, bye",
+    "history": [
+      {
+        "role": "user",
+        "content": "The webhook test passed now."
+      },
+      {
+        "role": "assistant",
+        "content": "Glad to hear it."
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-12",
+    "domain": "team chat app",
+    "query": "morning! see you tomorrow",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-13",
+    "domain": "school LMS",
+    "query": "good night, and thanks for the help today",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-14",
+    "domain": "travel booking",
+    "query": "Hi there",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "gr-15",
+    "domain": "HR SaaS",
+    "query": "you're a lifesaver, thank you!",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "greeting",
+    "ambiguous": false
+  },
+  {
+    "id": "un-01",
+    "domain": "billing app",
+    "query": "it broke",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-02",
+    "domain": "support widget",
+    "query": "help",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-03",
+    "domain": "e-commerce",
+    "query": "doesn't work again",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-04",
+    "domain": "IoT dashboard",
+    "query": "can you check?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-05",
+    "domain": "devtools API",
+    "query": "hmm",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-06",
+    "domain": "banking app",
+    "query": "still not working",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-07",
+    "domain": "ride-hailing app",
+    "query": "Masih sama lagi.",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-08",
+    "domain": "logistics",
+    "query": "ça ne marche toujours pas",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-09",
+    "domain": "project management",
+    "query": "the thing from yesterday is still off",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-10",
+    "domain": "CRM",
+    "query": "and the other one?",
+    "history": [
+      {
+        "role": "user",
+        "content": "How do I export to CSV?"
+      },
+      {
+        "role": "assistant",
+        "content": "Go to Reports and choose Export, then CSV."
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-11",
+    "domain": "billing app",
+    "query": "not that one, the other",
+    "history": [
+      {
+        "role": "user",
+        "content": "The billing page errors out."
+      },
+      {
+        "role": "assistant",
+        "content": "Which step fails?"
+      }
+    ],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-12",
+    "domain": "IoT dashboard",
+    "query": "check the thing please",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-13",
+    "domain": "devtools API",
+    "query": "fix it",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-14",
+    "domain": "HR SaaS",
+    "query": "Can you look into this for me? Thanks in advance",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  },
+  {
+    "id": "un-15",
+    "domain": "food delivery",
+    "query": "Is it the same as before or something new?",
+    "history": [],
+    "hasScreenshot": false,
+    "expectIntent": "unclear",
+    "ambiguous": true
+  }
+]
