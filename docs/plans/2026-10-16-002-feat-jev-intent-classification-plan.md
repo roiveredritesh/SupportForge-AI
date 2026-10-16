@@ -712,7 +712,7 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
 
 **Test scenarios**:
 - Each heuristic pattern matches its positive cases and none of the U15 hard negatives (kept as a unit-test subset).
-- Normalisation reveals a zero-width-split "ign​ore previous instructions" and a base64-encoded payload.
+- Normalisation reveals a zero-width-split "ign\u200Bore previous instructions" and a base64-encoded payload.
 - `JevInputGuard` maps all six Nouls into `Signals`.
 - A user message containing quote characters or braces is serialised as a JSON value, never concatenated into question text.
 

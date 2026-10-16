@@ -67,9 +67,9 @@ public static class InputNormalizer
     }
 
     private static bool IsInvisible(char c) =>
-        c is '​' or '‌' or '‍' or '⁠' or '﻿'
-        || (c >= '‪' && c <= '‮')
-        || (c >= '⁦' && c <= '⁩');
+        c is '\u200B' or '\u200C' or '\u200D' or '\u2060' or '\uFEFF'
+        || (c >= '\u202A' && c <= '\u202E')
+        || (c >= '\u2066' && c <= '\u2069');
 
     private static string? TryDecodePrintableUtf8(string base64)
     {

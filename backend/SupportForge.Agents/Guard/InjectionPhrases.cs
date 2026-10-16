@@ -38,12 +38,13 @@ public static class InjectionPhrases
         (GuardSignals.JailbreakRoleplay, new Regex(
             @"\bDAN\b|\b[Dd]o [Aa]nything [Nn]ow\b",
             RegexOptions.Compiled | RegexOptions.CultureInvariant)),
+        // "developer mode" is deliberately absent: real products have one and customers ask about it.
         (GuardSignals.JailbreakRoleplay, new Regex(
-            @"\b(developer|god|jailbreak|unrestricted)\s+mode\b",
+            @"\b(god|jailbreak|unrestricted)\s+mode\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
 
         (GuardSignals.CrossTenantProbe, new Regex(
-            @"\b(other|another|different)\s+(customers?|companies|company|organi[sz]ations?|tenants?)('s)?\s+(data|tickets|conversations|messages|projects|records)\b",
+            @"\b(other|another|different)\s+(customers?|companies|company|organi[sz]ations?|tenants?)('s|')?\s+(data|tickets|conversations|messages|projects|records)\b",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
     ];
 

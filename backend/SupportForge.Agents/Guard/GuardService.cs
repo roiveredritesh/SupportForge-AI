@@ -64,7 +64,9 @@ public sealed class GuardService
                 _logger.LogWarning(
                     "GuardBlocked user={UserId} project={ProjectId} signals=[{Signals}] source={Source}",
                     userId, projectId, DescribeSignals(decision), decision.Source);
-                if (_repeatTracker.RecordBlock(userId, Options))
+                // Only Jev-decided blocks count: a FailClosed outage blocks everyone and would otherwise
+                // mark every active user as a repeat offender.
+                if (decision.Source == "jev" && _repeatTracker.RecordBlock(userId, Options))
                 {
                     _logger.LogWarning(
                         "GuardRepeatOffender user={UserId} project={ProjectId} blocks={BlockCount} windowMinutes={WindowMinutes}",
