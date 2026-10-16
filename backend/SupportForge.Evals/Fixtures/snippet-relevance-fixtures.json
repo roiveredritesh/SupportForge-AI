@@ -1,0 +1,521 @@
+[
+  {
+    "id": "sr-kb-01",
+    "domain": "Brightdesk (helpdesk)",
+    "kind": "kb",
+    "query": "How do I turn on two-factor sign-in for my whole team?",
+    "snippets": [
+      "Guest accounts cannot be assigned the admin role.",
+      "Ticket SLA timers pause outside business hours.",
+      "The audit log exports as CSV from Settings > Logs.",
+      "Two-factor sign-in is off by default. A workspace owner must enable it under Settings > Security before members can enroll.",
+      "Members enroll in two-factor sign-in from Profile > Security by scanning a QR code with an authenticator app."
+    ],
+    "relevant": [
+      3,
+      4
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-02",
+    "domain": "Parcelgate (logistics API)",
+    "kind": "kb",
+    "query": "Why are my CSV imports rejected with a row limit error, and how do I raise the limit?",
+    "snippets": [
+      "Exports are capped at 100,000 rows per file.",
+      "An organization admin can raise the import row limit to 50,000 under Settings > Imports > Row limit.",
+      "CSV files must be UTF-8 encoded; other encodings are rejected.",
+      "Imports run in the background and email you when they finish.",
+      "Imports are capped at 5,000 rows per file."
+    ],
+    "relevant": [
+      1,
+      4
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-03",
+    "domain": "Tessera (scheduling SaaS)",
+    "kind": "kb",
+    "query": "How do I set up single sign-on with Okta?",
+    "snippets": [
+      "SSO requires a verified company domain. Add and verify your domain under Settings > Domains first.",
+      "Our status page lists scheduled maintenance windows.",
+      "To connect Okta, create an OIDC app in Okta and paste its client ID and secret into Settings > SSO.",
+      "Password policies apply only to local accounts.",
+      "SCIM user provisioning is included with the Enterprise plan."
+    ],
+    "relevant": [
+      0,
+      2
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-04",
+    "domain": "Tessera (scheduling SaaS)",
+    "kind": "kb",
+    "query": "How do I send a weekly digest to my whole team?",
+    "snippets": [
+      "Mobile push notifications can be muted for up to 8 hours.",
+      "Digests are delivered only to members whose email addresses are verified.",
+      "To send a weekly digest, open Notifications > Digests, choose Weekly, and select the team.",
+      "The notifications API is limited to 60 requests per minute.",
+      "Digest content includes overdue tasks by default."
+    ],
+    "relevant": [
+      1,
+      2
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-05",
+    "domain": "Quillpay (payments)",
+    "kind": "kb",
+    "query": "How do I let my integration write data through the API?",
+    "snippets": [
+      "Write access is granted per key with the write:records scope, chosen when the key is created.",
+      "Webhook deliveries that fail are retried three times.",
+      "Read-only keys cannot modify records.",
+      "API access is disabled by default. An owner must enable it under Security > API before any key can be created.",
+      "API responses are paginated at 100 items."
+    ],
+    "relevant": [
+      0,
+      3
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-06",
+    "domain": "Mapleledger (accounting)",
+    "kind": "kb",
+    "query": "What is the largest attachment I can upload, and can I raise it?",
+    "snippets": [
+      "Attachments are scanned for malware before they are shared with other users.",
+      "Deleted attachments stay in the trash for 30 days.",
+      "Inline images in emails do not count toward the attachment limit.",
+      "Owners can raise the attachment limit to 100 MB under Settings > Storage > Upload limits.",
+      "Attachments are limited to 25 MB per file."
+    ],
+    "relevant": [
+      3,
+      4
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-07",
+    "domain": "Brightdesk (helpdesk)",
+    "kind": "kb",
+    "query": "How do I rotate my webhook signing secret?",
+    "snippets": [
+      "Signing secrets verify that webhook payloads came from us.",
+      "Webhook retries back off exponentially for up to 24 hours.",
+      "Secrets are shown only once when created, so copy them immediately.",
+      "To rotate a signing secret, open Developer > Endpoints, select the endpoint, and choose Roll secret. The old secret stays valid for 24 hours.",
+      "Endpoint URLs must use HTTPS."
+    ],
+    "relevant": [
+      3
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-08",
+    "domain": "Brightdesk (helpdesk)",
+    "kind": "kb",
+    "query": "Can customers see the internal notes on their ticket?",
+    "snippets": [
+      "Notes can be pinned to the top of a customer profile.",
+      "Ticket visibility is set per queue, not per ticket.",
+      "Agents can mention each other in notes using @name.",
+      "Customers never see notes marked internal, even if they have portal access.",
+      "Private queues are hidden from the global search."
+    ],
+    "relevant": [
+      3
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-09",
+    "domain": "Mapleledger (accounting)",
+    "kind": "kb",
+    "query": "How do I export the audit log for last quarter?",
+    "snippets": [
+      "Audit log entries are kept for 13 months.",
+      "The activity feed shows the last 50 events on each record.",
+      "Session logs record each sign-in attempt, including failures.",
+      "Log retention can be set separately for each workspace.",
+      "To export the audit log, open Settings > Logs, set the date range, and choose Export CSV."
+    ],
+    "relevant": [
+      4
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-10",
+    "domain": "Orbitcart (commerce)",
+    "kind": "kb",
+    "query": "How do I change the language used in outgoing customer emails?",
+    "snippets": [
+      "Email templates can include merge fields such as {customer_name}.",
+      "Each team can have its own email signature.",
+      "Auto-replies are sent only during business hours.",
+      "Sending domains must be verified with SPF and DKIM before email is delivered.",
+      "Set the email language under Settings > Localization > Outgoing email language."
+    ],
+    "relevant": [
+      4
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-11",
+    "domain": "Mapleledger (accounting)",
+    "kind": "kb",
+    "query": "How many seats does the Starter plan include?",
+    "snippets": [
+      "Starter is billed monthly or annually.",
+      "Professional includes 25 seats and priority support.",
+      "Enterprise seats are negotiated per contract.",
+      "The Starter plan includes 3 seats; additional seats are billed at 12 per month.",
+      "Trial accounts can invite up to 2 guests."
+    ],
+    "relevant": [
+      3
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-12",
+    "domain": "Quillpay (payments)",
+    "kind": "kb",
+    "query": "What happens to my personal data when I delete my account?",
+    "snippets": [
+      "Deleting a workspace removes all of its projects but keeps issued invoices.",
+      "Deactivating an account pauses billing immediately.",
+      "Exports of your data are available for 7 days after account closure.",
+      "Accounts with no logins for 180 days are archived.",
+      "When you delete your account, personal data is erased within 30 days and backups are purged after 90 days."
+    ],
+    "relevant": [
+      4
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-kb-13",
+    "domain": "Orbitcart (commerce)",
+    "kind": "kb",
+    "query": "What does a context window mean for large language models?",
+    "snippets": [
+      "The context panel shows a customer's last five tickets next to the reply box.",
+      "The right-click context menu lets agents snooze a conversation for one hour.",
+      "Release 4.2 improved context-aware search filters for the ticket list.",
+      "Window sizes for the dashboard widgets can be set to small, medium or large.",
+      "Customer-facing help articles open in a new browser window."
+    ],
+    "relevant": [],
+    "coverage": "none"
+  },
+  {
+    "id": "sr-kb-14",
+    "domain": "Brightdesk (helpdesk)",
+    "kind": "kb",
+    "query": "What is data retention under GDPR?",
+    "snippets": [
+      "Our data export tool lets admins download their team's records as a ZIP file.",
+      "Retention settings for analytics dashboards refresh nightly.",
+      "Data import jobs are queued and run in the order they were submitted.",
+      "Customer records can be merged when duplicate profiles are found.",
+      "Our servers store data in two regions for redundancy."
+    ],
+    "relevant": [],
+    "coverage": "none"
+  },
+  {
+    "id": "sr-kb-15",
+    "domain": "Tessera (scheduling SaaS)",
+    "kind": "kb",
+    "query": "What is a sprint retrospective in agile?",
+    "snippets": [
+      "Retrospective notes can be attached to a release in the Releases tab.",
+      "The sprint board groups stories by swimlane.",
+      "Agile teams usually estimate work in story points, which compare relative effort rather than hours.",
+      "Release notes are generated from merged pull requests.",
+      "The roadmap view shows planned releases by quarter."
+    ],
+    "relevant": [],
+    "coverage": "none"
+  },
+  {
+    "id": "sr-kb-16",
+    "domain": "Quillpay (payments)",
+    "kind": "kb",
+    "query": "What is a chargeback?",
+    "snippets": [
+      "Refunds are sent to the original payment method within 5 business days.",
+      "In the card industry, a chargeback is when a cardholder disputes a charge with their bank.",
+      "Our refund policy excludes digital goods after download.",
+      "Payment links expire after 14 days.",
+      "Invoices can be exported as PDF from the billing page."
+    ],
+    "relevant": [],
+    "coverage": "none"
+  },
+  {
+    "id": "sr-kb-17",
+    "domain": "Orbitcart (commerce)",
+    "kind": "kb",
+    "query": "How does load balancing work in a database cluster?",
+    "snippets": [
+      "Ticket queues balance work across agents using round-robin assignment by default.",
+      "Our load tests run nightly against the staging environment.",
+      "The cluster view groups devices by site on the network map.",
+      "Database backups run at 02:00 UTC.",
+      "Order routing can be balanced between two warehouses by stock level."
+    ],
+    "relevant": [],
+    "coverage": "none"
+  },
+  {
+    "id": "sr-kb-18",
+    "domain": "Parcelgate (logistics API)",
+    "kind": "kb",
+    "query": "What is context rot in AI agents?",
+    "snippets": [
+      "Context menus in the scheduling grid let you duplicate or archive an event.",
+      "The agent dashboard shows each advisor's current context and open tasks.",
+      "Context-sensitive help appears next to fields you are editing.",
+      "Release notes for 3.8 list every change to the calendar sync.",
+      "Agents can set an out-of-office status for up to 14 days."
+    ],
+    "relevant": [],
+    "coverage": "none"
+  },
+  {
+    "id": "sr-kb-19",
+    "domain": "Brightdesk (helpdesk)",
+    "kind": "kb",
+    "query": "How do I reset a user's password, and does the reset sign them out of their other devices?",
+    "snippets": [
+      "Mobile sessions last 30 days before the user must sign in again.",
+      "Users can change their own password under Account > Security.",
+      "Two-factor codes can be sent by SMS or generated by an authenticator app.",
+      "Password reset emails expire after 24 hours.",
+      "Admins can reset a user's password from the user's profile page with the Reset password button."
+    ],
+    "relevant": [
+      4
+    ],
+    "coverage": "partial"
+  },
+  {
+    "id": "sr-kb-20",
+    "domain": "Quillpay (payments)",
+    "kind": "kb",
+    "query": "What is the refund window for annual plans, and can I get a refund on usage-based add-ons?",
+    "snippets": [
+      "Monthly plans renew automatically unless cancelled one day before renewal.",
+      "Refund requests are reviewed within 3 business days.",
+      "Annual plans can be refunded within 30 days of purchase.",
+      "Invoices are emailed on the first business day of each month.",
+      "Add-on usage is metered hourly and shown on the billing page."
+    ],
+    "relevant": [
+      2
+    ],
+    "coverage": "partial"
+  },
+  {
+    "id": "sr-kb-21",
+    "domain": "Tessera (scheduling SaaS)",
+    "kind": "kb",
+    "query": "Which plan includes SAML SSO, and what does the Starter plan include for support?",
+    "snippets": [
+      "Business plans include unlimited viewers.",
+      "Status page updates are posted within 15 minutes of an incident.",
+      "SSO setup requires a verified domain.",
+      "SAML SSO is included on the Business and Enterprise plans.",
+      "Enterprise contracts include a dedicated success manager."
+    ],
+    "relevant": [
+      3
+    ],
+    "coverage": "partial"
+  },
+  {
+    "id": "sr-kb-22",
+    "domain": "Parcelgate (logistics API)",
+    "kind": "kb",
+    "query": "How long are backups kept, and can I restore a single file?",
+    "snippets": [
+      "Backups are kept for 35 days.",
+      "Snapshots of deleted records are kept for 7 days.",
+      "Full-account backups run nightly at 02:00 UTC.",
+      "Backup data is encrypted with AES-256 at rest.",
+      "Backup storage counts toward your plan's storage quota."
+    ],
+    "relevant": [
+      0
+    ],
+    "coverage": "partial"
+  },
+  {
+    "id": "sr-code-01",
+    "domain": "Orbitcart (commerce)",
+    "kind": "code",
+    "query": "How does a refund get approved, and where is the amount limit enforced?",
+    "snippets": [
+      "NODE RefundLimitPolicy [src=refunds/limit-policy.ts]\nEDGE RefundLimitPolicy -calls-> RefundSettings",
+      "NODE ExportJob [src=exports/export-job.ts]\nEDGE ExportJob -calls-> CsvWriter",
+      "NODE DigestBuilder [src=notify/digest-builder.ts]\nEDGE DigestBuilder -calls-> EmailSender",
+      "NODE RefundApprover [src=refunds/approver.ts]\nEDGE RefundApprover -calls-> RefundLimitPolicy",
+      "NODE InvoiceRenderer [src=billing/invoice-renderer.ts]\nEDGE InvoiceRenderer -calls-> TaxCalculator"
+    ],
+    "relevant": [
+      0,
+      3
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-code-02",
+    "domain": "Brightdesk (helpdesk)",
+    "kind": "code",
+    "query": "Which handler registers a device, and which token validator does it run first?",
+    "snippets": [
+      "NODE DeviceListView [src=ui/device-list.tsx]",
+      "NODE DeviceRegistrationHandler [src=devices/registration-handler.ts]\nEDGE DeviceRegistrationHandler -calls-> DeviceTokenValidator",
+      "NODE MetricsCollector [src=ops/metrics.ts]\nEDGE MetricsCollector -calls-> DeviceListView",
+      "NODE SessionCookieMiddleware [src=auth/session-cookie.ts]\nEDGE SessionCookieMiddleware -calls-> TokenStore",
+      "NODE DeviceTokenValidator [src=devices/token-validator.ts]\nEDGE DeviceTokenValidator -calls-> TokenStore"
+    ],
+    "relevant": [
+      1,
+      4
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-code-03",
+    "domain": "Parcelgate (logistics API)",
+    "kind": "code",
+    "query": "Which function computes the late-delivery surcharge?",
+    "snippets": [
+      "NODE DeliveryWindow [src=shipping/delivery-window.ts]\nEDGE DeliveryWindow -calls-> CalendarService",
+      "NODE SurchargeTable [src=shipping/surcharge-table.ts]\nEDGE SurchargeTable -calls-> RateCard",
+      "NODE ShippingQuote [src=shipping/quote.ts]\nEDGE ShippingQuote -calls-> SurchargeTable",
+      "NODE DeliveryNotification [src=notify/delivery.ts]\nEDGE DeliveryNotification -calls-> EmailSender",
+      "NODE LateDeliverySurcharge [src=shipping/late-delivery-surcharge.ts]\nEDGE LateDeliverySurcharge -calls-> DeliveryWindow"
+    ],
+    "relevant": [
+      4
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-code-04",
+    "domain": "Tessera (scheduling SaaS)",
+    "kind": "code",
+    "query": "Where is the trial end date set for new accounts?",
+    "snippets": [
+      "NODE AccountFactory [src=accounts/factory.ts]\nEDGE AccountFactory -calls-> PlanCatalog",
+      "NODE PlanCatalog [src=billing/plan-catalog.ts]\nEDGE PlanCatalog -calls-> PriceBook",
+      "NODE OnboardingWizard [src=ui/onboarding.tsx]\nEDGE OnboardingWizard -calls-> AccountFactory",
+      "NODE TrialPeriodCalculator [src=billing/trial-period.ts]\nEDGE TrialPeriodCalculator -calls-> AccountFactory",
+      "NODE AccountDeletionJob [src=accounts/deletion-job.ts]\nEDGE AccountDeletionJob -calls-> AccountFactory"
+    ],
+    "relevant": [
+      3
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-code-05",
+    "domain": "Quillpay (payments)",
+    "kind": "code",
+    "query": "Which class verifies the signature on an incoming webhook?",
+    "snippets": [
+      "NODE WebhookDispatcher [src=webhooks/dispatcher.ts]\nEDGE WebhookDispatcher -calls-> HttpClientFactory",
+      "NODE WebhookSignatureVerifier [src=webhooks/signature-verifier.ts]\nEDGE WebhookSignatureVerifier -calls-> HmacSha256Hasher",
+      "NODE WebhookEndpointRepository [src=webhooks/endpoint-repository.ts]\nEDGE WebhookEndpointRepository -calls-> Database",
+      "NODE WebhookRetryPolicy [src=webhooks/retry-policy.ts]\nEDGE WebhookRetryPolicy -calls-> RetryScheduler",
+      "NODE WebhookLogView [src=ui/webhook-log.tsx]"
+    ],
+    "relevant": [
+      1
+    ],
+    "coverage": "complete"
+  },
+  {
+    "id": "sr-code-06",
+    "domain": "Mapleledger (accounting)",
+    "kind": "code",
+    "query": "How does the message queue guarantee delivery order?",
+    "snippets": [
+      "NODE ShippingLabelQueue [src=shipping/label-queue.ts]\nEDGE ShippingLabelQueue -calls-> LabelPrinter",
+      "NODE PrintSpoolerQueue [src=printing/spooler.ts]\nEDGE PrintSpoolerQueue -calls-> PrinterDriver",
+      "NODE ImageResizeQueue [src=media/resize-queue.ts]\nEDGE ImageResizeQueue -calls-> ThumbnailWorker",
+      "NODE QueueDashboard [src=ui/queue-dashboard.tsx]",
+      "NODE TicketAssignmentQueue [src=tickets/assignment-queue.ts]\nEDGE TicketAssignmentQueue -calls-> AgentDirectory"
+    ],
+    "relevant": [],
+    "coverage": "none"
+  },
+  {
+    "id": "sr-code-07",
+    "domain": "Parcelgate (logistics API)",
+    "kind": "code",
+    "query": "What default timeout does the webhook dispatcher use when a receiver is slow?",
+    "snippets": [
+      "NODE WebhookDispatcher [src=webhooks/dispatcher.ts]\nEDGE WebhookDispatcher -calls-> HttpClientFactory\nEDGE WebhookDispatcher -calls-> RetryScheduler",
+      "NODE ReceiverRegistry [src=webhooks/receivers.ts]\nEDGE ReceiverRegistry -calls-> WebhookDispatcher",
+      "NODE WebhookSigner [src=webhooks/signer.ts]\nEDGE WebhookSigner -calls-> HmacSha256Hasher",
+      "NODE ReceiverHealthCheck [src=webhooks/health-check.ts]\nEDGE ReceiverHealthCheck -calls-> ReceiverRegistry",
+      "NODE WebhookLogView [src=ui/webhook-log.tsx]"
+    ],
+    "relevant": [],
+    "coverage": "none"
+  },
+  {
+    "id": "sr-code-08",
+    "domain": "Brightdesk (helpdesk)",
+    "kind": "code",
+    "query": "Which service sends the password reset email, and which template does it use?",
+    "snippets": [
+      "NODE PasswordPolicy [src=auth/password-policy.ts]\nEDGE PasswordPolicy -calls-> PasswordResetService",
+      "NODE EmailSender [src=notify/email-sender.ts]\nEDGE EmailSender -calls-> SmtpClient",
+      "NODE PasswordResetService [src=auth/password-reset-service.ts]\nEDGE PasswordResetService -calls-> EmailSender",
+      "NODE LoginController [src=auth/login-controller.ts]\nEDGE LoginController -calls-> SessionStore",
+      "NODE AccountLockout [src=auth/account-lockout.ts]\nEDGE AccountLockout -calls-> LoginController"
+    ],
+    "relevant": [
+      2
+    ],
+    "coverage": "partial"
+  },
+  {
+    "id": "sr-code-09",
+    "domain": "Orbitcart (commerce)",
+    "kind": "code",
+    "query": "Where is the discount percentage applied during checkout?",
+    "snippets": [
+      "NODE DiscountApplier [src=cart/discount-applier.ts]\nEDGE DiscountApplier -calls-> CartTotals",
+      "NODE CartTotals [src=cart/totals.ts]\nEDGE CartTotals -calls-> TaxCalculator",
+      "NODE CouponBanner [src=ui/coupon-banner.tsx]\nEDGE CouponBanner -calls-> CouponStore",
+      "NODE CheckoutPage [src=ui/checkout-page.tsx]\nEDGE CheckoutPage -calls-> CartTotals",
+      "NODE ShippingEstimator [src=cart/shipping-estimator.ts]\nEDGE ShippingEstimator -calls-> CartTotals"
+    ],
+    "relevant": [
+      0
+    ],
+    "coverage": "complete"
+  }
+]

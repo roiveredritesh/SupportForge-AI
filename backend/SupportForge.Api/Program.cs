@@ -14,6 +14,7 @@ using SupportForge.Agents;
 using SupportForge.Agents.Guard;
 using SupportForge.Agents.Tools;
 using SupportForge.Agents.Triage;
+using SupportForge.Agents.Verification;
 using SupportForge.Api;
 using SupportForge.Api.HealthChecks;
 using SupportForge.Api.Hubs;
@@ -174,16 +175,16 @@ builder.Services.AddScoped<TriageAgent>(sp => new TriageAgent(
 builder.Services.AddScoped<FreshnessGateAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
 builder.Services.AddScoped<KbResearcherVerifier>(sp => new KbResearcherVerifier(
-    sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
+    new LlmFindingsJudge(sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
     sp.GetRequiredService<ILogger<KbResearcherVerifier>>()));
 builder.Services.AddScoped<CrossReferenceAgent>();
 builder.Services.AddScoped<CodeAnalyzerAgent>();
 builder.Services.AddScoped<CodeAnalyzerVerifier>(sp => new CodeAnalyzerVerifier(
-    sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
+    new LlmFindingsJudge(sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
     sp.GetRequiredService<ILogger<CodeAnalyzerVerifier>>()));
 builder.Services.AddScoped<VisionAnalyzerAgent>();
 builder.Services.AddScoped<VisionAnalyzerVerifier>(sp => new VisionAnalyzerVerifier(
-    sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey),
+    new LlmFindingsJudge(sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
     sp.GetRequiredService<ILogger<VisionAnalyzerVerifier>>()));
 // C6 (gap-closing-solutions.md Phase C, item 6): wraps DrafterAgent's LLM calls with a fallback
 // provider when Llm:FallbackProvider is configured -- opt-in, DrafterAgent gets the plain default

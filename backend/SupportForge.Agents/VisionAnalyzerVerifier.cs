@@ -1,24 +1,24 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using SupportForge.Agents.Verification;
 
 namespace SupportForge.Agents;
 
 public sealed class VisionAnalyzerVerifier : IAgent
 {
-    private const string JudgeSystemPrompt = """
-        You judge whether a vision-analysis description meaningfully describes an error, stack trace,
-        or relevant UI state, as opposed to a vague non-answer. Respond with only "yes" or "no".
-        """;
-
-    private readonly ILlmChatClient _llm;
+    // U11: the judge sits behind IFindingsJudge. LlmFindingsJudge holds this verifier's vision judge prompt.
+    private readonly IFindingsJudge _judge;
     private readonly ILogger<VisionAnalyzerVerifier> _logger;
     public string Name => "VisionAnalyzerVerifier";
 
-    public VisionAnalyzerVerifier(ILlmChatClient llm, ILogger<VisionAnalyzerVerifier> logger)
+    public VisionAnalyzerVerifier(IFindingsJudge judge, ILogger<VisionAnalyzerVerifier> logger)
     {
-        _llm = llm;
+        _judge = judge;
         _logger = logger;
     }
+
+    // U11: existing call shape. Wraps the client in the LLM judge, which is exactly what this verifier did before.
+    public VisionAnalyzerVerifier(ILlmChatClient llm, ILogger<VisionAnalyzerVerifier> logger) : this(new LlmFindingsJudge(llm), logger) { }
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
@@ -39,10 +39,14 @@ public sealed class VisionAnalyzerVerifier : IAgent
             {
                 Fail(v, "Vision analysis returned no findings for a provided screenshot.");
             }
-            else if (findings.Length < 20)
+            else if (findings.Length < 20 || _judge.JudgesAllVisionFindings)
             {
-                var relevant = await JudgeAsync(context, ct);
-                if (relevant) v.Status = VerificationStatus.Passed;
+                // U11: the 20-character gate is the LLM judge's policy (JudgesAllVisionFindings == false). A judge
+                // that opts in to every finding is asked about all of them, long ones included.
+                var judgement = await _judge.JudgeVisionAsync(context, ct);
+                context.AddTokens(Name, judgement.TokensUsed);
+                v.Source = judgement.Source;
+                if (judgement.Relevant) v.Status = VerificationStatus.Passed;
                 else Fail(v, "LLM judge found the vision findings to be a non-answer.");
             }
             else
@@ -73,16 +77,5 @@ public sealed class VisionAnalyzerVerifier : IAgent
     {
         v.Status = v.Attempts < 2 ? VerificationStatus.FailedRetrying : VerificationStatus.FailedFinal;
         v.Reason = reason;
-    }
-
-    private async Task<bool> JudgeAsync(AgentContext context, CancellationToken ct)
-    {
-        var userPrompt = $"""
-            Customer question: {context.Query}
-            Vision analysis findings: {context.VisionFindings}
-            """;
-        var verdict = await _llm.CompleteAsync(JudgeSystemPrompt, userPrompt, ct);
-        context.AddTokens(Name, _llm.LastTotalTokens);
-        return verdict.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase);
     }
 }
