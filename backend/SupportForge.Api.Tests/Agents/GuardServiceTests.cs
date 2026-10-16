@@ -151,13 +151,13 @@ public class GuardServiceTests
         {
             await service.ScreenAsync(Input("attempt"), UserId, ProjectId, CancellationToken.None);
         }
-        Assert.Empty(logger.Entries.Where(e => e.Message.StartsWith("GuardRepeatOffender")));
+        Assert.DoesNotContain(logger.Entries, e => e.Message.StartsWith("GuardRepeatOffender"));
 
         await service.ScreenAsync(Input("attempt"), UserId, ProjectId, CancellationToken.None);
-        Assert.Single(logger.Entries.Where(e => e.Message.StartsWith("GuardRepeatOffender")));
+        Assert.Single(logger.Entries, e => e.Message.StartsWith("GuardRepeatOffender"));
 
         await service.ScreenAsync(Input("attempt"), UserId, ProjectId, CancellationToken.None);
-        Assert.Single(logger.Entries.Where(e => e.Message.StartsWith("GuardRepeatOffender")));
+        Assert.Single(logger.Entries, e => e.Message.StartsWith("GuardRepeatOffender"));
     }
 
     [Fact]
