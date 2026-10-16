@@ -40,6 +40,9 @@ public sealed class CodeAnalyzerVerifier : IAgent
 
             var v = context.CodeVerification;
 
+            // U18: reset on every attempt, so a retry never inherits the previous attempt's count.
+            v.InjectionDropped = 0;
+
             if (context.CodeSnippets.Count == 0)
             {
                 Fail(v, "No code snippets were retrieved for a code-related query.");
@@ -54,16 +57,40 @@ public sealed class CodeAnalyzerVerifier : IAgent
                 var judgement = await _judge.JudgeSnippetsAsync(context, FindingsKind.Code, context.CodeSnippets, ct);
                 context.AddTokens(Name, judgement.TokensUsed);
                 v.Source = judgement.Source;
-                v.Scores = judgement.Scores;
                 v.Coverage = judgement.Coverage;
                 // U13: coverage is per attempt, so a retry never inherits the previous attempt's flag.
                 v.CoverageIsPartial = judgement.Coverage is double coverage && coverage < _options.PartialCoverageBelow;
-                if (judgement.Scores is { } scores)
+
+                // U18 (R26): a snippet that reaches IndirectThreshold is dropped whatever its relevance. This runs before the
+                // relevance policy, so a flagged snippet can't carry the verdict or the top score. Judges that don't screen
+                // leave InjectionScores null, and then nothing here changes.
+                var scores = judgement.Scores;
+                var bestIndex = judgement.BestIndex;
+                var flagged = IndirectInjectionScreen.FlaggedIndexes(judgement.InjectionScores, context.CodeSnippets.Count, _options.IndirectThreshold);
+                if (flagged.Count > 0)
+                {
+                    IndirectInjectionScreen.Remove(context.CodeSnippets, flagged);
+                    scores = IndirectInjectionScreen.RemoveScores(scores, flagged);
+                    bestIndex = IndirectInjectionScreen.RemapIndex(bestIndex, flagged);
+                    v.InjectionDropped = flagged.Count;
+
+                    // U18: indexes and counts only, never snippet text.
+                    _logger.LogWarning("IndirectInjectionDropped: verifier={Verifier} project={ProjectId} indexes={Indexes}", Name, context.ProjectId, IndirectInjectionScreen.Join(flagged));
+                    Activity.Current?.SetTag("verify.injection_dropped", flagged.Count);
+                }
+
+                v.Scores = scores;
+
+                if (context.CodeSnippets.Count == 0)
+                {
+                    Fail(v, "Every retrieved snippet was flagged as containing instructions addressed to an AI assistant.");
+                }
+                else if (scores is not null)
                 {
                     // U12 (R15): per-snippet scores decide which snippets reach the Drafter.
                     ApplyScores(v, context.CodeSnippets, scores);
                 }
-                else if (judgement.BestIndex is int idx)
+                else if (bestIndex is int idx)
                 {
                     // U11: the LLM judge reports only BestIndex, so the promote-and-keep path stays byte-for-byte as before.
                     Promote(context.CodeSnippets, idx);

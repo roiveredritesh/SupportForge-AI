@@ -36,5 +36,9 @@ public sealed class VerificationOptions
 
     public int MaxSentences { get; set; } = 20;
 
+    // U18 (R26): a retrieved snippet or vision finding whose indirect-injection score reaches this is dropped, whatever its relevance.
+    // Filled from Guard:IndirectThreshold by the composition root.
+    public double IndirectThreshold { get; set; } = 0.8;
+
     public VerificationJevOptions Jev { get; set; } = new();
 }

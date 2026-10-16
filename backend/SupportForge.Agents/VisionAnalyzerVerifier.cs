@@ -8,12 +8,15 @@ public sealed class VisionAnalyzerVerifier : IAgent
 {
     // U11: the judge sits behind IFindingsJudge. LlmFindingsJudge holds this verifier's vision judge prompt.
     private readonly IFindingsJudge _judge;
+    // U18: Verification:IndirectThreshold drives the injection check below.
+    private readonly VerificationOptions _options;
     private readonly ILogger<VisionAnalyzerVerifier> _logger;
     public string Name => "VisionAnalyzerVerifier";
 
     public VisionAnalyzerVerifier(IFindingsJudge judge, VerificationOptions options, ILogger<VisionAnalyzerVerifier> logger)
     {
         _judge = judge;
+        _options = options;
         _logger = logger;
     }
 
@@ -37,6 +40,9 @@ public sealed class VisionAnalyzerVerifier : IAgent
             var v = context.VisionVerification;
             var findings = context.VisionFindings;
 
+            // U18: reset on every attempt, so a retry never inherits the previous attempt's count.
+            v.InjectionDropped = 0;
+
             if (string.IsNullOrWhiteSpace(findings))
             {
                 Fail(v, "Vision analysis returned no findings for a provided screenshot.");
@@ -50,7 +56,19 @@ public sealed class VisionAnalyzerVerifier : IAgent
                 v.Source = judgement.Source;
                 // U12 (R17): a score-producing judge's score is kept for telemetry. The verdict still comes from Relevant.
                 if (judgement.Score is double s) v.Scores = new[] { s };
-                if (judgement.Relevant) v.Status = VerificationStatus.Passed;
+
+                // U18 (R26): flagged findings fail whatever their relevance. Only a judge that screens sets InjectionScore, so the
+                // LLM judge and the fallbacks never reach this check. The index of the findings is always 0.
+                if (judgement.InjectionScore is double injection && injection >= _options.IndirectThreshold)
+                {
+                    v.InjectionDropped = 1;
+
+                    // U18: the position and counts only, never finding text.
+                    _logger.LogWarning("IndirectInjectionDropped: verifier={Verifier} project={ProjectId} indexes={Indexes}", Name, context.ProjectId, "0");
+                    Activity.Current?.SetTag("verify.injection_dropped", 1);
+                    Fail(v, "Vision findings were flagged as containing instructions addressed to an AI assistant.");
+                }
+                else if (judgement.Relevant) v.Status = VerificationStatus.Passed;
                 else Fail(v, "LLM judge found the vision findings to be a non-answer.");
 
                 // U14: span tags carry labels and scores only, never finding text.

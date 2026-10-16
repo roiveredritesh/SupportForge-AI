@@ -13,7 +13,7 @@ public sealed class GuardOptions
     /// <summary>Refuse the turn when Jev is unavailable. Only takes effect in <see cref="GuardMode.Enforce"/>.</summary>
     public bool FailClosed { get; set; } = false;
 
-    /// <summary>Reserved; not read by the WP1 code.</summary>
+    /// <summary>U17 / KTD 13: one Jev request carries the guard and triage questions (TurnAssessor). Needs Triage:Classifier = Jev.</summary>
     public bool CombineWithTriage { get; set; } = false;
 
     /// <summary>Per-signal threshold keyed by <see cref="GuardSignal.Name"/>.</summary>
@@ -22,7 +22,7 @@ public sealed class GuardOptions
     public double DefaultBlockThreshold { get; set; } = 0.9;
     public double DefaultReviewThreshold { get; set; } = 0.8;
 
-    /// <summary>Reserved for a later phase (indirect injection).</summary>
+    /// <summary>U18 / R26: drop threshold for retrieved snippets and vision findings that address the AI. Program.cs copies it into VerificationOptions.</summary>
     public double IndirectThreshold { get; set; } = 0.8;
 
     public int HistoryTurns { get; set; } = 4;

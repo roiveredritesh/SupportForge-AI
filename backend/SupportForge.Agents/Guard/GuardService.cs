@@ -53,6 +53,13 @@ public sealed class GuardService
 
         var decision = GuardPolicy.Decide(Options, heuristicAssessment, jev, jevFailed);
 
+        // U17 / KTD 13: the triage answer from a combined request is handed on only when the turn is not blocked. A blocked
+        // turn drops it here, so triage never acts on a refused turn.
+        if (decision.Verdict != GuardVerdict.Blocked && jev?.PrecomputedIntent is { } precomputed)
+        {
+            decision = decision with { PrecomputedIntent = precomputed };
+        }
+
         activity?.SetTag("guard.verdict", decision.Verdict.ToString().ToLowerInvariant());
         activity?.SetTag("guard.source", decision.Source);
         activity?.SetTag("guard.fired", string.Join(",", decision.FiredSignals));

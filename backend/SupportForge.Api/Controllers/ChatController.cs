@@ -51,6 +51,9 @@ public partial class ChatController : ControllerBase
     // call sites in ChatControllerTests.cs don't wire a guard and must keep compiling and behaving
     // as before. Production DI always supplies a real GuardService (registered in Program.cs).
     private readonly GuardService? _guard;
+    // U19 (R27): nullable with a default for the same reason as _guard. Null means the streamed draft is not screened
+    // for output disclosure. Production DI supplies it through Program.cs.
+    private readonly OutputGuardService? _outputGuard;
 
     private const string DrafterName = "Drafter";
 
@@ -75,7 +78,8 @@ public partial class ChatController : ControllerBase
         IBlastRadiusQueryTool blastRadius,
         ILogger<ChatController> logger,
         IHubContext<ConversationHub>? hub = null,
-        GuardService? guard = null)
+        GuardService? guard = null,
+        OutputGuardService? outputGuard = null)
     {
         _pipeline = pipeline;
         _triage = triage;
@@ -98,6 +102,7 @@ public partial class ChatController : ControllerBase
         _logger = logger;
         _hub = hub;
         _guard = guard;
+        _outputGuard = outputGuard;
     }
 
     // Splits on word boundaries while keeping the trailing whitespace attached to each chunk, so
@@ -193,7 +198,7 @@ public partial class ChatController : ControllerBase
         if (guard is null) return null;
 
         return await guard.ScreenAsync(
-            new GuardInput(context.Query, context.History, !string.IsNullOrEmpty(context.ScreenshotBase64)),
+            new GuardInput(context.Query, context.History, !string.IsNullOrEmpty(context.ScreenshotBase64), context.ProductVersion),
             this.CurrentUserId(),
             context.ProjectId,
             ct);
@@ -367,6 +372,11 @@ public partial class ChatController : ControllerBase
         // intent classification (TriageAgent) and every LLM call inside it. A blocked turn must never
         // reach a model, so this check cannot move below _pipeline.RunAsync.
         var guard = await ScreenTurnAsync(context, ct);
+        // U17 / KTD 13: a combined guard and triage request carries the triage answer. Only a turn the guard did not block keeps it.
+        if (guard is { Verdict: not GuardVerdict.Blocked, PrecomputedIntent: { } precomputed })
+        {
+            context.PrecomputedIntent = precomputed;
+        }
         if (guard?.Verdict == GuardVerdict.Blocked)
         {
             // Blocked turns cost no tokens, so no TokenUsageEntry is written, and no code/commit/blast
@@ -501,6 +511,11 @@ public partial class ChatController : ControllerBase
         // U17 / KTD12: screened before the progress ping, _triage and every other agent below, so a
         // blocked turn never reaches intent classification or any LLM call (see Query for the same rule).
         var guard = await ScreenTurnAsync(context, ct);
+        // U17 / KTD 13: a combined guard and triage request carries the triage answer. Only a turn the guard did not block keeps it.
+        if (guard is { Verdict: not GuardVerdict.Blocked, PrecomputedIntent: { } precomputed })
+        {
+            context.PrecomputedIntent = precomputed;
+        }
         if (guard?.Verdict == GuardVerdict.Blocked)
         {
             Response.ContentType = "text/event-stream";
@@ -589,6 +604,17 @@ public partial class ChatController : ControllerBase
 
             finalText = leaked ? DrafterAgent.LeakFallback : draft;
             confidence = leaked ? 0.0 : DrafterAgent.ComputeConfidence(context);
+
+            // U19 (R27): the same output guard DrafterAgent runs, on the same buffered draft. Apply is shared, so the two paths can't drift.
+            if (!leaked && _outputGuard is not null)
+            {
+                var screening = await _outputGuard.ScreenAsync(context, draft, ct);
+                if (screening.Replace)
+                {
+                    finalText = OutputGuardService.Apply(screening, draft);
+                    confidence = 0.0;
+                }
+            }
         }
 
         await _tokenUsage.AddAsync(
@@ -599,7 +625,7 @@ public partial class ChatController : ControllerBase
         _logger.LogInformation(
             "{Agent} completed in {ElapsedMs}ms: leaked={Leaked} confidence={Confidence}", DrafterName, sw.ElapsedMilliseconds, leaked, confidence);
 
-        // Every word here already passed the leak check above.
+        // Every word here already passed the leak and output checks above.
         await StreamTextAsync(finalText, ct);
 
         var sources = BuildSources(context);

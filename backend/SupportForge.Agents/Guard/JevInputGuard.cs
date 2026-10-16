@@ -23,19 +23,31 @@ public sealed class JevInputGuard : IInputGuard
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        var state = BuildState(input);
+        var state = BuildState(input, _options.HistoryTurns, _options.MaxStateChars);
 
-        // Built fresh per call: the dictionary handed to the client is never shared mutable state.
+        // Exceptions propagate on purpose. GuardService owns the timeout and turns any failure into the
+        // fail-open (or FailClosed) path, with the logging that goes with it.
+        var result = await _jev.EvaluateAsync(state, BuildQuestions(), ct);
+
+        return new GuardAssessment(ReadSignals(result), "jev");
+    }
+
+    // One fixed Noul per signal, built fresh per call: the dictionary handed to the client is never shared mutable state.
+    // Internal so TurnAssessor can add the triage questions to the same request (U17, KTD 13).
+    internal static IReadOnlyDictionary<string, JevQuestion> BuildQuestions()
+    {
         var questions = new Dictionary<string, JevQuestion>(StringComparer.Ordinal);
         foreach (var signal in GuardSignals.All)
         {
             questions[signal.Name] = new JevNoulQuestion(signal.Statement);
         }
 
-        // Exceptions propagate on purpose. GuardService owns the timeout and turns any failure into the
-        // fail-open (or FailClosed) path, with the logging that goes with it.
-        var result = await _jev.EvaluateAsync(state, questions, ct);
+        return questions;
+    }
 
+    // Maps the six Noul answers to signal scores. Internal so TurnAssessor reads the same answers the same way.
+    internal static IReadOnlyDictionary<string, double> ReadSignals(JevResult result)
+    {
         var signals = new Dictionary<string, double>(StringComparer.Ordinal);
         foreach (var signal in GuardSignals.All)
         {
@@ -44,16 +56,18 @@ public sealed class JevInputGuard : IInputGuard
             signals[signal.Name] = result.Noul(signal.Name).Noul;
         }
 
-        return new GuardAssessment(signals, "jev");
+        return signals;
     }
 
-    private object BuildState(GuardInput input)
+    // includeProductVersion is set only by TurnAssessor. The standalone guard keeps its original request shape, so its state
+    // is unchanged even when a caller passes a ProductVersion.
+    internal static object BuildState(GuardInput input, int historyTurns, int maxStateChars, bool includeProductVersion = false)
     {
         var normalized = InputNormalizer.Normalize(input.Message);
 
         // Only the newest HistoryTurns entries are screened, as in HeuristicInputGuard. Assistant turns
         // stay in the state as context but their decoded segments are excluded: that text is our own output.
-        var keep = Math.Max(0, _options.HistoryTurns);
+        var keep = Math.Max(0, historyTurns);
         var history = (input.History ?? Array.Empty<(string Role, string Content)>())
             .TakeLast(keep)
             .Select(turn => new ScreenedTurn(turn.Role, InputNormalizer.Normalize(turn.Content)))
@@ -63,7 +77,7 @@ public sealed class JevInputGuard : IInputGuard
         // current message and the newest context matter most. Only when the message alone exceeds the
         // budget is the message itself cut, and then it keeps its END: attack text tends to sit in the
         // latest message, so a head-first cut would lose exactly what the guard needs to see.
-        var budget = Math.Max(0, _options.MaxStateChars);
+        var budget = Math.Max(0, maxStateChars);
         var text = normalized.Text;
         while (history.Count > 0 && text.Length + history.Sum(t => t.Content.Text.Length) > budget)
         {
@@ -93,11 +107,25 @@ public sealed class JevInputGuard : IInputGuard
             decodedSegments.RemoveRange(MaxDecodedSegments, decodedSegments.Count - MaxDecodedSegments);
         }
 
+        var historyShape = history.Select(t => new { role = t.Role, content = t.Content.Text }).ToList();
+
+        if (includeProductVersion && !string.IsNullOrEmpty(input.ProductVersion))
+        {
+            return new
+            {
+                message = text,
+                decodedSegments,
+                history = historyShape,
+                hasScreenshot = input.HasScreenshot,
+                productVersion = input.ProductVersion,
+            };
+        }
+
         return new
         {
             message = text,
             decodedSegments,
-            history = history.Select(t => new { role = t.Role, content = t.Content.Text }).ToList(),
+            history = historyShape,
             hasScreenshot = input.HasScreenshot,
         };
     }

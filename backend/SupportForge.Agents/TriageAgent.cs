@@ -90,12 +90,20 @@ public sealed class TriageAgent : IAgent
         }
     }
 
-    // Picks the acting decision for the configured mode. Llm mode never touches the Jev classifier.
+    // Picks the acting decision for the configured mode. Llm mode never touches the Jev classifier. In Jev mode a precomputed
+    // decision (U17) is acted on as if Jev had just answered; its tokens are added under Triage by RunAsync, as for any Jev answer.
     private async Task<Classification> ClassifyAsync(AgentContext context, CancellationToken ct)
     {
         switch (_options.Classifier)
         {
             case TriageClassifierMode.Jev:
+                // U17 / KTD 13: the guard's combined request already carried the triage answer, so no second Jev call is made.
+                if (context.PrecomputedIntent is { } precomputed)
+                {
+                    _logger.LogInformation("TriagePrecomputed: using the guard's combined Jev answer. project={ProjectId}", context.ProjectId);
+                    return new Classification(precomputed, FromJev: true, Shadow: null);
+                }
+
                 return await ClassifyWithJevAsync(context, ct);
 
             case TriageClassifierMode.Shadow:
