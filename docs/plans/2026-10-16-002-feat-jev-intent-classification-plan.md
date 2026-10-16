@@ -884,3 +884,7 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
   - U2/U3: `IIntentClassifier` seam, `LlmIntentClassifier` (prompt verified byte-identical) and the new `AgentContext` intent fields.
   - U7: shared `IntentRouting` gates, with the secondary-intent rule present but off.
   - Remaining for Phase 1: U4 (Jev client, shared with the guard), U5/U6 (Jev classifier, decision policy, modes), U8 (Drafter hint, persistence, telemetry) and U9.
+- **Phase 2, first round** (LLM judge still the only one):
+  - U10: findings relevance eval with 31 snippet cases and 10 screenshot-findings cases, in new report-only fixture files. The existing kb/code/vision fixtures are unchanged, so the eval's exit code still reflects only the original verifier cases. It measures what the single-pick LLM judge structurally misses: recall when two snippets are relevant, buried answers, keyword decoys, partial coverage, and long irrelevant screenshot descriptions that pass today without a check.
+  - U11: `IFindingsJudge` seam with `LlmFindingsJudge`. All seven moved prompt literals were verified byte-identical, and `VerificationResult` gains `Scores`, `Coverage` and `Source`.
+  - Remaining for Phase 2: U12 (Jev judge, score-based pruning; needs U4), U13 (coverage hint, sentence-level groundedness, score-based confidence) and U14.
