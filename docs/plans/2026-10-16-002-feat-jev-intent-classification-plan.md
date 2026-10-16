@@ -866,28 +866,31 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
 
 ## Implementation status
 
+- **Overall**: U1–U20 are all implemented on `feature/jev-integration` (PRs roiveredritesh/SupportForge-AI#39 and #41–#46). What remains is operational, not code: the eval runs with live keys, thresholds set from their reports, the Shadow reviews before any switch to `Jev` or `Enforce`, and the Open Questions above. The bullets below record each round as it landed.
 - **Decided**: the fail-open default (`FailClosed=false`) is confirmed by the product owner. Guard work goes to the `feature/jev-integration` branch, never `master`.
 - **Done in the first guard round** (PR roiveredritesh/SupportForge-AI#39):
   - U15: guard eval, with attack corpus and hard negatives.
   - U16: heuristic guard, input normaliser, policy and `GuardService`. The Jev slot is left empty.
   - U17: controller gate, sequential and before intent classification. Also persistence, recap exclusion and config.
 - **Deviations from the plan text**:
-  - The heuristic layer ships without the Jev guard. Shadow and Enforce are therefore flag-only, and the plan's startup *error* for a missing Jev key is a startup *warning* instead.
+  - The first round shipped the heuristic layer without the Jev guard, which came later (PR roiveredritesh/SupportForge-AI#43). Without a Jev key, Shadow and Enforce are still flag-only, and a missing key is a startup *warning* rather than the plan's startup *error*.
   - Blocked turns are removed from later recaps. This is new and is not in the original U17 text.
   - The "developer mode" phrase was dropped from the heuristic, because it is a common legitimate question.
-- **Remaining for the guard phase**:
-  - U4: Jev client and a Jev-backed `IInputGuard`. Blocked on reading the official API reference.
-  - U20: thresholds calibrated from a Jev eval run, then the Shadow rollout.
-  - Deferred with their phases: U18, U19 and `CombineWithTriage`.
+- **Left after the first guard round** (since done, except the thresholds and rollout; see "Phase 3, remainder" below): U4 (Jev client and the Jev-backed `IInputGuard`), U18, U19, `CombineWithTriage`, and U20's thresholds from a Jev eval run followed by the Shadow rollout.
 - **Phase 1, first round** (LLM classifier still the only one):
   - U1: triage eval with 103 labelled fixtures. It also reports accuracy on follow-ups that need conversation history, because the LLM classifier reads only the latest message today. That number is the baseline for the history-aware classifier (R3).
   - U2/U3: `IIntentClassifier` seam, `LlmIntentClassifier` (prompt verified byte-identical) and the new `AgentContext` intent fields.
   - U7: shared `IntentRouting` gates, with the secondary-intent rule present but off.
-  - Remaining for Phase 1: U4 (Jev client, shared with the guard), U5/U6 (Jev classifier, decision policy, modes), U8 (Drafter hint, persistence, telemetry) and U9.
+  - Left after this round (since done; see "Phase 1, Jev round" below): U4, U5/U6, U8 and U9.
 - **Phase 2, first round** (LLM judge still the only one):
   - U10: findings relevance eval with 31 snippet cases and 10 screenshot-findings cases, in new report-only fixture files. The existing kb/code/vision fixtures are unchanged, so the eval's exit code still reflects only the original verifier cases. It measures what the single-pick LLM judge structurally misses: recall when two snippets are relevant, buried answers, keyword decoys, partial coverage, and long irrelevant screenshot descriptions that pass today without a check.
   - U11: `IFindingsJudge` seam with `LlmFindingsJudge`. All seven moved prompt literals were verified byte-identical, and `VerificationResult` gains `Scores`, `Coverage` and `Source`.
-  - Remaining for Phase 2: U12 (Jev judge, score-based pruning; needs U4), U13 (coverage hint, sentence-level groundedness, score-based confidence) and U14.
+  - Left after this round (since done; see "Phase 2, Jev round" below): U12, U13 and U14.
 - **Phase 1, Jev round**: U4 (`JevClient`, with the wire format in the [API reference](../integrations/typesafe-jev-api.md), options and DI), U5 (`JevIntentClassifier` and the decision policy), U6 (classifier modes, LLM fallback and Shadow in `TriageAgent`), U8 (Drafter medium-band hint, intent fields persisted on the assistant `ChatMessage`, Triage span tags) and U9 (`appsettings.json`, the configuration guide and the README). The triage and guard evals run a Jev pass when `Jev__ApiKey` is set, and the [evals workflow](../../.github/workflows/evals.yml) reads the optional `JEV_API_KEY` secret. Remaining for Phase 1: the U1 Jev run with a key, to set `MinConfidence` and `MinMargin` from the report instead of the placeholders, then the Shadow rollout.
 - **Phase 2, Jev round**: U12 (`JevFindingsJudge` with score-based pruning, and `FindingsJudgeSelector` for the `Verification:Judge` modes, with the LLM fallback and Shadow logging), U13 (coverage hint, per-sentence groundedness behind `GroundednessPerSentence`, and score-based confidence) and U14 (the `Verification` config, the configuration guide and README, `BranchRelevance` on the assistant message, and the Jev run in the findings relevance eval, with coverage bands of 0.25 and 0.75). Remaining for Phase 2: set `MinRelevance` from the eval's threshold table (0.5 is still the placeholder), then run the Shadow week before `Judge = Jev`.
 - **Phase 3, remainder**: U17's combined guard and triage request (`Guard:CombineWithTriage`, through `TurnAssessor`), U18 (indirect-injection drop in the findings judge and verifiers), U19 (output guard on both Drafter paths) and U20 (`appsettings.json`, the configuration guide, the README and [SECURITY.md](../../SECURITY.md)) are done. Remaining: thresholds from the guard eval (U15 with a Jev key, with `Guard:Thresholds` set from a report that meets the ≤ 1% hard-negative bar), then the Shadow weeks (rollout steps 3 and 5) before any environment uses `Enforce`.
+- **Deviations accepted in the Jev rounds**:
+  - `FindingsJudgeSelector` and `TriageAgent` each have their own copy of the try-Jev, fall-back-to-LLM and Shadow-logging logic, rather than the shared helper U12 describes.
+  - The output guard (U19) makes its own Jev request instead of sharing the per-sentence groundedness request.
+  - The combined guard and triage request uses the guard's history window (`Guard:HistoryTurns`) and timeout (`Guard:JevTimeout`).
+  - Indirect-injection screening applies only when `Verification:Judge = Jev`, as U18 says. In `Shadow` the LLM verdict is acted on and nothing is dropped.
