@@ -1,26 +1,26 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using SupportForge.Agents.Triage;
 
 namespace SupportForge.Agents;
 
+// U2 (JEV intent classification plan): TriageAgent no longer calls the LLM itself. Classification sits behind
+// IIntentClassifier; this agent maps the classifier's scores onto the label set and records the intent fields on
+// AgentContext. Label behaviour is unchanged while the classifier is LlmIntentClassifier.
 public sealed class TriageAgent : IAgent
 {
-    private static readonly HashSet<string> KnownLabels = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "kb_question", "code_issue", "code_question", "screenshot_error", "greeting", "unclear"
-    };
-
-    private static readonly char[] Decoration = [' ', '\t', '\r', '\n', '"', '\'', '`', '*', '.', ':', '#'];
-
-    private readonly ILlmChatClient _llm;
+    private readonly IIntentClassifier _classifier;
     private readonly ILogger<TriageAgent> _logger;
     public string Name => "Triage";
 
-    public TriageAgent(ILlmChatClient llm, ILogger<TriageAgent> logger)
+    public TriageAgent(IIntentClassifier classifier, ILogger<TriageAgent> logger)
     {
-        _llm = llm;
+        _classifier = classifier;
         _logger = logger;
     }
+
+    // Convenience constructor kept so every existing call site keeps compiling unchanged.
+    public TriageAgent(ILlmChatClient llm, ILogger<TriageAgent> logger) : this(new LlmIntentClassifier(llm), logger) { }
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
@@ -28,26 +28,16 @@ public sealed class TriageAgent : IAgent
         _logger.LogInformation("{Agent} starting: project={ProjectId} queryLength={QueryLength}", Name, context.ProjectId, context.Query.Length);
         try
         {
-            const string systemPrompt = """
-                You classify support queries into exactly one label:
-                - "kb_question": product/feature/process questions answered by documentation, not the source code.
-                - "code_issue": a bug report or error involving the project's source code.
-                - "code_question": a question about the project's source code that is not a bug report — e.g. "how does X work",
-                  "explain function Y", "where is Z implemented", architecture questions.
-                - "screenshot_error": the query is about an attached screenshot showing an error or UI state.
-                - "greeting": a greeting, thanks, farewell, or other pleasantry with no actual support question
-                  in it — e.g. "hi", "hello", "thanks!", "that's all for now".
-                - "unclear": you cannot confidently place the query in any of the labels above — it is too vague,
-                  missing context, or plausibly fits more than one category.
-                Respond with only the label, nothing else.
-                """;
-
-            var intent = await _llm.CompleteAsync(systemPrompt, context.Query, ct);
-            var normalized = intent.Trim(Decoration).ToLowerInvariant();
+            var decision = await _classifier.ClassifyAsync(context, TriageLabels.All, ct);
+            var top = TopLabel(decision.Scores);
             // Anything we can't map is treated as "unclear" so the downstream gates no-op and the
             // Drafter asks for clarification, rather than answering from empty retrieval context.
-            context.Intent = KnownLabels.Contains(normalized) ? normalized : "unclear";
-            context.AddTokens(Name, _llm.LastTotalTokens);
+            context.Intent = TriageLabels.IsKnown(top) ? top : TriageLabels.Unclear;
+            context.IntentConfidence = decision.Confidence;
+            context.IntentScores = decision.Scores;
+            context.IntentSignals = decision.Signals;
+            context.IntentSource = decision.Source;
+            context.AddTokens(Name, decision.TokensUsed);
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: intent={Intent}", Name, sw.ElapsedMilliseconds, context.Intent);
             return context;
         }
@@ -56,5 +46,28 @@ public sealed class TriageAgent : IAgent
             _logger.LogError(ex, "{Agent} failed after {ElapsedMs}ms", Name, sw.ElapsedMilliseconds);
             throw;
         }
+    }
+
+    // Highest-scoring label; ties go to TriageLabels.All order. Empty (or all-NaN) scores return "unclear".
+    // A top label outside TriageLabels is returned as-is and mapped to "unclear" by the caller.
+    private static string TopLabel(IReadOnlyDictionary<string, double> scores)
+    {
+        string? best = null;
+        var bestScore = double.NegativeInfinity;
+        foreach (var (label, score) in scores)
+        {
+            if (double.IsNaN(score))
+            {
+                continue;
+            }
+
+            if (best is null || score > bestScore || (score == bestScore && TriageLabels.CompareTieBreak(label, best) < 0))
+            {
+                best = label;
+                bestScore = score;
+            }
+        }
+
+        return best ?? TriageLabels.Unclear;
     }
 }

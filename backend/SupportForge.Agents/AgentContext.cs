@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading;
+using SupportForge.Agents.Triage;
 using SupportForge.Core;
 
 namespace SupportForge.Agents;
@@ -20,6 +21,41 @@ public sealed class AgentContext
     public IReadOnlyDictionary<string, string>? Config { get; init; }
 
     public string Intent { get; set; } = string.Empty;
+    // U2 (JEV intent classification plan): richer intent output written by TriageAgent from the classifier's
+    // IntentDecision. Scores and signals stay empty until a classifier fills them; the LLM classifier reports 1.0.
+    public double? IntentConfidence { get; set; }
+    public IReadOnlyDictionary<string, double> IntentScores { get; set; } = new Dictionary<string, double>();
+    public IReadOnlyDictionary<string, double> IntentSignals { get; set; } = new Dictionary<string, double>();
+    public string IntentSource { get; set; } = string.Empty;
+    // U7 secondary-intent routing inputs. Off by default; nothing turns them on until the Jev classifier lands.
+    public bool SecondaryIntentEnabled { get; set; }
+    public double SecondaryMinProbability { get; set; } = 0.35;
+    // Highest-scoring label in IntentScores other than Intent, with a score > 0. Ties broken by TriageLabels.All order
+    // (labels not in TriageLabels.All sort after them, ordinal). Null when there is none.
+    public (string Label, double Probability)? RunnerUpIntent
+    {
+        get
+        {
+            (string Label, double Probability)? best = null;
+            foreach (var (label, probability) in IntentScores)
+            {
+                // `!(x > 0)` rather than `x <= 0` so a NaN score is skipped too.
+                if (label == Intent || !(probability > 0))
+                {
+                    continue;
+                }
+
+                if (best is null || probability > best.Value.Probability
+                    || (probability == best.Value.Probability && TriageLabels.CompareTieBreak(label, best.Value.Label) < 0))
+                {
+                    best = (label, probability);
+                }
+            }
+
+            return best;
+        }
+    }
+
     public FreshnessContext? Freshness { get; set; }
     // WS4 (retrieval-pipeline remediation plan): written by CrossReferenceAgent from KB findings,
     // folded into CodeAnalyzerAgent's code graph query text.
