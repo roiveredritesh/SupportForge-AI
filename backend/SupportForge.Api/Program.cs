@@ -179,6 +179,23 @@ if (triageOptions.Classifier != TriageClassifierMode.Llm && !jevConfigured)
     throw new InvalidOperationException(
         $"Triage:Classifier is {triageOptions.Classifier} but Jev is not configured (Jev:ApiKey is empty). Set Jev:ApiKey or use Triage:Classifier=Llm.");
 }
+// U12/U14 (JEV findings validation plan): Verification:Judge picks the findings judge behind the KB, code and vision verifiers and
+// the Drafter's groundedness check. Llm (the default) needs no Jev key. Jev and Shadow need one, so a missing key fails at startup.
+var verificationOptions = builder.Configuration.GetSection("Verification").Get<VerificationOptions>() ?? new VerificationOptions();
+builder.Services.AddSingleton(verificationOptions);
+if (verificationOptions.Judge != FindingsJudgeMode.Llm && !jevConfigured)
+{
+    throw new InvalidOperationException(
+        $"Verification:Judge is {verificationOptions.Judge} but Jev is not configured (Jev:ApiKey is empty). Set Jev:ApiKey or use Verification:Judge=Llm.");
+}
+// U12: the LLM judge always answers, and the Jev judge sits behind FindingsJudgeSelector, which only consults it in the modes that
+// need it. Declared here, before the verifier and Drafter registrations below that call it.
+IFindingsJudge FindingsJudge(IServiceProvider sp, ILlmChatClient llm) =>
+    new FindingsJudgeSelector(
+        new LlmFindingsJudge(llm),
+        jevConfigured ? new JevFindingsJudge(sp.GetRequiredService<IJevClient>(), verificationOptions) : null,
+        verificationOptions,
+        sp.GetRequiredService<ILogger<FindingsJudgeSelector>>());
 // Model tiering (gap-closing-solutions.md Phase C, item 3): Triage's intent classification and the
 // three verifiers' relevance judgments are cheap-tier calls (opt-in via *CheapChatModel config, see
 // LlmServiceCollectionExtensions.CheapTierKey) -- DrafterAgent, the retrieval specialists, and
@@ -191,16 +208,19 @@ builder.Services.AddScoped<TriageAgent>(sp => new TriageAgent(
 builder.Services.AddScoped<FreshnessGateAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
 builder.Services.AddScoped<KbResearcherVerifier>(sp => new KbResearcherVerifier(
-    new LlmFindingsJudge(sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
+    FindingsJudge(sp, sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
+    verificationOptions,
     sp.GetRequiredService<ILogger<KbResearcherVerifier>>()));
 builder.Services.AddScoped<CrossReferenceAgent>();
 builder.Services.AddScoped<CodeAnalyzerAgent>();
 builder.Services.AddScoped<CodeAnalyzerVerifier>(sp => new CodeAnalyzerVerifier(
-    new LlmFindingsJudge(sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
+    FindingsJudge(sp, sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
+    verificationOptions,
     sp.GetRequiredService<ILogger<CodeAnalyzerVerifier>>()));
 builder.Services.AddScoped<VisionAnalyzerAgent>();
 builder.Services.AddScoped<VisionAnalyzerVerifier>(sp => new VisionAnalyzerVerifier(
-    new LlmFindingsJudge(sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
+    FindingsJudge(sp, sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
+    verificationOptions,
     sp.GetRequiredService<ILogger<VisionAnalyzerVerifier>>()));
 // C6 (gap-closing-solutions.md Phase C, item 6): wraps DrafterAgent's LLM calls with a fallback
 // provider when Llm:FallbackProvider is configured -- opt-in, DrafterAgent gets the plain default
@@ -220,7 +240,7 @@ builder.Services.AddScoped<DrafterAgent>(sp =>
             sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.FallbackTierKey),
             sp.GetRequiredService<ILogger<FallbackLlmChatClient>>())
         : sp.GetRequiredService<ILlmChatClient>();
-    return new DrafterAgent(llm, sp.GetRequiredService<ILogger<DrafterAgent>>(), groundednessCheckEnabled);
+    return new DrafterAgent(llm, sp.GetRequiredService<ILogger<DrafterAgent>>(), groundednessCheckEnabled, judge: FindingsJudge(sp, llm));
 });
 builder.Services.AddScoped<KbSearchTool>();
 builder.Services.AddScoped<VisionAnalysisTool>();

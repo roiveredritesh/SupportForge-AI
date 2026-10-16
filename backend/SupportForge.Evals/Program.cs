@@ -76,11 +76,21 @@ if (jevConfigured)
 }
 
 // U10 findings relevance eval (R22): report-only, so it never affects the exit code. The LLM judge runs on the cheap tier,
-// the same client production verifiers resolve. A Jev judge gets a second call once it exists:
-// ReportSnippetRelevance(await RunSnippetRelevanceAsync("jev", jevJudge)); ReportVisionRelevance(await RunVisionRelevanceAsync("jev", jevLlm));
+// the same client production verifiers resolve.
 var findingsJudge = new LlmFindingsJudge(triageLlm);
 ReportSnippetRelevance(await RunSnippetRelevanceAsync("llm", findingsJudge));
-ReportVisionRelevance(await RunVisionRelevanceAsync("llm", triageLlm));
+ReportVisionRelevance(await RunVisionRelevanceAsync("llm", findingsJudge), findingsJudge.JudgesAllVisionFindings);
+
+// U14 (R22): the Jev judge gets the same two runs when Jev:ApiKey is set. Code-graph snippets are sent too (IncludeCode = true),
+// because these fixtures are synthetic, so no customer code leaves the building. Report-only, like the LLM run above.
+if (jevConfigured)
+{
+    var jevJudge = new JevFindingsJudge(
+        provider.GetRequiredService<IJevClient>(),
+        new VerificationOptions { Jev = new VerificationJevOptions { IncludeCode = true } });
+    ReportSnippetRelevance(await RunSnippetRelevanceAsync("jev", jevJudge));
+    ReportVisionRelevance(await RunVisionRelevanceAsync("jev", jevJudge), jevJudge.JudgesAllVisionFindings);
+}
 
 return results.Any(r => !r.Agreed) ? 1 : 0;
 
@@ -692,7 +702,7 @@ void ReportSnippetRelevance(List<RelevanceCaseResult> snippetResults)
 
 // U10 vision relevance (R22), report-only. The real VisionAnalyzerVerifier runs on each fixture, with the screenshot placeholder the
 // verifier needs to run at all. A case that throws is printed and skipped, because VisionRelevanceResult has no error field.
-async Task<List<VisionRelevanceResult>> RunVisionRelevanceAsync(string judgeName, ILlmChatClient verifierLlm)
+async Task<List<VisionRelevanceResult>> RunVisionRelevanceAsync(string judgeName, IFindingsJudge judge)
 {
     var fixtures = LoadFixtures<VisionRelevanceFixture>("vision-relevance-fixtures.json");
     var outcomes = new List<VisionRelevanceResult>();
@@ -702,7 +712,7 @@ async Task<List<VisionRelevanceResult>> RunVisionRelevanceAsync(string judgeName
         var context = new AgentContext { ProjectId = "eval", Query = f.Query, ScreenshotBase64 = "eval-screenshot" };
         context.VisionFindings = findings;
 
-        var verifier = new VisionAnalyzerVerifier(verifierLlm, loggers.CreateLogger<VisionAnalyzerVerifier>());
+        var verifier = new VisionAnalyzerVerifier(judge, loggers.CreateLogger<VisionAnalyzerVerifier>());
         try
         {
             await verifier.RunAsync(context);
@@ -721,7 +731,8 @@ async Task<List<VisionRelevanceResult>> RunVisionRelevanceAsync(string judgeName
 
 // Report-only (R22). The headline is long irrelevant findings: today's verifier judges only findings under 20 characters, so anything
 // longer passes without an LLM call. These are the cases this fixture set exists to expose.
-void ReportVisionRelevance(List<VisionRelevanceResult> visionResults)
+// judgesAllFindings comes from the judge itself: the LLM judge keeps the under-20-characters gate, the Jev judge is asked about every finding.
+void ReportVisionRelevance(List<VisionRelevanceResult> visionResults, bool judgesAllFindings)
 {
     Console.WriteLine();
     Console.WriteLine($"=== Vision findings relevance eval: {visionResults.FirstOrDefault()?.Judge ?? "(no judge)"} ===");
@@ -737,7 +748,9 @@ void ReportVisionRelevance(List<VisionRelevanceResult> visionResults)
     var longIrrelevant = visionResults.Where(r => !r.Expected && r.LongFindings).ToList();
     var longPassed = longIrrelevant.Count(r => r.Actual);
     Console.WriteLine($"  long irrelevant findings passed: {longPassed}/{longIrrelevant.Count}");
-    Console.WriteLine("    note: today's verifier only judges findings under 20 characters; longer findings pass without an LLM call");
+    Console.WriteLine(judgesAllFindings
+        ? "    note: this judge is asked about every finding, so long findings are judged too"
+        : "    note: today's verifier only judges findings under 20 characters; longer findings pass without an LLM call");
 
     foreach (var row in visionResults.Where(r => !r.Agreed))
         Console.WriteLine($"  DISAGREE [{row.Id}] expected={row.Expected} actual={row.Actual} longFindings={row.LongFindings} query=\"{Truncate(row.Query, 80)}\"");
@@ -758,7 +771,8 @@ static int Hits(IReadOnlyList<int> predicted, IReadOnlyList<int> expected) => pr
 
 static bool SameSet(IReadOnlyList<int> a, IReadOnlyList<int> b) => a.Count == b.Count && a.Order().SequenceEqual(b.Order());
 
-static string CoverageLevel(double coverage) => coverage < 0.34 ? "none" : coverage < 0.67 ? "partial" : "complete";
+// U14: the bands for a normalised 0..1 Coverage (Jev's coverage score / 2): none below 0.25, partial from 0.25 to 0.75, complete above 0.75.
+static string CoverageLevel(double coverage) => coverage < 0.25 ? "none" : coverage <= 0.75 ? "partial" : "complete";
 
 static int ConfidenceBucket(double confidence) => confidence < 0.5 ? 0 : confidence < 0.7 ? 1 : confidence < 0.85 ? 2 : 3;
 

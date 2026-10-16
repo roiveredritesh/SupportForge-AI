@@ -143,6 +143,16 @@ public sealed partial class DrafterAgent : IAgent
     private static string IntentConfidenceLine(AgentContext context) =>
         context.IntentConfidenceBand == "medium" ? MediumIntentConfidenceLine : string.Empty;
 
+    // U13 (R16): one line when a branch that passed only partly covers the question. Full coverage, a failed branch and the
+    // LLM judge (which never sets CoverageIsPartial) add nothing, so the prompt stays byte-identical to the one before this line.
+    private const string PartialCoverageLine =
+        "The retrieved context only partly answers this question: answer the covered part and say plainly which part you could not find.\n";
+
+    private static string CoverageLine(AgentContext context) =>
+        IsPartialPass(context.KbVerification) || IsPartialPass(context.CodeVerification) ? PartialCoverageLine : string.Empty;
+
+    private static bool IsPartialPass(VerificationResult v) => v.Status == VerificationStatus.Passed && v.CoverageIsPartial;
+
     // D2 (gap-closing-solutions.md Phase D, item 2): retrieved content (KB/code/vision) is wrapped in
     // <retrieved_context> tags -- the structural delimiter SystemPrompt's instruction refers to, so a
     // retrieved snippet containing injected instruction-like text has no way to blend into the
@@ -151,7 +161,7 @@ public sealed partial class DrafterAgent : IAgent
         Conversation so far: {(context.History.Count == 0 ? "(none)" : string.Join("\n", context.History.Select(h => $"{h.Role}: {h.Content}")))}
         Customer question: {context.Query}
         Intent: {context.Intent}
-        {IntentConfidenceLine(context)}Freshness: {DescribeFreshness(context.Freshness)}
+        {IntentConfidenceLine(context)}{CoverageLine(context)}Freshness: {DescribeFreshness(context.Freshness)}
         ProductVersion: {(string.IsNullOrEmpty(context.ProductVersion) ? "(not specified)" : context.ProductVersion)}
         <retrieved_context source="kb">
         {string.Join("\n---\n", context.KbSnippets.Take(MaxSnippetsPerSource))}
@@ -185,15 +195,30 @@ public sealed partial class DrafterAgent : IAgent
             .Where(v => v.Status != VerificationStatus.NotRun)
             .ToList();
 
+        // U13 (R19): each applicable branch contributes a score in 0..1 instead of a binary pass. With only LLM-judged
+        // branches every score is 0 or 1, so the sum is the old passed count and the expression below is unchanged.
+        var sum = 0.0;
+        foreach (var branch in applicable)
+            sum += BranchScore(branch);
+
         var confidence = applicable.Count == 0
             ? 0.3
-            : 0.2 + 0.7 * applicable.Count(v => v.Status == VerificationStatus.Passed) / applicable.Count;
+            : 0.2 + 0.7 * sum / applicable.Count;
 
         var freshness = context.Freshness;
         if (freshness is not null && (freshness.SyncInProgress || !freshness.Score.IsFresh))
             confidence = Math.Min(confidence, StaleConfidenceCap);
 
         return confidence;
+    }
+
+    // U13 (R19): 0 when the branch did not pass; 1 when it passed without scores (the LLM judge); otherwise the top
+    // relevance score scaled by coverage (coverage defaults to full when the judge did not report it).
+    private static double BranchScore(VerificationResult v)
+    {
+        if (v.Status != VerificationStatus.Passed) return 0.0;
+        if (v.Scores is null || v.Scores.Count == 0) return 1.0;
+        return Math.Clamp(v.Scores.Max() * (v.Coverage ?? 1.0), 0.0, 1.0);
     }
 
     /// <summary>Safety net for when the LLM ignores the no-code rules in <see cref="SystemPrompt"/>.</summary>
@@ -250,6 +275,14 @@ public sealed partial class DrafterAgent : IAgent
                 var judgement = await _judge.JudgeGroundednessAsync(context, draft, ct);
                 context.AddTokens($"{Name}.Groundedness", judgement.TokensUsed);
                 grounded = judgement.Grounded;
+                // U13 (R18): indexes only, never sentence text. The span tag is the same string, for trace correlation.
+                if (judgement.UnsupportedSentences is { Count: > 0 } unsupported)
+                {
+                    var indexes = string.Join(",", unsupported);
+                    _logger.LogInformation("DrafterUnsupportedSentences: indexes={Indexes}", indexes);
+                    Activity.Current?.SetTag("drafter.unsupported_sentences", indexes);
+                }
+
                 if (!grounded)
                 {
                     // Flags, doesn't block: halves confidence rather than swapping in a fallback

@@ -11,11 +11,13 @@ public sealed class VisionAnalyzerVerifier : IAgent
     private readonly ILogger<VisionAnalyzerVerifier> _logger;
     public string Name => "VisionAnalyzerVerifier";
 
-    public VisionAnalyzerVerifier(IFindingsJudge judge, ILogger<VisionAnalyzerVerifier> logger)
+    public VisionAnalyzerVerifier(IFindingsJudge judge, VerificationOptions options, ILogger<VisionAnalyzerVerifier> logger)
     {
         _judge = judge;
         _logger = logger;
     }
+
+    public VisionAnalyzerVerifier(IFindingsJudge judge, ILogger<VisionAnalyzerVerifier> logger) : this(judge, new VerificationOptions(), logger) { }
 
     // U11: existing call shape. Wraps the client in the LLM judge, which is exactly what this verifier did before.
     public VisionAnalyzerVerifier(ILlmChatClient llm, ILogger<VisionAnalyzerVerifier> logger) : this(new LlmFindingsJudge(llm), logger) { }
@@ -46,8 +48,15 @@ public sealed class VisionAnalyzerVerifier : IAgent
                 var judgement = await _judge.JudgeVisionAsync(context, ct);
                 context.AddTokens(Name, judgement.TokensUsed);
                 v.Source = judgement.Source;
+                // U12 (R17): a score-producing judge's score is kept for telemetry. The verdict still comes from Relevant.
+                if (judgement.Score is double s) v.Scores = new[] { s };
                 if (judgement.Relevant) v.Status = VerificationStatus.Passed;
                 else Fail(v, "LLM judge found the vision findings to be a non-answer.");
+
+                // U14: span tags carry labels and scores only, never finding text.
+                var activity = Activity.Current;
+                activity?.SetTag("verify.source", v.Source);
+                if (v.Scores is { Count: > 0 } tagScores) activity?.SetTag("verify.top_score", tagScores.Max());
             }
             else
             {

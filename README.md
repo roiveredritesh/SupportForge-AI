@@ -42,6 +42,7 @@ SupportForge AI helps support teams answer customer questions about product feat
 - **Observability**: OpenTelemetry tracing, optional Azure Application Insights export, health checks, and API rate limiting.
 - **Input guard** for prompt injection and jailbreak attempts, screened before intent classification. Off by default. It screens with a heuristic pass, and with Jev when `Jev:ApiKey` is set. Without a key it can flag turns but not block them. See the [configuration guide](docs/deployment/configuration-guide.md#input-guard-prompt-injection-and-jailbreak).
 - **Jev intent classification** (optional): `Triage:Classifier` selects `Llm` (the default), `Jev`, or `Shadow`, which runs Jev alongside the LLM so the two can be compared. Off by default, since it needs a TypeSafe key. See the [configuration guide](docs/deployment/configuration-guide.md#triage-classifier).
+- **Jev findings validation** (optional): `Verification:Judge` selects `Llm` (the default), `Jev`, or `Shadow` for the judge that checks whether retrieved KB snippets and vision findings answer the question. Jev scores each snippet, so weak matches are dropped. Off by default, since it needs a TypeSafe key. See the [configuration guide](docs/deployment/configuration-guide.md#findings-verification-verification).
 - **Eval harness** (`SupportForge.Evals`) for validating judge and classifier quality before changing models.
 
 ## How it works
@@ -223,6 +224,8 @@ Optional settings:
 | `Drafter:GroundednessCheckEnabled` | Extra LLM-judge check on draft claims (off by default) |
 | `Guard:Mode` (and the rest of `Guard`) | Input guard for prompt injection and jailbreaks: `Off` (default), `Shadow` or `Enforce`. Uses Jev when `Jev:ApiKey` is set. Without a key it is heuristic-only, so it can flag but not block. See the configuration guide. |
 | `Triage:Classifier` | Intent classifier: `Llm` (default), `Jev`, or `Shadow` (Jev runs alongside the LLM and is logged, but the LLM answer is used). `Jev` and `Shadow` need `Jev:ApiKey`. See the configuration guide. |
+| `Verification:Judge` | Findings judge for the KB and vision verifiers (and the Drafter's groundedness check): `Llm` (default), `Jev`, or `Shadow`. `Jev` and `Shadow` need `Jev:ApiKey`, and send the question, recent history and KB snippet text to TypeSafe. See the configuration guide. |
+| `Verification:Jev:IncludeCode` | Also sends code-graph snippets (customer identifiers and file paths) to Jev. Off by default. Matters only when `Verification:Judge` is `Jev` or `Shadow`. |
 | `Jev:ApiKey` | TypeSafe Jev key, which turns on Jev-backed triage and guard screening. Set it through `Jev__ApiKey` or a secret store, never in a config file. Blank by default. |
 | `RateLimiting:PermitLimit` / `WindowSeconds` | API rate limiting |
 | `ApplicationInsights:ConnectionString` | Optional Azure Monitor export |
@@ -285,7 +288,7 @@ SupportForge is under active development. Before you deploy it, be aware that:
 - The ingestion queue is in-process and in-memory, so it isn't persisted and doesn't scale across instances.
 - Projects, feedback and token usage are stored in JSON files, not a database.
 - Slack/Teams integration is on the roadmap but not available yet.
-- Without `Jev:ApiKey`, the input guard is heuristic-only, so in every mode it can flag turns but never block them. With the key set, Jev-backed screening and triage send customer messages and recent history to TypeSafe.
+- Without `Jev:ApiKey`, the input guard is heuristic-only, so in every mode it can flag turns but never block them. With the key set, Jev-backed screening and triage send customer messages and recent history to TypeSafe. Setting `Verification:Judge` to `Jev` or `Shadow` also sends KB snippet text, and code-graph snippets when `Verification:Jev:IncludeCode` is true.
 
 See the [gap analysis](docs/architecture/2026-08-06-002-gap-analysis.md) for more detail. Some of the older docs predate recent changes, so check the code if something seems out of sync.
 
