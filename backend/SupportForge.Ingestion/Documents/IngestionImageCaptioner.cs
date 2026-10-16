@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using SupportForge.Agents;
+using SupportForge.Agents.Guard;
 
 namespace SupportForge.Ingestion.Documents;
 
@@ -15,15 +16,6 @@ public sealed class IngestionImageCaptioner
     private const string IngestionPrompt =
         "Describe the content of this diagram/image as it would appear in product documentation -- " +
         "labels, flow, structure -- in plain text suitable for a knowledge base.";
-
-    // KTD11: the vision model's own output is untrusted derived text -- an image can contain visible
-    // text instructing the model to emit an injected instruction, which would otherwise be spliced
-    // verbatim into indexed KB content. Same trust boundary as U1's script/style guard, applied to
-    // model output instead of raw HTML. Not a full injection classifier -- a basic phrase filter per
-    // the plan's intent.
-    private static readonly Regex InjectionPhrase = new(
-        "ignore (all )?(previous|prior) instructions|disregard the above|you are now|^system:|new instructions:",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
 
     private static readonly (byte[] Magic, string Kind)[] ImageSignatures =
     [
@@ -123,7 +115,12 @@ public sealed class IngestionImageCaptioner
         // Drop whole sentences containing an instruction-like phrase rather than just the phrase
         // itself, so the surrounding sentence (which framed the injected instruction) doesn't survive.
         var sentences = Regex.Split(caption, @"(?<=[.!?])\s+");
-        var kept = sentences.Where(s => !InjectionPhrase.IsMatch(s));
+        // KTD11: the vision model's own output is untrusted derived text -- an image can contain visible
+        // text instructing the model to emit an injected instruction, which would otherwise be spliced
+        // verbatim into indexed KB content. Same trust boundary as U1's script/style guard, applied to
+        // model output instead of raw HTML. Not a full injection classifier -- a basic phrase filter per
+        // the plan's intent. The phrase list is shared with runtime screening (InjectionPhrases).
+        var kept = sentences.Where(s => !InjectionPhrases.CaptionFilter.IsMatch(s));
         var result = string.Join(" ", kept).Trim();
         return result;
     }
