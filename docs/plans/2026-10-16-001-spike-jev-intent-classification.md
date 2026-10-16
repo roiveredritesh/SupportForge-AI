@@ -8,12 +8,22 @@ Can we replace (or back up) `TriageAgent`'s LLM-prompted intent classification w
 
 ## Caveat on sources
 
-`docs.typesafe.ai` and `api.typesafe.ai` were **blocked by the network policy of the environment this spike ran in**, so the official docs were not read directly. Everything about Jev below comes from third-party write-ups (KDnuggets, MarkTechPost, DataCamp, OpenRouter's listing, dev.to) and is **vendor-reported and unverified**. Items marked ⚠️ must be confirmed against the official docs before any implementation.
+`docs.typesafe.ai` and `api.typesafe.ai` were **blocked by the network policy of the environment this spike ran in**. The official [Introduction](https://docs.typesafe.ai/introduction) page was supplied separately and is marked ✅ below. Everything else comes from third-party write-ups (KDnuggets, MarkTechPost, DataCamp, OpenRouter's listing, dev.to) and is **vendor-reported and unverified**. Items marked ⚠️ must be confirmed against the official docs (index: `https://docs.typesafe.ai/llms.txt`) before any implementation.
 
 ## What Jev is
 
-- A "System One" decision model, **not a text generator**: you give it application state plus a typed question and it returns a typed answer with calibrated probabilities.
-- Question types: **Choice** (pick one of N options), **Score**, and **yes/no**. Each option comes back with a probability/confidence.
+- ✅ A "System One" decision model, **not a text generator**. You send a **state** (text or JSON) plus one or more typed **questions**, and get typed answers back with probability distributions. There is no output to parse.
+- ✅ Question types ("primitives"):
+
+  | Type | Goal | Returns |
+  |---|---|---|
+  | **Choice** | Choose an option from a list | `choice`, `probabilities`, `confidence` |
+  | **Score** | Score the state on a rubric | `score`, `probabilities`, `confidence` |
+  | **Noul** | Is this statement true? | `noul` (0–1) |
+
+- ✅ `confidence` is reported **separately** from `probabilities` (see the official [Confidence](https://docs.typesafe.ai/confidence) page). Our threshold policy should key on `confidence`, not only on the top probability. ⚠️ How the two relate needs to be read on that page.
+- ✅ **Several questions, of any mix of types, go in one call.** Each is evaluated in parallel and in isolation against the same state, and the docs say extra questions barely change response time.
+- ✅ Design guidance: keep each question **atomic** ("a gut-check a knowledgeable person could make in a few seconds"). Break anything that needs reasoning into several questions and combine them in code.
 - Vendor-reported latency is **~70–500 ms** end-to-end.
 - ⚠️ Reported pricing is ~$0.042 per 1M input tokens, with output free. No public enterprise price list or SLA was found.
 - ⚠️ Reported API: bearer-token `POST https://api.typesafe.ai/v1/systemone`. SDKs exist for **Python and JavaScript only** (no .NET). Reported limits are 64k tokens/request and 80 req/s.
@@ -40,7 +50,8 @@ Can we replace (or back up) `TriageAgent`'s LLM-prompted intent classification w
 | Area | Today | With Jev |
 |---|---|---|
 | Output shape | Free text, then cleanup and fallback to `unclear` | A typed Choice over a fixed label set, so there is no parsing |
-| `unclear` handling | The LLM guesses that it is unsure | A **calibrated threshold**: route to `unclear` when the top probability is below τ or the gap to the runner-up is small. This is the biggest qualitative win. |
+| `unclear` handling | The LLM guesses that it is unsure | A **calibrated threshold**: route to `unclear` when Choice `confidence` is below τ or the gap to the runner-up probability is small. This is the biggest qualitative win. |
+| Extra signals | One prompt has to do everything | Atomic **Noul** questions in the **same call** at no real latency cost, e.g. "the message contains an actual support question" (separates `greeting` from a greeting that includes a question), "the user reports something is broken or erroring" (bug vs question), "the message refers to an attached image". Combine them with the Choice result in code. |
 | Ambiguous cases (e.g. a bug report with a screenshot) | Single label, no signal | The full distribution is available. We could log runner-up intents, and later fan out to both branches. |
 | Latency on the critical path | One LLM round-trip, roughly 0.5–2 s depending on provider | Vendor claims 70–500 ms |
 | Observability | Intent only | Intent + confidence, which can go on the OTel span for Triage and into feedback analysis |
@@ -68,8 +79,8 @@ public interface IIntentClassifier
 ```
 
 - `LlmIntentClassifier` holds today's prompt and cleanup logic. It returns `Confidence = 1.0` and `Scores` with only the chosen label, so its behaviour is identical to today's.
-- `JevIntentClassifier` is a `HttpClient` adapter. It sends `Query`, the last few `History` turns and `HasScreenshot` as state, asks a Choice question over the labels, and maps probabilities into `Scores`.
-- `TriageAgent` applies the threshold policy: `top < Triage:MinConfidence` (or `top − second < Triage:MinMargin`) → `unclear`. On a Jev error or timeout (budget around 1 s) it **falls back to `LlmIntentClassifier`** and logs a warning, so Jev can never take down a request.
+- `JevIntentClassifier` is a `HttpClient` adapter. It sends a JSON state (`query`, the last few `history` turns, `hasScreenshot`) and one request containing a Choice question over the five concrete labels. `unclear` is **not** offered as an option: it comes from the confidence policy. The request also carries the atomic Noul questions listed above. It maps `probabilities` into `Scores` and `confidence` into `Confidence`.
+- `TriageAgent` applies the threshold policy: `confidence < Triage:MinConfidence` (or `top − second < Triage:MinMargin`) → `unclear`. On a Jev error or timeout (budget around 1 s) it **falls back to `LlmIntentClassifier`** and logs a warning, so Jev can never take down a request.
 - Config is `Triage:Classifier = "Llm" | "Jev"` (default `Llm`), plus `Jev:BaseUrl`, `Jev:ApiKey` and `Jev:TimeoutMs`. This follows the existing opt-in pattern used by `CheapChatModel` and `FallbackProvider`.
 - Optionally, add `AgentContext.IntentConfidence` for telemetry and the feedback dashboard.
 
@@ -89,13 +100,13 @@ Order of work:
    - Calibration is better: a threshold exists that catches most misclassifications as `unclear` without sending more than about 10% of clear queries there.
    - p95 latency is materially lower than the LLM baseline.
    - Data processing terms are acceptable for multi-org customers.
-5. If adopted, follow up with the **yes/no** question type for the three verifiers' pass/fail judgments and for `CodeNodeClassifier` (vendored vs hand-written). These are the same shape of problem and get the same calibration benefit.
+5. If adopted, follow up with the **Noul** question type for the three verifiers' pass/fail judgments and for `CodeNodeClassifier` (vendored vs hand-written). These are the same shape of problem and get the same calibration benefit.
 
 If step 1 shows the current LLM triage is already accurate and fast enough, stop there. The eval set is still worth keeping.
 
 ## Sources
 
-- [TypeSafe docs — Introduction](https://docs.typesafe.ai/introduction) (not reachable from the spike environment)
+- [TypeSafe docs — Introduction](https://docs.typesafe.ai/introduction) (official; content supplied directly because the host was blocked)
 - [KDnuggets — What Everyone Is Getting Wrong About TypeSafe AI's Jev](https://www.kdnuggets.com/what-everyone-is-getting-wrong-about-typesafe-ais-jev)
 - [MarkTechPost — TypeSafe AI Releases Jev](https://www.marktechpost.com/2026/09/19/typesafe-ai-releases-jev/)
 - [DataCamp — Jev: TypeSafe's System One Model Explained](https://www.datacamp.com/blog/system-one-models-jev)
