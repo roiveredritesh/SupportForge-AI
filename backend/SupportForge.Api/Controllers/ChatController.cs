@@ -244,6 +244,23 @@ public partial class ChatController : ControllerBase
         return kept.TakeLast(6).Select(m => (m.Role, m.Content)).ToList();
     }
 
+    // U14: the top score each branch's judge reported, keyed by branch. Only a score-producing judge (Jev) fills Scores, so this is
+    // null on the LLM-only path, and also null when no branch ran a judge (e.g. a blocked turn).
+    private static IReadOnlyDictionary<string, double>? BranchRelevanceOf(AgentContext context)
+    {
+        var relevance = new Dictionary<string, double>();
+        AddTopScore(relevance, "kb", context.KbVerification);
+        AddTopScore(relevance, "code", context.CodeVerification);
+        AddTopScore(relevance, "vision", context.VisionVerification);
+        return relevance.Count == 0 ? null : relevance;
+    }
+
+    private static void AddTopScore(Dictionary<string, double> relevance, string branch, VerificationResult verification)
+    {
+        if (verification.Scores is { Count: > 0 } scores)
+            relevance[branch] = scores.Max();
+    }
+
     // U19: context is the just-completed AgentContext for this turn -- its KbSnippets/CodeSnippets/
     // VisionFindings/ProductVersion/Config are cached onto the assistant ChatMessage so
     // EscalationsController can build a full-detail handoff Markdown later without re-running the
@@ -282,6 +299,7 @@ public partial class ChatController : ControllerBase
             Intent = string.IsNullOrEmpty(context.Intent) ? null : context.Intent,
             IntentConfidence = context.IntentConfidence,
             IntentSource = string.IsNullOrEmpty(context.IntentSource) ? null : context.IntentSource,
+            BranchRelevance = BranchRelevanceOf(context),
         };
         await _messages.AddAsync(assistantMessage, ct);
 

@@ -166,6 +166,47 @@ Other behaviour:
 - **Telemetry**: the Triage span carries the tags `triage.intent`, `triage.confidence`, `triage.source`, `triage.rule` and `triage.runner_up`. Jev token usage is recorded under the `Triage` agent in the turn's token total.
 - **Thresholds**: the defaults above are placeholders. The triage eval (`dotnet run --project backend/SupportForge.Evals`) prints a calibration table and a recommended `MinConfidence` for the Jev run. The LLM run reports no confidence, so it has no calibration table. The Jev run needs the key, and the evals workflow reads it from the optional `JEV_API_KEY` repository secret. Set the thresholds from that report, and run `Shadow` for at least a week before `Jev`. See [the plan](../plans/2026-10-16-002-feat-jev-intent-classification-plan.md).
 
+## Findings verification (`Verification`)
+
+The KB, code and vision verifiers, and the Drafter's groundedness check, each ask a findings judge whether a retrieved snippet or a vision finding actually answers the question. `Verification:Judge` selects that judge. The default, `Llm`, is the LLM judge and behaves as it did before Jev existed.
+
+- `Llm` (default): the LLM judge decides. No Jev key is needed.
+- `Jev`: Jev scores each snippet and keeps those at or above `MinRelevance`. Vision findings are judged by Jev too, and so is the groundedness check when `GroundednessPerSentence` is on. If Jev errors, times out or gives an unusable answer, the LLM judge decides that same call instead, its `Source` is `llm-fallback`, and a `VerifierJevFallback` warning is logged.
+- `Shadow`: the LLM judge decides and its answer is acted on. Jev runs alongside within `JevTimeout`, and each verifier call logs one `VerifierShadow` line with the LLM's pick, how many snippets Jev kept, Jev's top score, whether the two agree, and the latencies. A Jev failure is logged and never changes the answer.
+
+Code-graph snippets are judged by the LLM in every mode unless `Verification:Jev:IncludeCode` is `true`, so with the default `false`, `Jev` decides only the KB and vision branches.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `Verification:Judge` | `Llm` | `Llm`, `Jev` or `Shadow` (see the modes above). `Jev` and `Shadow` need `Jev:ApiKey`, and startup fails without it. |
+| `Verification:MinRelevance` | `0.5` | Jev score at or above which a snippet is kept, and the cut-off for a vision finding to count as relevant. Placeholder until the findings relevance eval recommends a value. |
+| `Verification:PartialCoverageBelow` | `0.67` | Jev coverage below this marks the branch as partial, and the Drafter is told the context covers only part of the question. |
+| `Verification:MaxSnippetChars` | `2000` | Longer snippets are cut before they are sent to Jev. |
+| `Verification:MaxStateChars` | `16000` | Upper bound on the serialized Jev request. Snippets that do not fit are scored 0.0 and dropped from the answer. |
+| `Verification:HistoryTurns` | `4` | Recent history turns sent to Jev as context. |
+| `Verification:JevTimeout` | `00:00:02` | Budget for each Jev call. On timeout the LLM judge decides that call instead. |
+| `Verification:GroundednessPerSentence` | `false` | When `true`, Jev judges the Drafter's draft one sentence at a time. When `false`, the LLM judge checks groundedness in every mode. |
+| `Verification:MaxSentences` | `20` | Upper bound on the draft sentences judged in the per-sentence check. |
+| `Verification:Jev:IncludeCode` | `false` | Code-graph snippets (customer identifiers and file paths) go to Jev only when `true`. |
+
+**Data note**: with `Judge` set to `Jev` or `Shadow`, the customer question, the last `HistoryTurns` history turns, the KB snippet text and the vision findings text (the model's description of the screenshot) are sent to TypeSafe. Code-graph snippets are sent only when `Verification:Jev:IncludeCode` is `true`. With `GroundednessPerSentence` on, the draft text is sent as well. Confirm the data-processing review covers all of this before you set a key in production.
+
+**Telemetry**:
+
+- Logs: `VerifierJevFallback` (warning, a Jev failure on one verifier call, logged with the exception type name and elapsed time only), `VerifierShadow` (information, one line per verifier call in `Shadow`), and `DrafterUnsupportedSentences` (information, the positions of sentences the groundedness check flagged, never their text).
+- Span tags: `verify.source` (the judge that decided: `llm`, `jev` or `llm-fallback`), `verify.kept`, `verify.dropped`, `verify.top_score`, `verify.coverage`, and `drafter.unsupported_sentences`.
+- Persistence: the assistant message stores `BranchRelevance`, the top score per branch under `kb`, `code` and `vision`. It is set only when a score-producing judge ran, so it is null on the `Llm` path.
+
+**Rollout**:
+
+1. Ship with `Judge` at `Llm`. This changes no behaviour. Run the findings relevance eval (`dotnet run --project backend/SupportForge.Evals`) for the LLM baseline.
+2. With a Jev key, the same eval also runs the Jev judge. Set `MinRelevance` from the threshold table (0.3, 0.5 and 0.7 are reported): choose the highest threshold that keeps per-snippet recall at or above the LLM judge's while improving precision.
+3. Run `Shadow` for at least a week. Review how often the two judges agree, how often Jev keeps more than one snippet, and whether Jev drops a snippet the LLM picked. Hand-review those drops against feedback.
+4. Switch `Judge` to `Jev`. Leave `Jev:IncludeCode` off until the data-processing review covers source identifiers.
+5. Turn on `GroundednessPerSentence` last, and only after a separate review of the sentences it flags. Shadow does not judge groundedness per sentence, so start that review on a sample of Jev-mode traffic.
+
+See [the plan](../plans/2026-10-16-002-feat-jev-intent-classification-plan.md) (U12 to U14) for the design.
+
 ## Onboarding a new project
 1. Open the Admin page (`/admin`).
 2. Enter a unique Project ID (lowercase, no spaces — used directly as a vector collection prefix) and a display Name.

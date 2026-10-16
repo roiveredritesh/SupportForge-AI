@@ -8,14 +8,19 @@ public sealed class CodeAnalyzerVerifier : IAgent
 {
     // U11: the judge sits behind IFindingsJudge. LlmFindingsJudge holds this verifier's code-graph judge prompt.
     private readonly IFindingsJudge _judge;
+    // U12: Verification:MinRelevance and PartialCoverageBelow drive the score policy below.
+    private readonly VerificationOptions _options;
     private readonly ILogger<CodeAnalyzerVerifier> _logger;
     public string Name => "CodeAnalyzerVerifier";
 
-    public CodeAnalyzerVerifier(IFindingsJudge judge, ILogger<CodeAnalyzerVerifier> logger)
+    public CodeAnalyzerVerifier(IFindingsJudge judge, VerificationOptions options, ILogger<CodeAnalyzerVerifier> logger)
     {
         _judge = judge;
+        _options = options;
         _logger = logger;
     }
+
+    public CodeAnalyzerVerifier(IFindingsJudge judge, ILogger<CodeAnalyzerVerifier> logger) : this(judge, new VerificationOptions(), logger) { }
 
     // U11: existing call shape. Wraps the client in the LLM judge, which is exactly what this verifier did before.
     public CodeAnalyzerVerifier(ILlmChatClient llm, ILogger<CodeAnalyzerVerifier> logger) : this(new LlmFindingsJudge(llm), logger) { }
@@ -48,12 +53,19 @@ public sealed class CodeAnalyzerVerifier : IAgent
                 // the whole branch when only #1 happens to miss.
                 var judgement = await _judge.JudgeSnippetsAsync(context, FindingsKind.Code, context.CodeSnippets, ct);
                 context.AddTokens(Name, judgement.TokensUsed);
-                // U11: score-based pruning arrives with the Jev judge (U12); until then BestIndex alone drives the verdict.
                 v.Source = judgement.Source;
                 v.Scores = judgement.Scores;
                 v.Coverage = judgement.Coverage;
-                if (judgement.BestIndex is int idx)
+                // U13: coverage is per attempt, so a retry never inherits the previous attempt's flag.
+                v.CoverageIsPartial = judgement.Coverage is double coverage && coverage < _options.PartialCoverageBelow;
+                if (judgement.Scores is { } scores)
                 {
+                    // U12 (R15): per-snippet scores decide which snippets reach the Drafter.
+                    ApplyScores(v, context.CodeSnippets, scores);
+                }
+                else if (judgement.BestIndex is int idx)
+                {
+                    // U11: the LLM judge reports only BestIndex, so the promote-and-keep path stays byte-for-byte as before.
                     Promote(context.CodeSnippets, idx);
                     v.Status = VerificationStatus.Passed;
                 }
@@ -61,6 +73,12 @@ public sealed class CodeAnalyzerVerifier : IAgent
                 {
                     Fail(v, "LLM judge found no retrieved code snippet relevant to the query.");
                 }
+
+                // U14: span tags carry labels and scores only, never snippet text.
+                var activity = Activity.Current;
+                activity?.SetTag("verify.source", v.Source);
+                if (v.Scores is { Count: > 0 } tagScores) activity?.SetTag("verify.top_score", tagScores.Max());
+                if (v.Coverage is double tagCoverage) activity?.SetTag("verify.coverage", tagCoverage);
             }
 
             if (v.Status == VerificationStatus.FailedRetrying)
@@ -94,5 +112,30 @@ public sealed class CodeAnalyzerVerifier : IAgent
         var picked = snippets[index];
         snippets.RemoveAt(index);
         snippets.Insert(0, picked);
+    }
+
+    // U12 (R15): keep every snippet scoring at or above MinRelevance, best first (ties keep retrieval order), and drop the rest.
+    // Scores beyond snippets.Count are ignored, so a judge that returns extra entries cannot keep a snippet that does not exist.
+    private void ApplyScores(VerificationResult v, List<string> snippets, IReadOnlyList<double> scores)
+    {
+        var kept = Enumerable.Range(0, Math.Min(scores.Count, snippets.Count))
+            .Where(i => scores[i] >= _options.MinRelevance)
+            .OrderByDescending(i => scores[i])
+            .ToList();
+
+        // U14: counts only.
+        Activity.Current?.SetTag("verify.kept", kept.Count);
+        Activity.Current?.SetTag("verify.dropped", snippets.Count - kept.Count);
+
+        if (kept.Count == 0)
+        {
+            Fail(v, "Judge scored no retrieved snippet at or above Verification:MinRelevance.");
+            return;
+        }
+
+        var keptSnippets = kept.Select(i => snippets[i]).ToList();
+        snippets.Clear();
+        snippets.AddRange(keptSnippets);
+        v.Status = VerificationStatus.Passed;
     }
 }

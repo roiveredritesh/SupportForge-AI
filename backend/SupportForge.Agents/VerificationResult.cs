@@ -14,4 +14,7 @@ public sealed class VerificationResult
     public IReadOnlyList<double>? Scores { get; set; }
     public double? Coverage { get; set; }
     public string Source { get; set; } = "";
+
+    // U13: set by the KB/Code verifiers when Coverage is below Verification:PartialCoverageBelow. BuildUserPrompt reads it.
+    public bool CoverageIsPartial { get; set; }
 }

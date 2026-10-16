@@ -38,4 +38,9 @@ public sealed class ChatMessage
     public string? Intent { get; init; }
     public double? IntentConfidence { get; init; }
     public string? IntentSource { get; init; }
+
+    // U14 (JEV findings validation plan): the top relevance score each branch's judge reported for this turn, keyed "kb", "code"
+    // and "vision". Only score-producing judges (Jev) fill it, so it is null on the LLM-only path, and on turns saved before this
+    // field existed. Stored so feedback can later be correlated with relevance scores.
+    public IReadOnlyDictionary<string, double>? BranchRelevance { get; init; }
 }
