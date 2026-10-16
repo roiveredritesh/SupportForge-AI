@@ -40,6 +40,7 @@ SupportForge AI helps support teams answer customer questions about product feat
 - **Vector store abstraction** (`IVectorStoreService`): Chroma locally, Pinecone for production.
 - **React web app**: real-time streaming answers over SignalR, dark mode, and a settings area for projects, connected apps, employees, feedback and token usage.
 - **Observability**: OpenTelemetry tracing, optional Azure Application Insights export, health checks, and API rate limiting.
+- **Input guard** for prompt injection and jailbreak attempts, screened before intent classification. Off by default. Currently heuristic-only, so it can flag turns but not block them until the Jev client lands. See the [configuration guide](docs/deployment/configuration-guide.md#input-guard-prompt-injection-and-jailbreak).
 - **Eval harness** (`SupportForge.Evals`) for validating judge and classifier quality before changing models.
 
 ## How it works
@@ -219,6 +220,7 @@ Optional settings:
 | `ConfluenceWebhook:Secret` | Shared secret for the Confluence webhook. Until set, the endpoint returns 503. |
 | `Freshness:ScheduledSyncIntervalHours` | Fallback re-sync interval for non-webhook KB sources |
 | `Drafter:GroundednessCheckEnabled` | Extra LLM-judge check on draft claims (off by default) |
+| `Guard:Mode` (and the rest of `Guard`) | Input guard for prompt injection and jailbreaks: `Off` (default), `Shadow` or `Enforce`. Heuristic-only until the Jev client lands, so it can flag but not block. See the configuration guide. |
 | `RateLimiting:PermitLimit` / `WindowSeconds` | API rate limiting |
 | `ApplicationInsights:ConnectionString` | Optional Azure Monitor export |
 
@@ -280,6 +282,7 @@ SupportForge is under active development. Before you deploy it, be aware that:
 - The ingestion queue is in-process and in-memory, so it isn't persisted and doesn't scale across instances.
 - Projects, feedback and token usage are stored in JSON files, not a database.
 - Slack/Teams integration is on the roadmap but not available yet.
+- The input guard is heuristic-only until the Jev client is wired in, so in every mode it can flag turns but never block them.
 
 See the [gap analysis](docs/architecture/2026-08-06-002-gap-analysis.md) for more detail. Some of the older docs predate recent changes, so check the code if something seems out of sync.
 

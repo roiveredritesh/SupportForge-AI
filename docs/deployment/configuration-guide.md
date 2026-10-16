@@ -36,6 +36,93 @@ Example: Anthropic for chat/vision with NVIDIA NIM for embeddings —
 
 Code Q&A is backed by a Neo4j graph, scoped per project via the `projectId` node property. Configure the connection under `Neo4j` (`Uri`, `User`, `Password`, `Database`). `GraphImportJob` loads each repo's code graph into it; `GraphDbQueryTool` queries it over a pooled `Neo4j.Driver` connection — no external CLI or per-repo subprocess involved.
 
+## Input guard (prompt injection and jailbreak)
+
+The input guard screens each chat turn for prompt injection and jailbreak attempts. It runs in `ChatController` on both `/api/chat/query` and `/api/chat/query/stream`, before intent classification and before any LLM call. It screens the customer's message and recent customer history.
+
+A blocked turn gets a fixed refusal ("I can only help with questions about this product. Could you rephrase what you need help with?"). It costs no LLM tokens, and the assistant message is stored with `GuardVerdict` set to `blocked`. Blocked turns are dropped from later conversation recaps, so one blocked attempt does not carry into later turns or into the guard's own screening of them.
+
+### Configuration
+
+The guard reads the `Guard` section of the configuration. Each key can be overridden with an environment variable, replacing `:` with `__`, for example `Guard__Mode=Shadow`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Guard:Mode` | `Off` | `Off`, `Shadow` or `Enforce`. See Modes below. |
+| `Guard:FailClosed` | `false` | When `true` and `Mode` is `Enforce`, a turn is refused if the Jev check fails. Has no effect in other modes. |
+| `Guard:CombineWithTriage` | `false` | Reserved. Not read yet. |
+| `Guard:DefaultBlockThreshold` | `0.9` | Jev score at or above which a block-class signal fires, for signals with no entry in `Thresholds`. |
+| `Guard:DefaultReviewThreshold` | `0.8` | Same, for review-class signals. |
+| `Guard:Thresholds` | `{}` | Per-signal thresholds keyed by signal name, for example `"jailbreak_roleplay": 0.95`. These override the defaults above. Used for Jev scores only. |
+| `Guard:IndirectThreshold` | `0.8` | Reserved for screening indirect injection. Not read yet. |
+| `Guard:HistoryTurns` | `4` | How much recent history is screened. The heuristic reads the last N customer messages. The Jev request is trimmed to the last N history entries. The recap holds at most 6 messages, so larger values have no further effect. |
+| `Guard:MaxStateChars` | `8000` | Reserved for the Jev request. Not read yet. |
+| `Guard:JevTimeout` | `00:00:01.5` | Time limit for the Jev check. A slower check counts as a failure. |
+| `Guard:RepeatBlockWindow` | `00:10:00` | Window in which a user's blocks are counted. |
+| `Guard:RepeatBlockCount` | `3` | Number of Jev-decided blocks in the window that triggers the repeat-offender log entry. Logging only. No user is suspended or rate-limited. |
+
+### Modes
+
+- `Off` (default): the guard does nothing. Nothing is scored, logged or stored.
+- `Shadow`: each turn is scored and logged. A turn is never blocked. Turns that would be blocked are recorded as flagged.
+- `Enforce`: a turn is blocked when Jev scores a block-class signal at or above its threshold. Review-class signals only flag.
+
+### Signals
+
+The guard scores six signals. A signal fires when its score is at or above its threshold.
+
+| Signal | Class | What it covers | Heuristic |
+|---|---|---|---|
+| `override_instructions` | block | The message tries to make the assistant ignore, override or replace its instructions or role. | Yes |
+| `extract_system_prompt` | block | The message asks for hidden instructions, the system prompt or internal configuration. | Yes |
+| `jailbreak_roleplay` | block | Role-play, hypotheticals, fictional framing or encoded text used to break the rules. | Yes |
+| `cross_tenant_probe` | block | The message asks for data belonging to other customers, organisations or projects. | Yes |
+| `extract_raw_code` | review | The message asks for raw source code or file contents to be output verbatim. | No |
+| `obfuscated_payload` | review | The message contains encoded or obfuscated text that hides its meaning. | Yes |
+
+The heuristic is a fixed set of phrase patterns, applied after Unicode NFKC normalisation and removal of zero-width and bidirectional control characters. It also decodes base64 runs of 40 or more characters. If a run decodes to printable UTF-8, the decoded text is scanned too and `obfuscated_payload` fires. The phrase list favours precision over recall. It has no pattern for `extract_raw_code`, so that signal fires only from Jev.
+
+### Current limitation: heuristic-only
+
+The Jev client is not wired in yet. The guard therefore runs heuristic-only, and in every mode it can only flag a turn, never block one. Heuristic hits never block on their own. A startup warning is logged whenever `Guard:Mode` is not `Off`.
+
+### Fail-open
+
+If the Jev check errors or times out, the turn proceeds with verdict `unscreened`, and the existing defences still apply. Setting `FailClosed` to `true` in `Enforce` mode refuses the turn instead. A refusal caused by `FailClosed` is not counted toward the repeat-offender entry. Heuristic-only runs have no Jev check to fail, so they never return `unscreened`.
+
+### Logging and telemetry
+
+Log entries carry the user id, the project id, the signal names with their scores, and the source. They never contain message text or history.
+
+- `GuardBlocked` (warning): a turn was blocked.
+- `GuardFlagged` (information): a turn was flagged.
+- `GuardUnscreened` (information): the Jev check failed and the turn proceeded.
+- `GuardRepeatOffender` (warning): a user's blocks in the window reached `RepeatBlockCount`.
+
+A failed Jev check also logs a warning that names the fallback mode.
+
+When `Mode` is not `Off`, each screened turn runs in a `Guard` span with these tags:
+
+- `guard.verdict`: `allowed`, `flagged`, `blocked` or `unscreened`.
+- `guard.source`: `heuristic`, `jev`, `jev-failed` or `off`.
+- `guard.fired`: comma-separated names of the signals that fired.
+
+Whenever `Mode` is not `Off`, every turn's verdict (`allowed`, `flagged`, `blocked` or `unscreened`) and signal scores are stored on the assistant message as `GuardVerdict` and `GuardSignals`. The customer's message itself is not given those fields.
+
+### Rollout
+
+1. Keep `Guard:Mode` at `Off` until you are ready to observe.
+2. Set `Shadow`. Review the flagged turns, which are logged and stored with their verdict and signals.
+3. Set `Enforce` only after the guard eval shows 1% or fewer false blocks on hard negatives.
+
+Run the guard eval with `dotnet run --project backend/SupportForge.Evals`. The guard report (`=== Guard eval: ...`) is printed after the main eval report. Its fixtures are in `backend/SupportForge.Evals/Fixtures/guard-fixtures.json`. The guard report does not change the exit code. The whole harness also runs the LLM-based evals, so it needs a configured LLM provider.
+
+Until the Jev guard is run through the eval, the false-block figure is 0% by construction, because heuristic-only runs never block. Use the false-flag figure to judge the heuristic. The 1% false-block bar applies to the Jev-backed run.
+
+### Data note
+
+Once the Jev client is enabled, customer messages and recent history are sent to TypeSafe. Confirm the data-processing terms with TypeSafe before turning it on.
+
 ## Onboarding a new project
 1. Open the Admin page (`/admin`).
 2. Enter a unique Project ID (lowercase, no spaces — used directly as a vector collection prefix) and a display Name.

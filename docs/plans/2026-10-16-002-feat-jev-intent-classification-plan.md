@@ -863,3 +863,19 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
 7. **Data egress for Phase 2**: KB snippet text (customer documentation) and, optionally, code-graph identifiers would go to TypeSafe, which is a larger disclosure than triage's query text. This needs explicit sign-off, and possibly a per-org opt-out later.
 8. **Does TypeSafe recommend Jev for adversarial / security classification?** Have they evaluated robustness against adaptive attacks, and do they publish guidance or an official "prompt-injection" pattern? This affects how much weight the block-class thresholds can carry.
 9. **Pricing check for the per-turn guard**: confirm the official per-token price and any per-request minimum. Shadow and Enforce send every turn, and U18/U19 add questions to existing requests rather than new requests.
+
+## Implementation status
+
+- **Decided**: the fail-open default (`FailClosed=false`) is confirmed by the product owner. Guard work goes to the `feature/jev-integration` branch, never `master`.
+- **Done in the first guard round** (PR roiveredritesh/SupportForge-AI#39):
+  - U15: guard eval, with attack corpus and hard negatives.
+  - U16: heuristic guard, input normaliser, policy and `GuardService`. The Jev slot is left empty.
+  - U17: controller gate, sequential and before intent classification. Also persistence, recap exclusion and config.
+- **Deviations from the plan text**:
+  - The heuristic layer ships without the Jev guard. Shadow and Enforce are therefore flag-only, and the plan's startup *error* for a missing Jev key is a startup *warning* instead.
+  - Blocked turns are removed from later recaps. This is new and is not in the original U17 text.
+  - The "developer mode" phrase was dropped from the heuristic, because it is a common legitimate question.
+- **Remaining for the guard phase**:
+  - U4: Jev client and a Jev-backed `IInputGuard`. Blocked on reading the official API reference.
+  - U20: thresholds calibrated from a Jev eval run, then the Shadow rollout.
+  - Deferred with their phases: U18, U19 and `CombineWithTriage`.
