@@ -182,11 +182,21 @@ if (triageOptions.Classifier != TriageClassifierMode.Llm && !jevConfigured)
 // U12/U14 (JEV findings validation plan): Verification:Judge picks the findings judge behind the KB, code and vision verifiers and
 // the Drafter's groundedness check. Llm (the default) needs no Jev key. Jev and Shadow need one, so a missing key fails at startup.
 var verificationOptions = builder.Configuration.GetSection("Verification").Get<VerificationOptions>() ?? new VerificationOptions();
+// U18 (indirect injection, R26): one drop threshold is shared by the guard and the findings verifiers, so it is read from the Guard section.
+verificationOptions.IndirectThreshold = builder.Configuration.GetValue("Guard:IndirectThreshold", verificationOptions.IndirectThreshold);
 builder.Services.AddSingleton(verificationOptions);
 if (verificationOptions.Judge != FindingsJudgeMode.Llm && !jevConfigured)
 {
     throw new InvalidOperationException(
         $"Verification:Judge is {verificationOptions.Judge} but Jev is not configured (Jev:ApiKey is empty). Set Jev:ApiKey or use Verification:Judge=Llm.");
+}
+// U17 / KTD 13: bound once, here, because the output guard singleton (U19) and the guard registrations below both read it.
+// Guard:CombineWithTriage shares one Jev request between the guard and triage, so it needs Triage:Classifier=Jev and a Jev key.
+var guardOptions = builder.Configuration.GetSection("Guard").Get<GuardOptions>() ?? new GuardOptions();
+if (guardOptions.CombineWithTriage && (triageOptions.Classifier != TriageClassifierMode.Jev || !jevConfigured))
+{
+    throw new InvalidOperationException(
+        $"Guard:CombineWithTriage needs Triage:Classifier=Jev and a Jev key (Jev:ApiKey). Triage:Classifier is {triageOptions.Classifier} and Jev is {(jevConfigured ? "configured" : "not configured")}. Set both, or set Guard:CombineWithTriage=false.");
 }
 // U12: the LLM judge always answers, and the Jev judge sits behind FindingsJudgeSelector, which only consults it in the modes that
 // need it. Declared here, before the verifier and Drafter registrations below that call it.
@@ -240,7 +250,12 @@ builder.Services.AddScoped<DrafterAgent>(sp =>
             sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.FallbackTierKey),
             sp.GetRequiredService<ILogger<FallbackLlmChatClient>>())
         : sp.GetRequiredService<ILlmChatClient>();
-    return new DrafterAgent(llm, sp.GetRequiredService<ILogger<DrafterAgent>>(), groundednessCheckEnabled, judge: FindingsJudge(sp, llm));
+    return new DrafterAgent(
+        llm,
+        sp.GetRequiredService<ILogger<DrafterAgent>>(),
+        groundednessCheckEnabled,
+        judge: FindingsJudge(sp, llm),
+        outputGuard: sp.GetRequiredService<OutputGuardService>());
 });
 builder.Services.AddScoped<KbSearchTool>();
 builder.Services.AddScoped<VisionAnalysisTool>();
@@ -257,16 +272,34 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<DrafterAgent>()));
 // U17: input guard, screened by ChatController before the pipeline runs. Off by default (Guard:Mode in
 // appsettings.json), so these registrations cost nothing until a mode is set.
-var guardOptions = builder.Configuration.GetSection("Guard").Get<GuardOptions>() ?? new GuardOptions();
 builder.Services.AddSingleton(guardOptions);
 builder.Services.AddSingleton(new GuardRepeatTracker(TimeProvider.System));
 builder.Services.AddSingleton(sp => new HeuristicInputGuard(sp.GetRequiredService<GuardOptions>()));
 // U16: the Jev guard is wired only when Jev is configured. Without it the guard runs heuristic-only,
-// which is flag-only by design.
+// which is flag-only by design. U17 / KTD 13: with Guard:CombineWithTriage, the same Jev request also carries the triage answer,
+// so TurnAssessor replaces JevInputGuard.
+IInputGuard? JevTurnGuard(IServiceProvider sp)
+{
+    if (!jevConfigured) return null;
+
+    var jev = sp.GetRequiredService<IJevClient>();
+    if (guardOptions.CombineWithTriage)
+    {
+        return new TurnAssessor(jev, guardOptions, triageOptions);
+    }
+
+    return new JevInputGuard(jev, guardOptions);
+}
 builder.Services.AddSingleton(sp => new GuardService(
     sp.GetRequiredService<GuardOptions>(), sp.GetRequiredService<HeuristicInputGuard>(),
-    jevConfigured ? new JevInputGuard(sp.GetRequiredService<IJevClient>(), sp.GetRequiredService<GuardOptions>()) : null,
+    JevTurnGuard(sp),
     sp.GetRequiredService<GuardRepeatTracker>(), sp.GetRequiredService<ILogger<GuardService>>()));
+// U19 (KTD 15 / R27): the output guard checks every final draft for disclosure and for obeying retrieved content. One singleton serves
+// DrafterAgent and ChatController's streaming path, so the two can't drift. Off by default, through Guard:Mode.
+builder.Services.AddSingleton(sp => new OutputGuardService(
+    guardOptions,
+    jevConfigured ? new JevOutputGuard(sp.GetRequiredService<IJevClient>(), guardOptions, verificationOptions.Jev.IncludeCode) : null,
+    sp.GetRequiredService<ILogger<OutputGuardService>>()));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddSingleton<SupportForge.Agents.Tools.IIngestionActivity>(sp => sp.GetRequiredService<IngestionQueue>());
 builder.Services.AddHostedService<IngestionBackgroundService>();

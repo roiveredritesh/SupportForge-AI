@@ -40,7 +40,7 @@ SupportForge AI helps support teams answer customer questions about product feat
 - **Vector store abstraction** (`IVectorStoreService`): Chroma locally, Pinecone for production.
 - **React web app**: real-time streaming answers over SignalR, dark mode, and a settings area for projects, connected apps, employees, feedback and token usage.
 - **Observability**: OpenTelemetry tracing, optional Azure Application Insights export, health checks, and API rate limiting.
-- **Input guard** for prompt injection and jailbreak attempts, screened before intent classification. Off by default. It screens with a heuristic pass, and with Jev when `Jev:ApiKey` is set. Without a key it can flag turns but not block them. See the [configuration guide](docs/deployment/configuration-guide.md#input-guard-prompt-injection-and-jailbreak).
+- **Prompt-injection & jailbreak guard** (optional, Jev-backed). It screens each turn before intent classification, and it also screens KB snippets and vision findings for instructions aimed at the assistant (indirect injection). A separate output guard checks the final draft for disclosure of internal instructions. All of it is off by default (`Guard:Mode`). It uses a heuristic pass, and Jev when `Jev:ApiKey` is set. Without a key it can flag turns but not block them. `Guard:CombineWithTriage` can share one Jev request between the guard and triage. The guard is a detection layer, not a guarantee. See [SECURITY.md](SECURITY.md) and the [configuration guide](docs/deployment/configuration-guide.md#input-guard-prompt-injection-and-jailbreak).
 - **Jev intent classification** (optional): `Triage:Classifier` selects `Llm` (the default), `Jev`, or `Shadow`, which runs Jev alongside the LLM so the two can be compared. Off by default, since it needs a TypeSafe key. See the [configuration guide](docs/deployment/configuration-guide.md#triage-classifier).
 - **Jev findings validation** (optional): `Verification:Judge` selects `Llm` (the default), `Jev`, or `Shadow` for the judge that checks whether retrieved KB snippets and vision findings answer the question. Jev scores each snippet, so weak matches are dropped. Off by default, since it needs a TypeSafe key. See the [configuration guide](docs/deployment/configuration-guide.md#findings-verification-verification).
 - **Eval harness** (`SupportForge.Evals`) for validating judge and classifier quality before changing models.
@@ -222,7 +222,9 @@ Optional settings:
 | `ConfluenceWebhook:Secret` | Shared secret for the Confluence webhook. Until set, the endpoint returns 503. |
 | `Freshness:ScheduledSyncIntervalHours` | Fallback re-sync interval for non-webhook KB sources |
 | `Drafter:GroundednessCheckEnabled` | Extra LLM-judge check on draft claims (off by default) |
-| `Guard:Mode` (and the rest of `Guard`) | Input guard for prompt injection and jailbreaks: `Off` (default), `Shadow` or `Enforce`. Uses Jev when `Jev:ApiKey` is set. Without a key it is heuristic-only, so it can flag but not block. See the configuration guide. |
+| `Guard:Mode` (and the rest of `Guard`) | Input guard for prompt injection and jailbreaks, and the output guard for the final draft: `Off` (default), `Shadow` or `Enforce`. Uses Jev when `Jev:ApiKey` is set. Without a key it is heuristic-only, so it can flag but not block. See the configuration guide. |
+| `Guard:CombineWithTriage` | Off by default. When `true`, the guard and the triage intent share one Jev request, so an allowed turn makes one Jev call instead of two. Needs `Triage:Classifier=Jev` and `Jev:ApiKey`, or startup fails. |
+| `Guard:IndirectThreshold` | Drops a KB snippet or vision finding that Jev scores at or above this as instructions to an AI (default `0.8`). Applies when `Verification:Judge` is `Jev`. |
 | `Triage:Classifier` | Intent classifier: `Llm` (default), `Jev`, or `Shadow` (Jev runs alongside the LLM and is logged, but the LLM answer is used). `Jev` and `Shadow` need `Jev:ApiKey`. See the configuration guide. |
 | `Verification:Judge` | Findings judge for the KB and vision verifiers (and the Drafter's groundedness check): `Llm` (default), `Jev`, or `Shadow`. `Jev` and `Shadow` need `Jev:ApiKey`, and send the question, recent history and KB snippet text to TypeSafe. See the configuration guide. |
 | `Verification:Jev:IncludeCode` | Also sends code-graph snippets (customer identifiers and file paths) to Jev. Off by default. Matters only when `Verification:Judge` is `Jev` or `Shadow`. |
@@ -277,6 +279,7 @@ The `Dockerfile` builds the API as a container image. The frontend is a static b
 | [System design (HLD)](docs/architecture/2026-08-06-001-hld-system-design.md) | Current architecture |
 | [Agentic pipeline](docs/agentic-pipeline.md) | How the Agent Framework workflow is built (the graph shape is partly outdated, so use the HLD for topology) |
 | [Configuration guide](docs/deployment/configuration-guide.md) | All configuration options |
+| [Security](SECURITY.md) | The layered prompt-injection defences, and what the guard does not guarantee |
 | [Gap analysis](docs/architecture/2026-08-06-002-gap-analysis.md) | Known gaps and roadmap |
 
 ## Known limitations

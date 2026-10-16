@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using SupportForge.Agents.Guard;
 using SupportForge.Agents.Verification;
 
 namespace SupportForge.Agents;
@@ -124,14 +125,18 @@ public sealed partial class DrafterAgent : IAgent
     // Drafter:GroundednessCheckEnabled once validated with the eval harness against real answers,
     // per the design doc's explicit caution about this specific check.
     private readonly bool _groundednessCheckEnabled;
+    // U19 (R27): optional, so existing call sites are unchanged. Null means the draft is not screened for output disclosure.
+    private readonly OutputGuardService? _outputGuard;
     public string Name => "Drafter";
 
-    public DrafterAgent(ILlmChatClient llm, ILogger<DrafterAgent> logger, bool groundednessCheckEnabled = false, IFindingsJudge? judge = null)
+    public DrafterAgent(ILlmChatClient llm, ILogger<DrafterAgent> logger, bool groundednessCheckEnabled = false, IFindingsJudge? judge = null,
+                        OutputGuardService? outputGuard = null)
     {
         _llm = llm;
         _logger = logger;
         _groundednessCheckEnabled = groundednessCheckEnabled;
         _judge = judge ?? new LlmFindingsJudge(llm);
+        _outputGuard = outputGuard;
     }
 
     // R9 (JEV intent classification plan): only a "medium" band reading gets the line asking the model to restate how it
@@ -269,8 +274,21 @@ public sealed partial class DrafterAgent : IAgent
             context.Draft = leaked ? LeakFallback : draft;
             context.Confidence = leaked ? 0.0 : ComputeConfidence(context);
 
+            // U19 (R27): screens the draft that LooksLikeLeak let through. A Jev failure is fail-open inside the service.
+            var outputReplaced = false;
+            if (!leaked && _outputGuard is not null)
+            {
+                var screening = await _outputGuard.ScreenAsync(context, draft, ct);
+                if (screening.Replace)
+                {
+                    context.Draft = OutputGuardService.Apply(screening, draft);
+                    context.Confidence = 0.0;
+                    outputReplaced = true;
+                }
+            }
+
             var grounded = true;
-            if (!leaked && _groundednessCheckEnabled)
+            if (!leaked && !outputReplaced && _groundednessCheckEnabled)
             {
                 var judgement = await _judge.JudgeGroundednessAsync(context, draft, ct);
                 context.AddTokens($"{Name}.Groundedness", judgement.TokensUsed);

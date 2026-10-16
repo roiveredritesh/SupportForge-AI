@@ -41,7 +41,13 @@ public sealed class JevIntentClassifier : IIntentClassifier
         // `labels` is ignored. The Choice is fixed to TriageLabels.Concrete, so the probabilities always match the
         // policy's label set, and a caller can't change the question's options (U5). `labels` exists only for IIntentClassifier.
         var result = await _jev.EvaluateAsync(BuildState(context), BuildQuestions(), ct);
+        return ReadDecision(result);
+    }
 
+    // Maps one Jev answer to an IntentDecision. Internal so TurnAssessor reads the combined request's triage answers with the same rules (U17).
+    // It throws when the answer is missing or malformed, and callers decide what that means: ClassifyAsync lets it propagate.
+    internal static IntentDecision ReadDecision(JevResult result)
+    {
         // The typed accessors throw when an answer is missing or of the wrong type. That is a malformed response,
         // so it propagates and TriageAgent falls back to the LLM classifier (R6).
         var choice = result.Choice(IntentQuestion);
@@ -141,7 +147,8 @@ public sealed class JevIntentClassifier : IIntentClassifier
         string? productVersion) =>
         JsonSerializer.Serialize(Shape(query, history, hasScreenshot, productVersion), MeasureOptions).Length;
 
-    private static IReadOnlyDictionary<string, JevQuestion> BuildQuestions()
+    // Internal so TurnAssessor can add these questions to the combined guard request (U17). The names don't collide with the guard's.
+    internal static IReadOnlyDictionary<string, JevQuestion> BuildQuestions()
     {
         var criteria = new Dictionary<string, string?>();
         foreach (var label in TriageLabels.Concrete)

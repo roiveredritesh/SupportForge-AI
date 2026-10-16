@@ -33,6 +33,9 @@ public sealed class AgentContext
     // U8 (JEV intent classification plan): "high" or "medium" for a Jev-decided, non-unclear intent, otherwise null.
     // It is null whenever the acting classifier is the LLM ("llm" or "llm-fallback"), so LLM-mode prompts stay unchanged.
     public string? IntentConfidenceBand { get; set; }
+    // U17 / KTD 13: the triage answer from the guard's combined Jev request, set by ChatController when the turn is not blocked.
+    // TriageAgent uses it as the Jev decision in Jev mode, with no second classifier call. Llm and Shadow modes ignore it.
+    public IntentDecision? PrecomputedIntent { get; set; }
     // U7 secondary-intent routing inputs. Off by default; nothing turns them on until the Jev classifier lands.
     public bool SecondaryIntentEnabled { get; set; }
     public double SecondaryMinProbability { get; set; } = 0.35;

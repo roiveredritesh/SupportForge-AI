@@ -40,6 +40,14 @@ Code Q&A is backed by a Neo4j graph, scoped per project via the `projectId` node
 
 The input guard screens each chat turn for prompt injection and jailbreak attempts. It runs in `ChatController` on both `/api/chat/query` and `/api/chat/query/stream`, before intent classification and before any LLM call. It screens the customer's message and recent customer history.
 
+Three further layers sit behind it, all under the same `Guard` section. Each is described below:
+
+- **Combined request** (`Guard:CombineWithTriage`): the guard and the triage intent share one Jev request. Optional.
+- **Indirect injection** (`Guard:IndirectThreshold`): KB snippets and vision findings that look like instructions to an AI are dropped before the Drafter sees them. It applies when `Verification:Judge` is `Jev`.
+- **Output guard** (`Guard:Mode`): the final draft is checked for disclosure of internal instructions and for following injected content. Replaced with a safe message in `Enforce`.
+
+The guard is a detection layer, not a guarantee. The structural defences described in [SECURITY.md](../../SECURITY.md) stay in place in every mode.
+
 A blocked turn gets a fixed refusal ("I can only help with questions about this product. Could you rephrase what you need help with?"). It costs no LLM tokens, and the assistant message is stored with `GuardVerdict` set to `blocked`. Blocked turns are dropped from later conversation recaps, so one blocked attempt does not carry into later turns or into the guard's own screening of them.
 
 ### Configuration
@@ -50,13 +58,13 @@ The guard reads the `Guard` section of the configuration. Each key can be overri
 |---|---|---|
 | `Guard:Mode` | `Off` | `Off`, `Shadow` or `Enforce`. See Modes below. |
 | `Guard:FailClosed` | `false` | When `true` and `Mode` is `Enforce`, a turn is refused if the Jev check fails. Has no effect in other modes. |
-| `Guard:CombineWithTriage` | `false` | Reserved. Not read yet. |
+| `Guard:CombineWithTriage` | `false` | When `true`, the guard and the triage intent share one Jev request, so an allowed turn makes one Jev call instead of two. It needs `Triage:Classifier` set to `Jev` and `Jev:ApiKey`, or startup fails. See [Combined request](#combined-guard-and-triage-request). |
 | `Guard:DefaultBlockThreshold` | `0.9` | Jev score at or above which a block-class signal fires, for signals with no entry in `Thresholds`. |
 | `Guard:DefaultReviewThreshold` | `0.8` | Same, for review-class signals. |
-| `Guard:Thresholds` | `{}` | Per-signal thresholds keyed by signal name, for example `"jailbreak_roleplay": 0.95`. These override the defaults above. Used for Jev scores only. |
-| `Guard:IndirectThreshold` | `0.8` | Reserved for screening indirect injection. Not read yet. |
+| `Guard:Thresholds` | `{}` | Per-signal thresholds keyed by signal name, for example `"jailbreak_roleplay": 0.95`. These override the defaults above. The output guard's signals `output_disclosure` and `output_follows_injected` are keyed the same way. Used for Jev scores only. The shipped `appsettings.json` lists placeholder values for every signal. |
+| `Guard:IndirectThreshold` | `0.8` | A KB snippet or vision finding that Jev scores at or above this as containing instructions to an AI is dropped before the Drafter sees it. Read only when `Verification:Judge` is `Jev`. See [Indirect injection](#indirect-injection). |
 | `Guard:HistoryTurns` | `4` | How much recent history is screened. The heuristic reads the last N customer messages. The Jev request is trimmed to the last N history entries. The recap holds at most 6 messages, so larger values have no further effect. |
-| `Guard:MaxStateChars` | `8000` | Reserved for the Jev request. Not read yet. |
+| `Guard:MaxStateChars` | `8000` | Upper bound on the text in the guard's Jev request. Oldest history is dropped first, then the message is cut from its start. The output guard uses the same budget for its own request. |
 | `Guard:JevTimeout` | `00:00:01.5` | Time limit for the Jev check. A slower check counts as a failure. |
 | `Guard:RepeatBlockWindow` | `00:10:00` | Window in which a user's blocks are counted. |
 | `Guard:RepeatBlockCount` | `3` | Number of Jev-decided blocks in the window that triggers the repeat-offender log entry. Logging only. No user is suspended or rate-limited. |
@@ -90,18 +98,61 @@ When `Jev:ApiKey` is set, the guard also screens each turn with Jev, and `Enforc
 
 If the Jev check errors or times out, the turn proceeds with verdict `unscreened`, and the existing defences still apply. Setting `FailClosed` to `true` in `Enforce` mode refuses the turn instead. A refusal caused by `FailClosed` is not counted toward the repeat-offender entry. Heuristic-only runs have no Jev check to fail, so they never return `unscreened`.
 
+`FailClosed` applies to the input guard only. The output guard always fails open: if its Jev check fails, the draft is sent as it is, after the existing leak check.
+
+### Combined guard and triage request
+
+With `Guard:CombineWithTriage` set to `true`, the guard's Noul questions and the triage Choice and Noul questions go in one Jev request. The turn's guard verdict is still applied first:
+
+- A blocked turn discards the triage answer. Triage never runs for it.
+- An allowed or flagged turn uses the triage answer from the same request. `TriageAgent` makes no second Jev call. The triage tokens are still counted under `Triage`.
+- If the triage part of the answer is missing or malformed, the guard still uses its own answer, and `TriageAgent` runs its normal Jev call with its LLM fallback.
+- If the guard's own answer is missing or malformed, the guard fails open as usual, and triage runs its normal path.
+
+The combined request runs under `Guard:JevTimeout`, not `Triage:JevTimeout`. The triage answer is used only when it arrives inside the guard's budget. The combined request is valid only with `Triage:Classifier` set to `Jev`. Any other combination fails at startup. Turn it on after Shadow data shows the block rate and Jev's p95 latency, since it changes what each turn's single request contains.
+
+### Indirect injection
+
+Retrieved content can carry instructions aimed at the assistant, for example text planted in a KB page, a web page, a repository or a screenshot. When `Verification:Judge` is `Jev`, the findings judge asks one more question per snippet and one for vision findings, in the same request as relevance. An item scored at or above `Guard:IndirectThreshold` is removed before relevance is applied, whatever its relevance score.
+
+- If every KB or code snippet is removed, the verifier fails through the normal retry path.
+- A flagged vision finding is a vision failure.
+- Each drop logs `IndirectInjectionDropped` (warning) with the verifier name, the project id and the dropped snippet positions. The log has no text. The span carries `verify.injection_dropped`. Use the log to find the document that needs fixing.
+- The drop happens whenever Jev answers the judge, whatever `Guard:Mode` is set to, because removing content can only make an answer more conservative. A call that falls back to the LLM judge drops nothing, and neither does `Llm` or `Shadow`.
+
+### Output guard
+
+After the draft passes the existing leak check, the output guard asks Jev two questions about it in one request. One asks whether the answer reveals internal instructions, a system prompt, configuration, credentials or another customer's data. The other asks whether the answer follows instructions that came from retrieved content rather than from the customer.
+
+| Mode (`Guard:Mode`) | Behaviour |
+|---|---|
+| `Off` | No Jev call, no log, no span. |
+| `Shadow` | The draft is always sent. A score at or above its threshold logs `OutputGuardTriggered` (information). |
+| `Enforce` | If a score is at or above its threshold, the draft is replaced with the safe fallback message, which is the same text the code-leak check uses. Logs `OutputGuardTriggered` (warning). |
+
+- **Thresholds**: each signal uses `Guard:Thresholds` for `output_disclosure` or `output_follows_injected`, and `Guard:DefaultBlockThreshold` (0.9) otherwise. Set them from a Shadow review, not by guesswork.
+- **Fail-open**: a Jev error or timeout (`Guard:JevTimeout`) keeps the draft and logs `OutputGuardUnscreened` (warning). There is no `FailClosed` setting for the output guard.
+- **Both paths**: the blocking `/query` path and the streaming path share one check. The streaming path buffers the whole draft before it sends anything, so the check applies before the first word is sent.
+- **Tokens**: the output guard's Jev usage is recorded under `OutputGuard` in the turn's token total.
+- **Data sent**: the customer's question, the draft, the KB snippet text and the vision findings. Code snippets are sent only when `Verification:Jev:IncludeCode` is `true`, as for the findings judge.
+- **Rollout**: keep it in `Shadow` until the `OutputGuardTriggered` log has been reviewed for a few weeks. Only then consider `Enforce`.
+
 ### Logging and telemetry
 
-Log entries carry the user id, the project id, the signal names with their scores, and the source. They never contain message text or history.
+Log entries carry the user id, the project id, the signal names with their scores, and the source. They never contain message text, history, drafts or retrieved text.
 
 - `GuardBlocked` (warning): a turn was blocked.
 - `GuardFlagged` (information): a turn was flagged.
 - `GuardUnscreened` (information): the Jev check failed and the turn proceeded.
 - `GuardRepeatOffender` (warning): a user's blocks in the window reached `RepeatBlockCount`.
+- `OutputGuardTriggered` (information in `Shadow`, warning in `Enforce`): a draft score reached its threshold. Names and scores only.
+- `OutputGuardUnscreened` (warning): the output guard's Jev check failed, and the draft was sent.
+- `IndirectInjectionDropped` (warning): a snippet or vision finding was dropped as instructions to an AI. Carries the verifier name and the dropped positions. See [Indirect injection](#indirect-injection).
+- `TriagePrecomputed` (information): the triage answer came from the guard's combined request.
 
 A failed Jev check also logs a warning that names the fallback mode.
 
-When `Mode` is not `Off`, each screened turn runs in a `Guard` span with these tags:
+When `Mode` is not `Off`, each screened turn runs in a `Guard` span with these tags (the output guard adds `guard.output_fired` to the `OutputGuard` span):
 
 - `guard.verdict`: `allowed`, `flagged`, `blocked` or `unscreened`.
 - `guard.source`: `heuristic`, `jev`, `jev-failed` or `off`.
@@ -113,7 +164,9 @@ Whenever `Mode` is not `Off`, every turn's verdict (`allowed`, `flagged`, `block
 
 1. Keep `Guard:Mode` at `Off` until you are ready to observe.
 2. Set `Shadow`. Review the flagged turns, which are logged and stored with their verdict and signals.
-3. Set `Enforce` only after the guard eval shows 1% or fewer false blocks on hard negatives.
+3. Set `Enforce` only after the guard eval shows 1% or fewer false blocks on hard negatives. This applies to the input guard and to the output guard.
+4. Enable `CombineWithTriage` only after the Shadow data shows the block rate and Jev's latency. It needs `Triage:Classifier` at `Jev`.
+5. Threshold values in `appsettings.json` are placeholders. Replace them with the values from the guard eval (`Guard:Thresholds`), and record the report in the plan's implementation status before turning on `Enforce`.
 
 Run the guard eval with `dotnet run --project backend/SupportForge.Evals`. The guard report (`=== Guard eval: ...`) is printed after the main eval report. Its fixtures are in `backend/SupportForge.Evals/Fixtures/guard-fixtures.json`. The guard report does not change the exit code. The whole harness also runs the LLM-based evals, so it needs a configured LLM provider.
 
@@ -121,7 +174,7 @@ With no Jev key, the heuristic run's false-block figure is 0% by construction, b
 
 ### Data note
 
-Once `Jev:ApiKey` is set, customer messages and recent history are sent to TypeSafe. See [Jev (TypeSafe)](#jev-typesafe) for the full list. Confirm the data-processing terms with TypeSafe before turning it on.
+Once `Jev:ApiKey` is set, customer messages and recent history are sent to TypeSafe. With `Guard:Mode` at `Shadow` or `Enforce`, every final draft is sent as well, with the retrieved KB text and vision findings it was written from (see [Output guard](#output-guard)). See [Jev (TypeSafe)](#jev-typesafe) for the full list. Confirm the data-processing terms with TypeSafe before turning it on.
 
 ## Jev (TypeSafe)
 
@@ -137,7 +190,7 @@ Everything Jev-backed is off unless `Jev:ApiKey` is set. Without the key, triage
 | `Jev:Timeout` | `00:00:10` | Whole-request HTTP timeout. A backstop only: triage and the guard apply their own tighter time budgets. |
 | `Jev:MaxRetries` | `1` | Retries for 408, 429, 5xx and transport failures. Other errors (401, 403, 404, 422) are not retried. |
 
-Data note: turning Jev on sends customer data to TypeSafe. Triage sends the current message, the last `Triage:HistoryTurns` history turns, whether a screenshot is attached and the product version when one is given. The guard sends the current message, the last `Guard:HistoryTurns` turns and whether a screenshot is attached. Confirm TypeSafe's data-processing terms and retention before you set a key in production. This is a new sub-processor for customer messages.
+Data note: turning Jev on sends customer data to TypeSafe. Triage sends the current message, the last `Triage:HistoryTurns` history turns, whether a screenshot is attached and the product version when one is given. The guard sends the current message, the last `Guard:HistoryTurns` turns and whether a screenshot is attached. With `Guard:CombineWithTriage`, the guard's request also carries the product version and the triage questions. The output guard sends the question, the draft and the retrieved text. Confirm TypeSafe's data-processing terms and retention before you set a key in production. This is a new sub-processor for customer messages.
 
 ## Triage classifier
 

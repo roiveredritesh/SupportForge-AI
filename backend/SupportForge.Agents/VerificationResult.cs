@@ -17,4 +17,8 @@ public sealed class VerificationResult
 
     // U13: set by the KB/Code verifiers when Coverage is below Verification:PartialCoverageBelow. BuildUserPrompt reads it.
     public bool CoverageIsPartial { get; set; }
+
+    // U18 (R26): how many retrieved snippets, or vision findings (0 or 1), the indirect-injection screen dropped on this attempt.
+    // Reset on every attempt, so a retry never inherits the previous attempt's count.
+    public int InjectionDropped { get; set; }
 }

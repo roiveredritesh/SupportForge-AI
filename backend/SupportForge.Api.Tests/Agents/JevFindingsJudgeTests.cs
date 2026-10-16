@@ -46,6 +46,7 @@ public class JevFindingsJudgeTests
         for (var i = 0; i < relevance.Length; i++)
         {
             answers[$"rel_k{i + 1}"] = new JevNoulAnswer(relevance[i]);
+            answers[$"inj_k{i + 1}"] = new JevNoulAnswer(0.0);
         }
 
         answers["coverage"] = new JevScoreAnswer(coverageScore, 0.9, new Dictionary<string, double>());
@@ -123,7 +124,8 @@ public class JevFindingsJudgeTests
         var noul = Assert.IsType<JevNoulQuestion>(capture.Questions!["rel_k1"]);
         Assert.Equal(expected, noul.Instructions);
         Assert.IsType<JevNoulQuestion>(capture.Questions!["rel_k2"]);
-        Assert.Equal(3, capture.Questions!.Count);
+        var names = capture.Questions!.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
+        Assert.Equal(new[] { "coverage", "inj_k1", "inj_k2", "rel_k1", "rel_k2" }, names);
     }
 
     [Fact]
@@ -224,7 +226,11 @@ public class JevFindingsJudgeTests
     [InlineData(0.4, false)]
     public async Task JudgeVision_IsRelevantWhenTheNoulReachesMinRelevance(double noul, bool expected)
     {
-        var jev = MockJev(ResultOf(new Dictionary<string, JevAnswer> { ["vision_relevant"] = new JevNoulAnswer(noul) }));
+        var jev = MockJev(ResultOf(new Dictionary<string, JevAnswer>
+        {
+            ["vision_relevant"] = new JevNoulAnswer(noul),
+            ["vision_injection"] = new JevNoulAnswer(0.0),
+        }));
         var judge = new JevFindingsJudge(jev.Object, new VerificationOptions { MinRelevance = 0.5 });
         var context = NewContext();
         context.VisionFindings = "Error 500 on the checkout page";
@@ -241,14 +247,19 @@ public class JevFindingsJudgeTests
     public async Task JudgeVision_AsksOneFixedNoul_AndTruncatesTheFindings()
     {
         var capture = new Capture();
-        var jev = MockJev(ResultOf(new Dictionary<string, JevAnswer> { ["vision_relevant"] = new JevNoulAnswer(0.9) }), capture);
+        var jev = MockJev(ResultOf(new Dictionary<string, JevAnswer>
+        {
+            ["vision_relevant"] = new JevNoulAnswer(0.9),
+            ["vision_injection"] = new JevNoulAnswer(0.0),
+        }), capture);
         var judge = new JevFindingsJudge(jev.Object, new VerificationOptions { MaxSnippetChars = 100 });
         var context = NewContext();
         context.VisionFindings = new string('v', 5000);
 
         await judge.JudgeVisionAsync(context, CancellationToken.None);
 
-        Assert.Single(capture.Questions!);
+        var names = capture.Questions!.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
+        Assert.Equal(new[] { "vision_injection", "vision_relevant" }, names);
         var noul = Assert.IsType<JevNoulQuestion>(capture.Questions!["vision_relevant"]);
         Assert.Equal(
             "The vision findings describe an error or UI state that is relevant to the customer's question.",
