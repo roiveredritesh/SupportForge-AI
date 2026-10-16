@@ -32,4 +32,10 @@ public sealed class ChatMessage
     // types, because SupportForge.Core must not reference SupportForge.Agents.
     public string? GuardVerdict { get; init; }
     public IReadOnlyDictionary<string, double>? GuardSignals { get; init; }
+
+    // R10 (JEV intent classification plan): the triage result for this turn, only populated on the "assistant" role
+    // message. Null on blocked turns (they never reach triage) and on messages persisted before these fields existed.
+    public string? Intent { get; init; }
+    public double? IntentConfidence { get; init; }
+    public string? IntentSource { get; init; }
 }

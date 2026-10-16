@@ -278,6 +278,10 @@ public partial class ChatController : ControllerBase
             Config = context.Config,
             GuardVerdict = guard is null || guard.Source == "off" ? null : guard.Verdict.ToString().ToLowerInvariant(),
             GuardSignals = guard is null || guard.Signals.Count == 0 ? null : guard.Signals,
+            // R10: a blocked turn never reaches triage, so its context has no intent and these stay null there.
+            Intent = string.IsNullOrEmpty(context.Intent) ? null : context.Intent,
+            IntentConfidence = context.IntentConfidence,
+            IntentSource = string.IsNullOrEmpty(context.IntentSource) ? null : context.IntentSource,
         };
         await _messages.AddAsync(assistantMessage, ct);
 

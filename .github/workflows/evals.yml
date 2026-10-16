@@ -14,6 +14,7 @@ name: Evals
 # Needs the repository secret LLM_API_KEY: the API key for the chosen provider (NVIDIA NIM or an
 # OpenAI-compatible endpoint). The provider comes from the run input, then the EVALS_PROVIDER
 # repository variable, then NvidiaNim. Model names come from backend/SupportForge.Evals/appsettings.json.
+# Optional: the repository secret JEV_API_KEY adds Jev runs of the triage and guard evals; without it those runs are skipped.
 
 on:
   workflow_dispatch:
@@ -56,6 +57,7 @@ jobs:
         env:
           Llm__Provider: ${{ inputs.provider || vars.EVALS_PROVIDER || 'NvidiaNim' }}
           Llm__ApiKey: ${{ secrets.LLM_API_KEY }}
+          Jev__ApiKey: ${{ secrets.JEV_API_KEY }}
         run: |
           if [ -z "$Llm__ApiKey" ]; then
             echo "::error::Repository secret LLM_API_KEY is not set (Settings > Secrets and variables > Actions)."

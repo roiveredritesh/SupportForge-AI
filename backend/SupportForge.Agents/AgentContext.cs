@@ -27,6 +27,12 @@ public sealed class AgentContext
     public IReadOnlyDictionary<string, double> IntentScores { get; set; } = new Dictionary<string, double>();
     public IReadOnlyDictionary<string, double> IntentSignals { get; set; } = new Dictionary<string, double>();
     public string IntentSource { get; set; } = string.Empty;
+    // U6 (JEV intent classification plan): the TriageDecisionPolicy rule that chose Intent, for example "top",
+    // "greeting-has-question" or "low-confidence". Set by TriageAgent and logged on the Triage span (triage.rule).
+    public string IntentRule { get; set; } = string.Empty;
+    // U8 (JEV intent classification plan): "high" or "medium" for a Jev-decided, non-unclear intent, otherwise null.
+    // It is null whenever the acting classifier is the LLM ("llm" or "llm-fallback"), so LLM-mode prompts stay unchanged.
+    public string? IntentConfidenceBand { get; set; }
     // U7 secondary-intent routing inputs. Off by default; nothing turns them on until the Jev classifier lands.
     public bool SecondaryIntentEnabled { get; set; }
     public double SecondaryMinProbability { get; set; } = 0.35;

@@ -166,12 +166,27 @@ builder.Services.AddRateLimiter(options =>
 // "Embeddings:Provider" optionally selects a different provider for embeddings (required whenever
 // Llm:Provider is Anthropic, which has no embeddings API) and defaults to Llm:Provider otherwise.
 builder.Services.AddLlmProviders(builder.Configuration);
+// U16/U17: every Jev-backed feature shares this one registration. It always binds JevOptions, and it
+// registers IJevClient only when Jev:ApiKey is set, so with the key blank every Jev-backed feature is inert.
+// Declared here, before TriageAgent, because the Triage registration below reads it.
+var jevConfigured = builder.Services.AddJev(builder.Configuration);
+// U6 (JEV intent classification plan), R7/R12: Triage:Classifier picks the intent classifier. Llm (the default) needs no Jev
+// key. Jev and Shadow both need one, so a missing key fails at startup rather than on every request.
+var triageOptions = builder.Configuration.GetSection("Triage").Get<TriageOptions>() ?? new TriageOptions();
+builder.Services.AddSingleton(triageOptions);
+if (triageOptions.Classifier != TriageClassifierMode.Llm && !jevConfigured)
+{
+    throw new InvalidOperationException(
+        $"Triage:Classifier is {triageOptions.Classifier} but Jev is not configured (Jev:ApiKey is empty). Set Jev:ApiKey or use Triage:Classifier=Llm.");
+}
 // Model tiering (gap-closing-solutions.md Phase C, item 3): Triage's intent classification and the
 // three verifiers' relevance judgments are cheap-tier calls (opt-in via *CheapChatModel config, see
 // LlmServiceCollectionExtensions.CheapTierKey) -- DrafterAgent, the retrieval specialists, and
 // CrossReferenceAgent stay on the default/main-tier client.
 builder.Services.AddScoped<TriageAgent>(sp => new TriageAgent(
     new LlmIntentClassifier(sp.GetRequiredKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)),
+    jevConfigured ? new JevIntentClassifier(sp.GetRequiredService<IJevClient>(), triageOptions) : null,
+    triageOptions,
     sp.GetRequiredService<ILogger<TriageAgent>>()));
 builder.Services.AddScoped<FreshnessGateAgent>();
 builder.Services.AddScoped<KbResearcherAgent>();
@@ -220,9 +235,6 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<VisionAnalyzerAgent>(),
     sp.GetRequiredService<VisionAnalyzerVerifier>(),
     sp.GetRequiredService<DrafterAgent>()));
-// U16/U17: every Jev-backed feature shares this one registration. It always binds JevOptions, and it
-// registers IJevClient only when Jev:ApiKey is set, so with the key blank every Jev-backed feature is inert.
-var jevConfigured = builder.Services.AddJev(builder.Configuration);
 // U17: input guard, screened by ChatController before the pipeline runs. Off by default (Guard:Mode in
 // appsettings.json), so these registrations cost nothing until a mode is set.
 var guardOptions = builder.Configuration.GetSection("Guard").Get<GuardOptions>() ?? new GuardOptions();
