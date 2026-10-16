@@ -35,7 +35,8 @@ public sealed class CrossReferenceAgent : IAgent
         _logger.LogInformation("{Agent} starting: project={ProjectId} intent={Intent}", Name, context.ProjectId, context.Intent);
         try
         {
-            if (context.Intent is not ("code_issue" or "code_question") || context.KbSnippets.Count == 0)
+            // U7: shared gate; see IntentRouting.
+            if (!IntentRouting.NeedsCode(context) || context.KbSnippets.Count == 0)
             {
                 _logger.LogInformation(
                     "{Agent} completed in {ElapsedMs}ms: skipped, intent={Intent} kbSnippets={Count}",

@@ -55,7 +55,8 @@ public sealed class KbResearcherVerifier : IAgent
         _logger.LogInformation("{Agent} starting: project={ProjectId} intent={Intent}", Name, context.ProjectId, context.Intent);
         try
         {
-            if (context.Intent is not ("kb_question" or "code_issue" or "code_question"))
+            // U7: shared gate; see IntentRouting.
+            if (!IntentRouting.NeedsKb(context))
             {
                 _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: skipped, intent={Intent} not applicable", Name, sw.ElapsedMilliseconds, context.Intent);
                 return context;
