@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using SupportForge.Agents;
+using SupportForge.Agents.Guard;
 using SupportForge.Agents.Tools;
 using SupportForge.Api;
 using SupportForge.Api.Contracts;
@@ -46,6 +47,10 @@ public partial class ChatController : ControllerBase
     // builder.Services.AddSignalR() in Program.cs). Broadcasting is a best-effort side channel, not
     // load-bearing for the HTTP response, so a null hub just means "nothing to broadcast to."
     private readonly IHubContext<ConversationHub>? _hub;
+    // U17: nullable with a default for the same reason as _hub above -- the pre-existing test
+    // call sites in ChatControllerTests.cs don't wire a guard and must keep compiling and behaving
+    // as before. Production DI always supplies a real GuardService (registered in Program.cs).
+    private readonly GuardService? _guard;
 
     private const string DrafterName = "Drafter";
 
@@ -69,7 +74,8 @@ public partial class ChatController : ControllerBase
         CommitLookupTool commitLookup,
         IBlastRadiusQueryTool blastRadius,
         ILogger<ChatController> logger,
-        IHubContext<ConversationHub>? hub = null)
+        IHubContext<ConversationHub>? hub = null,
+        GuardService? guard = null)
     {
         _pipeline = pipeline;
         _triage = triage;
@@ -91,6 +97,7 @@ public partial class ChatController : ControllerBase
         _blastRadius = blastRadius;
         _logger = logger;
         _hub = hub;
+        _guard = guard;
     }
 
     // Splits on word boundaries while keeping the trailing whitespace attached to each chunk, so
@@ -99,6 +106,18 @@ public partial class ChatController : ControllerBase
     {
         foreach (Match m in Regex.Matches(text, @"\S+\s*"))
             yield return m.Value;
+    }
+
+    // Chunked word-by-word (not one SSE event) purely to preserve the typing-effect UX the frontend
+    // already renders. Shared by the normal QueryStream path and U17's blocked-turn path, so both
+    // stream with identical framing.
+    private async Task StreamTextAsync(string text, CancellationToken ct)
+    {
+        foreach (var word in SplitKeepingDelimiters(text))
+        {
+            await Response.WriteAsync($"data: {JsonSerializer.Serialize(word)}\n\n", ct);
+            await Response.Body.FlushAsync(ct);
+        }
     }
 
     // Mirrors CoordinatorPipeline's retry-once-then-flag semantics for this manual (non-graph)
@@ -166,6 +185,20 @@ public partial class ChatController : ControllerBase
         return context;
     }
 
+    // U17: screens the customer's message plus recent history before any agent or LLM call. Returns
+    // null when no guard is wired, which callers treat as "not screened" (never as blocked).
+    private async Task<GuardDecision?> ScreenTurnAsync(AgentContext context, CancellationToken ct)
+    {
+        var guard = _guard;
+        if (guard is null) return null;
+
+        return await guard.ScreenAsync(
+            new GuardInput(context.Query, context.History, !string.IsNullOrEmpty(context.ScreenshotBase64)),
+            this.CurrentUserId(),
+            context.ProjectId,
+            ct);
+    }
+
     // Resolves the request's ConversationId to an existing conversation (must belong to the
     // request's ProjectId — a stale frontend conversation surviving a project switch is a bug,
     // not a valid cross-project request) or creates a new one when none was supplied.
@@ -190,19 +223,36 @@ public partial class ChatController : ControllerBase
 
     // Last 6 messages (3 turns) — ponytail: fixed-window cap, revisit with token-aware
     // trimming if transcripts get long.
+    // U17: a turn the guard blocked is removed before that cap is applied: the blocked assistant
+    // message and the user message RecordTurnAsync wrote just before it. That keeps attack text out
+    // of every later LLM prompt, and stops one blocked attack from tainting the guard's screening
+    // of every following turn (the guard reads this same history).
     private async Task<List<(string Role, string Content)>> LoadRecapAsync(string conversationId, CancellationToken ct)
     {
         var history = await _messages.GetByConversationIdAsync(conversationId, ct);
-        return history.TakeLast(6).Select(m => (m.Role, m.Content)).ToList();
+
+        var skip = new HashSet<int>();
+        for (var i = 0; i < history.Count; i++)
+        {
+            if (history[i].Role != "assistant" || history[i].GuardVerdict != "blocked") continue;
+
+            skip.Add(i);
+            if (i > 0 && history[i - 1].Role == "user") skip.Add(i - 1);
+        }
+
+        var kept = history.Where((_, i) => !skip.Contains(i)).ToList();
+        return kept.TakeLast(6).Select(m => (m.Role, m.Content)).ToList();
     }
 
     // U19: context is the just-completed AgentContext for this turn -- its KbSnippets/CodeSnippets/
     // VisionFindings/ProductVersion/Config are cached onto the assistant ChatMessage so
     // EscalationsController can build a full-detail handoff Markdown later without re-running the
     // pipeline (that state doesn't survive past this request otherwise).
+    // U17: guard is only stamped onto the assistant message. Null guard, or the guard being Off, leaves
+    // both guard fields null so the persisted turn looks exactly like a pre-U17 one.
     private async Task<ChatMessage> RecordTurnAsync(
         Conversation conversation, string query, string answer, double confidence, IReadOnlyList<ChatSource> sources,
-        int totalTokensUsed, AgentContext context, CancellationToken ct)
+        int totalTokensUsed, AgentContext context, CancellationToken ct, GuardDecision? guard = null)
     {
         await _messages.AddAsync(new ChatMessage
         {
@@ -226,6 +276,8 @@ public partial class ChatController : ControllerBase
             VisionFindings = context.VisionFindings,
             ProductVersion = context.ProductVersion,
             Config = context.Config,
+            GuardVerdict = guard is null || guard.Source == "off" ? null : guard.Verdict.ToString().ToLowerInvariant(),
+            GuardSignals = guard is null || guard.Signals.Count == 0 ? null : guard.Signals,
         };
         await _messages.AddAsync(assistantMessage, ct);
 
@@ -289,6 +341,27 @@ public partial class ChatController : ControllerBase
 
         var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
+        // U17 / KTD12: the guard runs before anything else touches the turn -- before the pipeline's
+        // intent classification (TriageAgent) and every LLM call inside it. A blocked turn must never
+        // reach a model, so this check cannot move below _pipeline.RunAsync.
+        var guard = await ScreenTurnAsync(context, ct);
+        if (guard?.Verdict == GuardVerdict.Blocked)
+        {
+            // Blocked turns cost no tokens, so no TokenUsageEntry is written, and no code/commit/blast
+            // detail is computed -- there is no pipeline result to derive them from.
+            var blockedMessage = await RecordTurnAsync(conversation, request.Query, GuardRefusal.Text, 0.0, new List<ChatSource>(), 0, context, ct, guard);
+            await BroadcastMessageAsync(conversation.Id, blockedMessage);
+
+            return Ok(new ChatQueryResponse
+            {
+                Draft = GuardRefusal.Text,
+                Confidence = 0.0,
+                ConversationId = conversation.Id,
+                Sources = new List<ChatSource>(),
+                TotalTokensUsed = 0,
+            });
+        }
+
         var result = await _pipeline.RunAsync(context, ct);
         await _tokenUsage.AddAsync(
             new TokenUsageEntry(request.ProjectId, result.TotalTokensUsed, DateTimeOffset.UtcNow, "chat", request.ProductVersion, request.Config, this.CurrentUserId()), ct);
@@ -296,7 +369,7 @@ public partial class ChatController : ControllerBase
             request.ProjectId, result.TotalTokensUsed, JsonSerializer.Serialize(result.TokensByAgent));
 
         var sources = BuildSources(result);
-        var assistantMessage = await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, result.TotalTokensUsed, result, ct);
+        var assistantMessage = await RecordTurnAsync(conversation, request.Query, result.Draft, result.Confidence, sources, result.TotalTokensUsed, result, ct, guard);
         await BroadcastMessageAsync(conversation.Id, assistantMessage);
 
         var role = this.CurrentUserRole();
@@ -403,6 +476,38 @@ public partial class ChatController : ControllerBase
 
         var context = await BuildInitialContextAsync(request, conversation.Id, ct);
 
+        // U17 / KTD12: screened before the progress ping, _triage and every other agent below, so a
+        // blocked turn never reaches intent classification or any LLM call (see Query for the same rule).
+        var guard = await ScreenTurnAsync(context, ct);
+        if (guard?.Verdict == GuardVerdict.Blocked)
+        {
+            Response.ContentType = "text/event-stream";
+            Response.Headers.CacheControl = "no-cache";
+
+            await StreamTextAsync(GuardRefusal.Text, ct);
+
+            var blockedMessage = await RecordTurnAsync(conversation, request.Query, GuardRefusal.Text, 0.0, new List<ChatSource>(), 0, context, ct, guard);
+            await BroadcastMessageAsync(conversation.Id, blockedMessage);
+
+            // Same done-event shape as the normal path below. The code/commit/blast fields are passed
+            // as null, which WhenWritingNull leaves off the wire, as on the normal path for a non-elevated caller.
+            var blockedDone = JsonSerializer.Serialize(
+                new
+                {
+                    confidence = 0.0,
+                    conversationId = conversation.Id,
+                    sources = Array.Empty<object>(),
+                    totalTokensUsed = 0,
+                    codeDetails = (object?)null,
+                    commitHistory = (object?)null,
+                    blastRadius = (object?)null,
+                },
+                new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+            await Response.WriteAsync($"event: done\ndata: {blockedDone}\n\n", ct);
+            await Response.Body.FlushAsync(ct);
+            return;
+        }
+
         // U26: lightweight progress ping for any other viewer connected to this conversation's
         // SignalR group (e.g. an invited engineer watching along) -- ponytail: a single
         // "processing has started" event, not per-token streaming to other viewers; add per-agent
@@ -472,16 +577,11 @@ public partial class ChatController : ControllerBase
         _logger.LogInformation(
             "{Agent} completed in {ElapsedMs}ms: leaked={Leaked} confidence={Confidence}", DrafterName, sw.ElapsedMilliseconds, leaked, confidence);
 
-        // Chunked word-by-word (not one SSE event) purely to preserve the typing-effect UX the
-        // frontend already renders -- every word here already passed the leak check above.
-        foreach (var word in SplitKeepingDelimiters(finalText))
-        {
-            await Response.WriteAsync($"data: {JsonSerializer.Serialize(word)}\n\n", ct);
-            await Response.Body.FlushAsync(ct);
-        }
+        // Every word here already passed the leak check above.
+        await StreamTextAsync(finalText, ct);
 
         var sources = BuildSources(context);
-        var assistantMessage = await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, context, ct);
+        var assistantMessage = await RecordTurnAsync(conversation, request.Query, finalText, confidence, sources, context.TotalTokensUsed, context, ct, guard);
         await BroadcastMessageAsync(conversation.Id, assistantMessage);
 
         var streamRole = this.CurrentUserRole();

@@ -25,4 +25,11 @@ public sealed class ChatMessage
     public string? VisionFindings { get; init; }
     public string? ProductVersion { get; init; }
     public IReadOnlyDictionary<string, string>? Config { get; init; }
+
+    // U17: input-guard result for this turn, only populated on the "assistant" role message and null
+    // when the guard is off or not configured (so pre-U17 JSON files deserialize unchanged). Carried as
+    // a lower-case string and a plain dictionary, not SupportForge.Agents.Guard's enum and signal
+    // types, because SupportForge.Core must not reference SupportForge.Agents.
+    public string? GuardVerdict { get; init; }
+    public IReadOnlyDictionary<string, double>? GuardSignals { get; init; }
 }

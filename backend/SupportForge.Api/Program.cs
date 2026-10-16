@@ -11,6 +11,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using SupportForge.Agents;
+using SupportForge.Agents.Guard;
 using SupportForge.Agents.Tools;
 using SupportForge.Api;
 using SupportForge.Api.HealthChecks;
@@ -216,6 +217,16 @@ builder.Services.AddScoped<CoordinatorPipeline>(sp => new CoordinatorPipeline(
     sp.GetRequiredService<VisionAnalyzerAgent>(),
     sp.GetRequiredService<VisionAnalyzerVerifier>(),
     sp.GetRequiredService<DrafterAgent>()));
+// U17: input guard, screened by ChatController before the pipeline runs. Off by default (Guard:Mode in
+// appsettings.json), so these registrations cost nothing until a mode is set.
+var guardOptions = builder.Configuration.GetSection("Guard").Get<GuardOptions>() ?? new GuardOptions();
+builder.Services.AddSingleton(guardOptions);
+builder.Services.AddSingleton(new GuardRepeatTracker(TimeProvider.System));
+builder.Services.AddSingleton(sp => new HeuristicInputGuard(sp.GetRequiredService<GuardOptions>()));
+// jevGuard is null until the Jev client lands (U4/U16): the guard then runs heuristic-only, which is flag-only by design.
+builder.Services.AddSingleton(sp => new GuardService(
+    sp.GetRequiredService<GuardOptions>(), sp.GetRequiredService<HeuristicInputGuard>(), jevGuard: null,
+    sp.GetRequiredService<GuardRepeatTracker>(), sp.GetRequiredService<ILogger<GuardService>>()));
 builder.Services.AddSingleton<IngestionQueue>();
 builder.Services.AddSingleton<SupportForge.Agents.Tools.IIngestionActivity>(sp => sp.GetRequiredService<IngestionQueue>());
 builder.Services.AddHostedService<IngestionBackgroundService>();
@@ -313,6 +324,15 @@ builder.Services.AddOpenTelemetry()
     });
 
 var app = builder.Build();
+
+// U17: until a Jev guard is wired in, Shadow and Enforce only ever flag -- say so once at startup so
+// an operator who set Guard:Mode doesn't assume turns are being blocked.
+if (guardOptions.Mode != GuardMode.Off)
+{
+    app.Logger.LogWarning(
+        "Input guard mode is {Mode} but no Jev guard is configured: the guard runs heuristic-only, which can flag but never block.",
+        guardOptions.Mode);
+}
 
 // Sprint 7: must run before ProjectOrgMigration (or any other IOrgRepository consumer) ever reads
 // orgs.json through the strict Org model -- see OrgRequiredFieldsMigration's own comment for why.
