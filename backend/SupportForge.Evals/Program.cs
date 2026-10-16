@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Neo4j.Driver;
 using SupportForge.Agents;
 using SupportForge.Agents.Guard;
+using SupportForge.Agents.Verification;
 using SupportForge.Core;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Graph;
@@ -53,6 +54,13 @@ ReportGuard(guardResults);
 // (MinConfidence, MinMargin), so it is a baseline rather than a pass/fail gate. The thresholds are read from the report.
 var triageResults = await RunTriageFixturesAsync();
 ReportTriage(triageResults);
+
+// U10 findings relevance eval (R22): report-only, so it never affects the exit code. The LLM judge runs on the cheap tier,
+// the same client production verifiers resolve. A Jev judge gets a second call once it exists:
+// ReportSnippetRelevance(await RunSnippetRelevanceAsync("jev", jevJudge)); ReportVisionRelevance(await RunVisionRelevanceAsync("jev", jevLlm));
+var findingsJudge = new LlmFindingsJudge(triageLlm);
+ReportSnippetRelevance(await RunSnippetRelevanceAsync("llm", findingsJudge));
+ReportVisionRelevance(await RunVisionRelevanceAsync("llm", triageLlm));
 
 return results.Any(r => !r.Agreed) ? 1 : 0;
 
@@ -532,6 +540,197 @@ void ReportTriage(List<TriageCaseResult> cases)
         : "    no threshold meets both bars (>= 95% accuracy at or above the threshold, <= 10% of non-ambiguous cases below it)");
 }
 
+// U10 findings relevance (docs/plans/2026-10-16-002-feat-jev-intent-classification-plan.md, R22). Each mixed-relevance fixture goes
+// through the judge's JudgeSnippetsAsync. A throwing case is recorded with Error and left out of the metrics, so one provider
+// failure cannot abort the run or count as a rejected decoy.
+async Task<List<RelevanceCaseResult>> RunSnippetRelevanceAsync(string judgeName, IFindingsJudge judge)
+{
+    var fixtures = LoadFixtures<SnippetRelevanceFixture>("snippet-relevance-fixtures.json");
+    var outcomes = new List<RelevanceCaseResult>();
+    foreach (var f in fixtures)
+    {
+        var context = new AgentContext { ProjectId = "eval", Query = f.Query };
+        var kind = f.Kind == "code" ? FindingsKind.Code : FindingsKind.Kb;
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            var judgement = await judge.JudgeSnippetsAsync(context, kind, f.Snippets, CancellationToken.None);
+            stopwatch.Stop();
+            outcomes.Add(new RelevanceCaseResult(judgeName, f.Id, f.Kind, f.Query, f.Relevant, PredictedSnippets(judgement),
+                judgement.Scores, judgement.Coverage, f.Coverage, stopwatch.ElapsedMilliseconds, null));
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            outcomes.Add(new RelevanceCaseResult(judgeName, f.Id, f.Kind, f.Query, f.Relevant, [], null, null, f.Coverage,
+                stopwatch.ElapsedMilliseconds, ex.Message));
+        }
+    }
+    return outcomes;
+}
+
+// Report-only (R22), per kind: pass/fail agreement, per-snippet precision and recall, recall on multi-relevant cases (the number a
+// single-pick judge is capped on), hit rate on buried cases, decoy rejection, coverage accuracy and score-threshold sweeps when the
+// judge supplies them, then every disagreeing case. Predicted sets come from PredictedSnippets, so a single-pick judge is read as one
+// index and a score-based judge at 0.5.
+void ReportSnippetRelevance(List<RelevanceCaseResult> snippetResults)
+{
+    Console.WriteLine();
+    Console.WriteLine($"=== Findings relevance eval: {snippetResults.FirstOrDefault()?.Judge ?? "(no judge)"} ===");
+    if (snippetResults.Count == 0)
+    {
+        Console.WriteLine("  no fixtures loaded");
+        return;
+    }
+
+    foreach (var kind in new[] { "kb", "code" })
+    {
+        var kindResults = snippetResults.Where(r => r.Kind == kind).ToList();
+        var cases = kindResults.Where(r => r.Error is null).ToList();
+        Console.WriteLine($"\n  {kind}: n={cases.Count} errors={kindResults.Count - cases.Count}");
+        if (cases.Count == 0) continue;
+
+        var agreed = cases.Count(r => (r.Predicted.Count > 0) == (r.Expected.Count > 0));
+        Console.WriteLine($"    pass/fail agreement: {Pct(agreed, cases.Count)} ({agreed}/{cases.Count})");
+
+        var hits = cases.Sum(r => Hits(r.Predicted, r.Expected));
+        var predictedTotal = cases.Sum(r => r.Predicted.Count);
+        var expectedTotal = cases.Sum(r => r.Expected.Count);
+        Console.WriteLine($"    per-snippet precision={Pct(hits, predictedTotal)} recall={Pct(hits, expectedTotal)}");
+
+        var multi = cases.Where(r => r.Expected.Count >= 2).ToList();
+        if (multi.Count > 0)
+        {
+            var multiHits = multi.Sum(r => Hits(r.Predicted, r.Expected));
+            var multiExpected = multi.Sum(r => r.Expected.Count);
+            Console.WriteLine($"    recall on multi-relevant cases: {Pct(multiHits, multiExpected)} ({multiHits}/{multiExpected} snippets over {multi.Count} cases)");
+            Console.WriteLine($"      single-pick cap: a judge that names one snippet per case cannot exceed {Pct(multi.Count, multiExpected)} recall here");
+        }
+
+        // Buried = the only relevant snippet sits at index 3 or later, behind decoys. Multi-relevant cases are excluded so this
+        // number isolates position, not the single-pick cap above.
+        var buried = cases.Where(r => r.Expected.Count == 1 && r.Expected[0] >= 3).ToList();
+        if (buried.Count > 0)
+        {
+            var buriedFound = buried.Count(r => r.Predicted.Contains(r.Expected[0]));
+            Console.WriteLine($"    hit rate on buried cases (only relevant snippet at index 3 or later): {Pct(buriedFound, buried.Count)} ({buriedFound}/{buried.Count})");
+        }
+
+        var decoys = cases.Where(r => r.Expected.Count == 0).ToList();
+        if (decoys.Count > 0)
+        {
+            var rejected = decoys.Count(r => r.Predicted.Count == 0);
+            Console.WriteLine($"    decoy rejection: {Pct(rejected, decoys.Count)} ({rejected}/{decoys.Count})");
+        }
+
+        var covered = cases.Where(r => r.Coverage is not null).ToList();
+        if (covered.Count > 0)
+        {
+            var coverageCorrect = covered.Count(r => CoverageLevel(r.Coverage!.Value) == r.ExpectedCoverage);
+            Console.WriteLine($"    coverage accuracy: {Pct(coverageCorrect, covered.Count)} ({coverageCorrect}/{covered.Count})");
+        }
+        else
+        {
+            Console.WriteLine("    coverage: the judge reports no coverage");
+        }
+
+        var scored = cases.Where(r => r.Scores is not null).ToList();
+        if (scored.Count > 0)
+        {
+            Console.WriteLine("    per-snippet precision/recall at score thresholds:");
+            foreach (var threshold in new[] { 0.3, 0.5, 0.7 })
+            {
+                var rows = scored.Select(r => (Predicted: PredictedAtThreshold(r.Scores!, threshold), Expected: r.Expected)).ToList();
+                var rowHits = rows.Sum(row => Hits(row.Predicted, row.Expected));
+                var rowPredicted = rows.Sum(row => row.Predicted.Count);
+                var rowExpected = rows.Sum(row => row.Expected.Count);
+                Console.WriteLine($"      threshold {threshold:F1}: precision={Pct(rowHits, rowPredicted)} recall={Pct(rowHits, rowExpected)}");
+            }
+        }
+
+        Console.WriteLine("    disagreements (predicted set differs from expected):");
+        var disagreements = cases.Where(r => !SameSet(r.Predicted, r.Expected)).ToList();
+        if (disagreements.Count == 0) Console.WriteLine("      none");
+        foreach (var row in disagreements)
+            Console.WriteLine($"      [{row.Id}] expected=[{string.Join(",", row.Expected)}] predicted=[{string.Join(",", row.Predicted)}] query=\"{Truncate(row.Query, 80)}\"");
+    }
+
+    var latencies = snippetResults.Select(r => r.LatencyMs).Order().ToList();
+    Console.WriteLine($"\n  latency p50={Percentile(latencies, 0.50)}ms p95={Percentile(latencies, 0.95)}ms");
+    foreach (var failed in snippetResults.Where(r => r.Error is not null))
+        Console.WriteLine($"  ERROR [{failed.Id}] {failed.Error}");
+}
+
+// U10 vision relevance (R22), report-only. The real VisionAnalyzerVerifier runs on each fixture, with the screenshot placeholder the
+// verifier needs to run at all. A case that throws is printed and skipped, because VisionRelevanceResult has no error field.
+async Task<List<VisionRelevanceResult>> RunVisionRelevanceAsync(string judgeName, ILlmChatClient verifierLlm)
+{
+    var fixtures = LoadFixtures<VisionRelevanceFixture>("vision-relevance-fixtures.json");
+    var outcomes = new List<VisionRelevanceResult>();
+    foreach (var f in fixtures)
+    {
+        var findings = f.Findings ?? "";
+        var context = new AgentContext { ProjectId = "eval", Query = f.Query, ScreenshotBase64 = "eval-screenshot" };
+        context.VisionFindings = findings;
+
+        var verifier = new VisionAnalyzerVerifier(verifierLlm, loggers.CreateLogger<VisionAnalyzerVerifier>());
+        try
+        {
+            await verifier.RunAsync(context);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ERROR [{f.Id}] {ex.Message}");
+            continue;
+        }
+
+        var actualRelevant = context.VisionVerification.Status == VerificationStatus.Passed;
+        outcomes.Add(new VisionRelevanceResult(judgeName, f.Id, f.ExpectRelevant, actualRelevant, findings.Length >= 20, f.Query));
+    }
+    return outcomes;
+}
+
+// Report-only (R22). The headline is long irrelevant findings: today's verifier judges only findings under 20 characters, so anything
+// longer passes without an LLM call. These are the cases this fixture set exists to expose.
+void ReportVisionRelevance(List<VisionRelevanceResult> visionResults)
+{
+    Console.WriteLine();
+    Console.WriteLine($"=== Vision findings relevance eval: {visionResults.FirstOrDefault()?.Judge ?? "(no judge)"} ===");
+    if (visionResults.Count == 0)
+    {
+        Console.WriteLine("  no fixtures loaded");
+        return;
+    }
+
+    var agreed = visionResults.Count(r => r.Agreed);
+    Console.WriteLine($"  agreement: {Pct(agreed, visionResults.Count)} ({agreed}/{visionResults.Count})");
+
+    var longIrrelevant = visionResults.Where(r => !r.Expected && r.LongFindings).ToList();
+    var longPassed = longIrrelevant.Count(r => r.Actual);
+    Console.WriteLine($"  long irrelevant findings passed: {longPassed}/{longIrrelevant.Count}");
+    Console.WriteLine("    note: today's verifier only judges findings under 20 characters; longer findings pass without an LLM call");
+
+    foreach (var row in visionResults.Where(r => !r.Agreed))
+        Console.WriteLine($"  DISAGREE [{row.Id}] expected={row.Expected} actual={row.Actual} longFindings={row.LongFindings} query=\"{Truncate(row.Query, 80)}\"");
+}
+
+// The predicted set for the headline numbers: a score-based judge is read at 0.5, a single-pick judge at its one index.
+static IReadOnlyList<int> PredictedSnippets(SnippetJudgement judgement)
+{
+    if (judgement.Scores is not null) return PredictedAtThreshold(judgement.Scores, 0.5);
+    if (judgement.BestIndex is { } best) return new List<int> { best };
+    return [];
+}
+
+static List<int> PredictedAtThreshold(IReadOnlyList<double> scores, double threshold) =>
+    Enumerable.Range(0, scores.Count).Where(i => scores[i] >= threshold).ToList();
+
+static int Hits(IReadOnlyList<int> predicted, IReadOnlyList<int> expected) => predicted.Count(i => expected.Contains(i));
+
+static bool SameSet(IReadOnlyList<int> a, IReadOnlyList<int> b) => a.Count == b.Count && a.Order().SequenceEqual(b.Order());
+
+static string CoverageLevel(double coverage) => coverage < 0.34 ? "none" : coverage < 0.67 ? "partial" : "complete";
+
 static int ConfidenceBucket(double confidence) => confidence < 0.5 ? 0 : confidence < 0.7 ? 1 : confidence < 0.85 ? 2 : 3;
 
 static string Pct(int part, int whole) => whole == 0 ? "n/a" : $"{100.0 * part / whole:F1}%";
@@ -549,6 +748,14 @@ sealed record TriageCaseResult(string Id, string Domain, string Query, string Ex
     string Source, long LatencyMs, int Tokens, string? Error)
 {
     public bool Correct => Expected == Actual;
+}
+
+sealed record RelevanceCaseResult(string Judge, string Id, string Kind, string Query, IReadOnlyList<int> Expected, IReadOnlyList<int> Predicted,
+    IReadOnlyList<double>? Scores, double? Coverage, string ExpectedCoverage, long LatencyMs, string? Error);
+
+sealed record VisionRelevanceResult(string Judge, string Id, bool Expected, bool Actual, bool LongFindings, string Query)
+{
+    public bool Agreed => Expected == Actual;
 }
 
 sealed class KbFixture
@@ -621,4 +828,23 @@ sealed class TriageHistoryTurn
 {
     public string Role { get; set; } = "";
     public string Content { get; set; } = "";
+}
+
+sealed class SnippetRelevanceFixture
+{
+    public string Id { get; set; } = "";
+    public string Domain { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public string Query { get; set; } = "";
+    public List<string> Snippets { get; set; } = new();
+    public List<int> Relevant { get; set; } = new();
+    public string Coverage { get; set; } = "";
+}
+
+sealed class VisionRelevanceFixture
+{
+    public string Id { get; set; } = "";
+    public string Query { get; set; } = "";
+    public string Findings { get; set; } = "";
+    public bool ExpectRelevant { get; set; }
 }

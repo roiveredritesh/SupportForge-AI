@@ -1,0 +1,62 @@
+[
+  {
+    "id": "vr-long-irrelevant-01",
+    "query": "Why was my card payment declined?",
+    "findings": "The screen shows a monthly calendar view with three meetings scheduled on Tuesday.",
+    "expectRelevant": false
+  },
+  {
+    "id": "vr-long-irrelevant-02",
+    "query": "What error message appears after I submit the form?",
+    "findings": "A settings page with a dark sidebar menu and a list of team members is displayed.",
+    "expectRelevant": false
+  },
+  {
+    "id": "vr-long-irrelevant-03",
+    "query": "Why is my checkout failing with a 500 error?",
+    "findings": "The image is a close-up product photo of a blue ceramic mug on a white background.",
+    "expectRelevant": false
+  },
+  {
+    "id": "vr-long-irrelevant-04",
+    "query": "What does the stack trace say?",
+    "findings": "A file explorer window is open, listing folders named Documents, Downloads and Pictures.",
+    "expectRelevant": false
+  },
+  {
+    "id": "vr-long-irrelevant-05",
+    "query": "Why can't I log in to my account?",
+    "findings": "The dashboard shows a bar chart of weekly ticket volume and a list of open tasks.",
+    "expectRelevant": false
+  },
+  {
+    "id": "vr-long-relevant-01",
+    "query": "What error do you see?",
+    "findings": "A red banner reads 'Payment declined: card expired' above the checkout button.",
+    "expectRelevant": true
+  },
+  {
+    "id": "vr-long-relevant-02",
+    "query": "What does the stack trace show?",
+    "findings": "TimeoutException thrown from HttpClient.SendAsync after 30 seconds while calling the inventory service.",
+    "expectRelevant": true
+  },
+  {
+    "id": "vr-long-relevant-03",
+    "query": "What's shown in the screenshot?",
+    "findings": "The modal reads 'Session expired, please sign in again' and the page behind it is greyed out.",
+    "expectRelevant": true
+  },
+  {
+    "id": "vr-short-relevant-01",
+    "query": "What does the banner say?",
+    "findings": "Quota exceeded",
+    "expectRelevant": true
+  },
+  {
+    "id": "vr-short-irrelevant-01",
+    "query": "What error do you see?",
+    "findings": "blurry",
+    "expectRelevant": false
+  }
+]
