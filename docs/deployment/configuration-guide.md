@@ -82,9 +82,9 @@ The guard scores six signals. A signal fires when its score is at or above its t
 
 The heuristic is a fixed set of phrase patterns, applied after Unicode NFKC normalisation and removal of zero-width and bidirectional control characters. It also decodes base64 runs of 40 or more characters. If a run decodes to printable UTF-8, the decoded text is scanned too and `obfuscated_payload` fires. The phrase list favours precision over recall. It has no pattern for `extract_raw_code`, so that signal fires only from Jev.
 
-### Current limitation: heuristic-only
+### Jev and heuristic-only operation
 
-The Jev client is not wired in yet. The guard therefore runs heuristic-only, and in every mode it can only flag a turn, never block one. Heuristic hits never block on their own. A startup warning is logged whenever `Guard:Mode` is not `Off`.
+When `Jev:ApiKey` is set, the guard also screens each turn with Jev, and `Enforce` can block on Jev's scores. See [Jev (TypeSafe)](#jev-typesafe). Without a key the guard runs heuristic-only, and in every mode it can only flag a turn, never block one. Heuristic hits never block on their own. A startup warning is logged whenever `Guard:Mode` is not `Off` and no key is set.
 
 ### Fail-open
 
@@ -117,11 +117,54 @@ Whenever `Mode` is not `Off`, every turn's verdict (`allowed`, `flagged`, `block
 
 Run the guard eval with `dotnet run --project backend/SupportForge.Evals`. The guard report (`=== Guard eval: ...`) is printed after the main eval report. Its fixtures are in `backend/SupportForge.Evals/Fixtures/guard-fixtures.json`. The guard report does not change the exit code. The whole harness also runs the LLM-based evals, so it needs a configured LLM provider.
 
-Until the Jev guard is run through the eval, the false-block figure is 0% by construction, because heuristic-only runs never block. Use the false-flag figure to judge the heuristic. The 1% false-block bar applies to the Jev-backed run.
+With no Jev key, the heuristic run's false-block figure is 0% by construction, because heuristic-only runs never block. Use the false-flag figure to judge the heuristic. When a Jev key is set (`Jev__ApiKey`), the report also has a Jev run (`=== Guard eval: jev ...`). The 1% false-block bar applies to that run.
 
 ### Data note
 
-Once the Jev client is enabled, customer messages and recent history are sent to TypeSafe. Confirm the data-processing terms with TypeSafe before turning it on.
+Once `Jev:ApiKey` is set, customer messages and recent history are sent to TypeSafe. See [Jev (TypeSafe)](#jev-typesafe) for the full list. Confirm the data-processing terms with TypeSafe before turning it on.
+
+## Jev (TypeSafe)
+
+Jev is TypeSafe's classification model. SupportForge uses it for intent classification in triage (see [Triage classifier](#triage-classifier)) and for the input guard. The wire format is in [docs/integrations/typesafe-jev-api.md](../integrations/typesafe-jev-api.md).
+
+Everything Jev-backed is off unless `Jev:ApiKey` is set. Without the key, triage uses the LLM classifier and the guard runs heuristic-only. Setting `Triage:Classifier` to `Jev` or `Shadow` without a key is a configuration error, and startup fails.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Jev:BaseUrl` | `https://api.typesafe.ai` | Jev API base URL. Must be absolute. |
+| `Jev:ApiKey` | empty | Bearer key. Set it only with the `Jev__ApiKey` environment variable or a secret store, never in a config file. Blank keeps every Jev-backed feature off. |
+| `Jev:Model` | `jev-latest` | Model alias sent with each request. The response reports the model that actually ran. |
+| `Jev:Timeout` | `00:00:10` | Whole-request HTTP timeout. A backstop only: triage and the guard apply their own tighter time budgets. |
+| `Jev:MaxRetries` | `1` | Retries for 408, 429, 5xx and transport failures. Other errors (401, 403, 404, 422) are not retried. |
+
+Data note: turning Jev on sends customer data to TypeSafe. Triage sends the current message, the last `Triage:HistoryTurns` history turns, whether a screenshot is attached and the product version when one is given. The guard sends the current message, the last `Guard:HistoryTurns` turns and whether a screenshot is attached. Confirm TypeSafe's data-processing terms and retention before you set a key in production. This is a new sub-processor for customer messages.
+
+## Triage classifier
+
+`Triage:Classifier` selects how each turn's intent is classified. The default is `Llm`, which behaves as it did before Jev existed.
+
+- `Llm` (default): the LLM classifies the turn. No Jev key is needed.
+- `Jev`: Jev classifies the turn and its answer is acted on. If Jev errors, times out or gives an unusable answer, the LLM classifies that same turn instead. The turn's `IntentSource` is then `llm-fallback`, and a `TriageJevFallback` warning is logged.
+- `Shadow`: the LLM classifies and its answer is acted on. Jev runs alongside within the same time budget, and each turn logs one `TriageShadow` line with both intents, Jev's confidence and rule, whether they agree, Jev's latency and whether Jev failed. Use this mode to compare the two before switching to `Jev`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `Triage:Classifier` | `Llm` | `Llm`, `Jev` or `Shadow` (see the modes above). `Jev` and `Shadow` need `Jev:ApiKey`. |
+| `Triage:MinConfidence` | `0.6` | Below this confidence the turn is `unclear`, and the Drafter asks one clarifying question. Placeholder until the triage eval recommends a value. |
+| `Triage:MinMargin` | `0.15` | Below this gap between the top label and the runner-up, the turn is `unclear`. Placeholder until the triage eval recommends a value. |
+| `Triage:HighConfidence` | `0.85` | Confidence at or above this is the high band. Confidence between `MinConfidence` and this is the medium band, which adds the Drafter hint below. |
+| `Triage:SecondaryIntentRouting` | `false` | When `true`, a runner-up label whose probability is at or above `SecondaryMinProbability` also runs the retrieval branch it would use. Off until the eval supports it. |
+| `Triage:SecondaryMinProbability` | `0.35` | Minimum runner-up probability for secondary routing. |
+| `Triage:HistoryTurns` | `4` | Recent history turns sent to Jev as context. |
+| `Triage:MaxStateChars` | `8000` | Upper bound on the serialized Jev request. Oldest history is dropped first, then the query is cut from its start. |
+| `Triage:JevTimeout` | `00:00:01.5` | Budget for each Jev call. On timeout the LLM classifies the turn instead. |
+
+Other behaviour:
+
+- **Drafter hint**: in the medium band, the Drafter is told to restate its reading of the question in one clause before it answers. The LLM classifier reports no band, so `Llm` mode prompts do not change.
+- **Persistence**: the assistant message stores `Intent`, `IntentConfidence` and `IntentSource`. They are null on blocked turns and on messages saved before these fields existed.
+- **Telemetry**: the Triage span carries the tags `triage.intent`, `triage.confidence`, `triage.source`, `triage.rule` and `triage.runner_up`. Jev token usage is recorded under the `Triage` agent in the turn's token total.
+- **Thresholds**: the defaults above are placeholders. The triage eval (`dotnet run --project backend/SupportForge.Evals`) prints a calibration table and a recommended `MinConfidence` for the Jev run. The LLM run reports no confidence, so it has no calibration table. The Jev run needs the key, and the evals workflow reads it from the optional `JEV_API_KEY` repository secret. Set the thresholds from that report, and run `Shadow` for at least a week before `Jev`. See [the plan](../plans/2026-10-16-002-feat-jev-intent-classification-plan.md).
 
 ## Onboarding a new project
 1. Open the Admin page (`/admin`).

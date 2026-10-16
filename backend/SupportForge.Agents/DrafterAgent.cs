@@ -134,6 +134,15 @@ public sealed partial class DrafterAgent : IAgent
         _judge = judge ?? new LlmFindingsJudge(llm);
     }
 
+    // R9 (JEV intent classification plan): only a "medium" band reading gets the line asking the model to restate how it
+    // understood the question. The high band, an unset band and the LLM classifier (band null) add nothing, so their
+    // prompts stay byte-identical to the prompt before this line existed.
+    private const string MediumIntentConfidenceLine =
+        "Intent confidence: medium. Before answering, restate in one short clause how you understood the question, then answer it.\n";
+
+    private static string IntentConfidenceLine(AgentContext context) =>
+        context.IntentConfidenceBand == "medium" ? MediumIntentConfidenceLine : string.Empty;
+
     // D2 (gap-closing-solutions.md Phase D, item 2): retrieved content (KB/code/vision) is wrapped in
     // <retrieved_context> tags -- the structural delimiter SystemPrompt's instruction refers to, so a
     // retrieved snippet containing injected instruction-like text has no way to blend into the
@@ -142,7 +151,7 @@ public sealed partial class DrafterAgent : IAgent
         Conversation so far: {(context.History.Count == 0 ? "(none)" : string.Join("\n", context.History.Select(h => $"{h.Role}: {h.Content}")))}
         Customer question: {context.Query}
         Intent: {context.Intent}
-        Freshness: {DescribeFreshness(context.Freshness)}
+        {IntentConfidenceLine(context)}Freshness: {DescribeFreshness(context.Freshness)}
         ProductVersion: {(string.IsNullOrEmpty(context.ProductVersion) ? "(not specified)" : context.ProductVersion)}
         <retrieved_context source="kb">
         {string.Join("\n---\n", context.KbSnippets.Take(MaxSnippetsPerSource))}

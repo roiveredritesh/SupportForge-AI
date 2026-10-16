@@ -6,6 +6,8 @@ using Microsoft.Extensions.Logging;
 using Neo4j.Driver;
 using SupportForge.Agents;
 using SupportForge.Agents.Guard;
+using SupportForge.Agents.Jev;
+using SupportForge.Agents.Triage;
 using SupportForge.Agents.Verification;
 using SupportForge.Core;
 using SupportForge.Ingestion.Code;
@@ -26,6 +28,8 @@ var configuration = new ConfigurationBuilder()
 var services = new ServiceCollection();
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
 services.AddLlmProviders(configuration); // same DI wiring SupportForge.Api uses -- one provider, config-selected
+// Jev is registered only when Jev:ApiKey is set (U4). Without a key, the Jev runs below are skipped.
+var jevConfigured = services.AddJev(configuration);
 using var provider = services.BuildServiceProvider();
 
 var llm = provider.GetRequiredService<ILlmChatClient>();
@@ -45,15 +49,31 @@ results.AddRange(await RunRetrievalEvalAsync());
 Report(results);
 
 // Guard results are reported only and never affect the exit code: the heuristic layer is flag-only by design.
-var guardResults = await RunGuardFixturesAsync("heuristic", null);
+var guardOptions = BindGuardOptions();
+var guardResults = await RunGuardFixturesAsync("heuristic", null, guardOptions);
 ReportGuard(guardResults);
-// A Jev-backed IInputGuard gets a second call here once the Jev client exists:
-// ReportGuard(await RunGuardFixturesAsync("jev", jevGuard), jevSupplied: true);
+// The Jev-backed guard runs only when Jev:ApiKey is set. It screens with the same options as the heuristic run.
+if (jevConfigured)
+    ReportGuard(await RunGuardFixturesAsync("jev", new JevInputGuard(provider.GetRequiredService<IJevClient>(), guardOptions), guardOptions), jevSupplied: true);
 
 // Triage results are reported only and never affect the exit code: the eval is the measurement behind the R4 defaults
 // (MinConfidence, MinMargin), so it is a baseline rather than a pass/fail gate. The thresholds are read from the report.
-var triageResults = await RunTriageFixturesAsync();
-ReportTriage(triageResults);
+var triageResults = await RunTriageFixturesAsync("llm", () => new TriageAgent(triageLlm, loggers.CreateLogger<TriageAgent>()));
+ReportTriage("llm", triageResults);
+
+// The Jev triage run needs Jev:ApiKey. MinConfidence and MinMargin are zeroed so the decision policy does not turn
+// low-confidence answers into "unclear" before the report sees them: the calibration table needs the raw Jev confidences.
+// The LLM fallback on a Jev error or timeout still applies, as in production. JevTimeout keeps its class default (1.5s).
+if (jevConfigured)
+{
+    var jevTriageOptions = new TriageOptions { Classifier = TriageClassifierMode.Jev, MinConfidence = 0, MinMargin = 0 };
+    var jevTriageResults = await RunTriageFixturesAsync("jev", () => new TriageAgent(
+        new LlmIntentClassifier(triageLlm),
+        new JevIntentClassifier(provider.GetRequiredService<IJevClient>(), jevTriageOptions),
+        jevTriageOptions,
+        loggers.CreateLogger<TriageAgent>()));
+    ReportTriage("jev", jevTriageResults);
+}
 
 // U10 findings relevance eval (R22): report-only, so it never affects the exit code. The LLM judge runs on the cheap tier,
 // the same client production verifiers resolve. A Jev judge gets a second call once it exists:
@@ -272,15 +292,20 @@ void Report(List<CaseResult> allResults)
     Console.WriteLine($"\nOverall: {overallAgreed}/{overallTotal} agreed ({100.0 * overallAgreed / overallTotal:F0}%)");
 }
 
-// U15 guard eval (docs/plans/2026-10-16-002-feat-jev-intent-classification-plan.md). Each fixture runs through the
-// real HeuristicInputGuard and GuardPolicy. Options bind from the "Guard" section; Mode is then forced to Enforce so
-// the decision logic is always exercised, whatever the configured rollout mode is.
-async Task<List<GuardCaseResult>> RunGuardFixturesAsync(string guardName, IInputGuard? jevGuard)
+// Options for both guard runs. They bind from the "Guard" section, and Mode is then forced to Enforce so the decision
+// logic is always exercised, whatever the configured rollout mode is. GuardOptions is a plain class (not a record), so
+// Mode is set on the freshly bound instance.
+GuardOptions BindGuardOptions()
 {
-    // GuardOptions is a plain class (not a record), so Mode is set on the freshly bound instance.
     var options = configuration.GetSection("Guard").Get<GuardOptions>() ?? new GuardOptions();
     options.Mode = GuardMode.Enforce;
+    return options;
+}
 
+// U15 guard eval (docs/plans/2026-10-16-002-feat-jev-intent-classification-plan.md). Each fixture runs through the
+// real HeuristicInputGuard (or the given Jev guard) and GuardPolicy.
+async Task<List<GuardCaseResult>> RunGuardFixturesAsync(string guardName, IInputGuard? jevGuard, GuardOptions options)
+{
     var heuristic = new HeuristicInputGuard(options);
     var fixtures = LoadFixtures<GuardFixture>("guard-fixtures.json");
     var outcomes = new List<GuardCaseResult>();
@@ -405,10 +430,10 @@ void ReportGuard(List<GuardCaseResult> guardCases, bool jevSupplied = false)
     }
 }
 
-// U1 triage eval (docs/plans/2026-10-16-002-feat-jev-intent-classification-plan.md, R11). Each fixture runs through the real
-// TriageAgent on the cheap tier. A per-case exception is recorded as "(error)" rather than thrown, so one provider error
-// cannot abort the run.
-async Task<List<TriageCaseResult>> RunTriageFixturesAsync()
+// U1 triage eval (docs/plans/2026-10-16-002-feat-jev-intent-classification-plan.md, R11). Each fixture runs through a real
+// TriageAgent built by createAgent, so each classifier's run goes through the same policy as production. The LLM run uses
+// the cheap tier. A per-case exception is recorded as "(error)" rather than thrown, so one provider error cannot abort the run.
+async Task<List<TriageCaseResult>> RunTriageFixturesAsync(string classifierName, Func<TriageAgent> createAgent)
 {
     var fixtures = LoadFixtures<TriageFixture>("triage-fixtures.json");
     var outcomes = new List<TriageCaseResult>();
@@ -422,7 +447,7 @@ async Task<List<TriageCaseResult>> RunTriageFixturesAsync()
         };
         foreach (var turn in f.History) context.History.Add((turn.Role, turn.Content));
 
-        var agent = new TriageAgent(triageLlm, loggers.CreateLogger<TriageAgent>());
+        var agent = createAgent();
         var stopwatch = Stopwatch.StartNew();
         try
         {
@@ -443,10 +468,10 @@ async Task<List<TriageCaseResult>> RunTriageFixturesAsync()
 
 // Accuracy (overall and on non-ambiguous cases), unclear rate on clear cases, per-label precision/recall, confusion pairs,
 // every wrong case, latency, tokens, and calibration. Recommends MinConfidence only when confidence actually varies.
-void ReportTriage(List<TriageCaseResult> cases)
+void ReportTriage(string classifierName, List<TriageCaseResult> cases)
 {
     Console.WriteLine();
-    Console.WriteLine("=== Triage eval ===");
+    Console.WriteLine($"=== Triage eval: {classifierName} ===");
     if (cases.Count == 0)
     {
         Console.WriteLine("  no fixtures loaded");
@@ -499,6 +524,10 @@ void ReportTriage(List<TriageCaseResult> cases)
     var latencies = cases.Select(r => r.LatencyMs).Order().ToList();
     Console.WriteLine($"  latency p50={Percentile(latencies, 0.50)}ms p95={Percentile(latencies, 0.95)}ms");
     Console.WriteLine($"  total tokens={cases.Sum(r => (long)r.Tokens)}");
+    // Jev falls back to the LLM classifier on a timeout or error. Those cases carry the LLM's fixed confidence, so they are
+    // counted here and left out of the calibration below.
+    if (classifierName == "jev")
+        Console.WriteLine($"  jev fallbacks: {cases.Count(r => r.Source == "llm-fallback")}");
 
     Console.WriteLine("  calibration (non-error cases by confidence):");
     var scored = cases.Where(r => r.Error is null).ToList();
@@ -509,7 +538,7 @@ void ReportTriage(List<TriageCaseResult> cases)
         return;
     }
 
-    var withConfidence = scored.Where(r => r.Confidence is not null).ToList();
+    var withConfidence = scored.Where(r => r.Confidence is not null && r.Source != "llm-fallback").ToList();
     string[] bucketNames = ["[0.00,0.50)", "[0.50,0.70)", "[0.70,0.85)", "[0.85,1.00]"];
     for (var b = 0; b < bucketNames.Length; b++)
     {
