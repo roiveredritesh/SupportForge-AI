@@ -93,5 +93,17 @@ jobs:
             echo "=== $model: HTTP ${res% *} ${res#* }s"
             jq -c '{content: .choices[0].message.content, usage, detail, error, title, status}' probe.b 2>/dev/null || head -c 600 probe.b; echo
           }
-          probe meta/llama-3.1-8b-instruct
-          for m in $(jq -r '.data[].id' models.json | grep -iE '^meta/llama' | grep -iE 'instruct' | sort); do probe "$m"; done
+          probe() {
+            local model=$1
+            local body; body=$(jq -nc --arg m "$model" '{model:$m,messages:[{role:"system",content:"You classify customer support messages. Answer with exactly one label from: billing, technical, other. No other words."},{role:"user",content:"I was charged twice for my subscription this month."}],max_tokens:60,temperature:0}')
+            local res; res=$(curl -s -m 30 -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data "$body" -o probe.b -w '%{http_code} %{time_total}' "$NIM/chat/completions" || true)
+            echo "=== $model: HTTP ${res% *} ${res#* }s"
+            jq -c '{content: .choices[0].message.content, usage: (.usage | {prompt_tokens, completion_tokens}), detail}' probe.b 2>/dev/null || head -c 400 probe.b; echo
+            rm -f probe.b
+          }
+          for m in meta/llama-3.2-11b-vision-instruct nv-mistralai/mistral-nemo-12b-instruct mistralai/mistral-7b-instruct-v0.3 google/gemma-3-12b-it nvidia/nemotron-3.5-lightning-30b-a3b nvidia/nemotron-nano-3-30b-a3b microsoft/phi-3.5-moe-instruct nvidia/llama-3.1-nemotron-70b-instruct; do
+            probe "$m"; probe "$m"
+          done
+          echo "=== embeddings nvidia/nv-embedqa-e5-v5"
+          curl -s -m 30 -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data '{"model":"nvidia/nv-embedqa-e5-v5","input":["hello"],"input_type":"query"}' -o emb.b -w 'HTTP %{http_code} %{time_total}s\n' "$NIM/embeddings" || true
+          jq -c '{dims: (.data[0].embedding | length), detail}' emb.b 2>/dev/null || head -c 400 emb.b; echo
