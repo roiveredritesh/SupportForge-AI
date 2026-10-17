@@ -767,7 +767,8 @@ async Task<List<VisionRelevanceResult>> RunVisionRelevanceAsync(string judgeName
         }
 
         var actualRelevant = context.VisionVerification.Status == VerificationStatus.Passed;
-        outcomes.Add(new VisionRelevanceResult(judgeName, f.Id, f.ExpectRelevant, actualRelevant, findings.Length >= 20, f.Query));
+        var score = context.VisionVerification.Scores is { Count: > 0 } scores ? scores[0] : (double?)null;
+        outcomes.Add(new VisionRelevanceResult(judgeName, f.Id, f.ExpectRelevant, actualRelevant, findings.Length >= 20, f.Query, score));
     }
     return outcomes;
 }
@@ -797,6 +798,15 @@ void ReportVisionRelevance(List<VisionRelevanceResult> visionResults, bool judge
 
     foreach (var row in visionResults.Where(r => !r.Agreed))
         Console.WriteLine($"  DISAGREE [{row.Id}] expected={row.Expected} actual={row.Actual} longFindings={row.LongFindings} query=\"{Truncate(row.Query, 80)}\"");
+
+    // Verification:MinRelevance is also the vision cut-off, so the same candidates are swept on the judge's score when it reports one.
+    var visionScored = visionResults.Where(r => r.Score is not null).ToList();
+    if (visionScored.Count > 0)
+    {
+        Console.WriteLine("  agreement at score thresholds:");
+        foreach (var threshold in new[] { 0.3, 0.5, 0.7 })
+            Console.WriteLine($"    threshold {threshold:F1}: {Pct(visionScored.Count(r => (r.Score!.Value >= threshold) == r.Expected), visionScored.Count)}");
+    }
 }
 
 // The predicted set for the headline numbers: a score-based judge is read at 0.5, a single-pick judge at its one index.
@@ -839,7 +849,7 @@ sealed record TriageCaseResult(string Id, string Domain, string Query, string Ex
 sealed record RelevanceCaseResult(string Judge, string Id, string Kind, string Query, IReadOnlyList<int> Expected, IReadOnlyList<int> Predicted,
     IReadOnlyList<double>? Scores, double? Coverage, string ExpectedCoverage, long LatencyMs, string? Error);
 
-sealed record VisionRelevanceResult(string Judge, string Id, bool Expected, bool Actual, bool LongFindings, string Query)
+sealed record VisionRelevanceResult(string Judge, string Id, bool Expected, bool Actual, bool LongFindings, string Query, double? Score)
 {
     public bool Agreed => Expected == Actual;
 }
