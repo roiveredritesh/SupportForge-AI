@@ -31,6 +31,8 @@
 
   <ItemGroup>
     <None Include="Ingestion\Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- EndToEndQueryTests ingests Integration/TestData/sample-kb from the output directory. -->
+    <None Include="Integration\TestData\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
