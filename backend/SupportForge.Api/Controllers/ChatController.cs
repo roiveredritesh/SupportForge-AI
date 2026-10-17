@@ -176,7 +176,7 @@ public partial class ChatController : ControllerBase
     // U9: shared step-construction both Query (via CoordinatorPipeline) and QueryStream (manual,
     // for SSE) build identically before diverging on execution strategy -- see KTD3 for why the
     // two paths stay separate (QueryStream needs per-token output the Workflow API doesn't expose).
-    private async Task<AgentContext> BuildInitialContextAsync(ChatQueryRequest request, string conversationId, CancellationToken ct)
+    private async Task<AgentContext> BuildInitialContextAsync(ChatQueryRequest request, Conversation conversation, CancellationToken ct)
     {
         var context = new AgentContext
         {
@@ -185,8 +185,10 @@ public partial class ChatController : ControllerBase
             ScreenshotBase64 = request.ScreenshotBase64,
             ProductVersion = request.ProductVersion,
             Config = request.Config,
+            // The same rule that gates CodeDetails decides whether the draft itself may name code.
+            InternalAudience = IsElevated(this.CurrentUserRole(), conversation, this.CurrentUserId()),
         };
-        context.History.AddRange(await LoadRecapAsync(conversationId, ct));
+        context.History.AddRange(await LoadRecapAsync(conversation.Id, ct));
         return context;
     }
 
@@ -366,7 +368,7 @@ public partial class ChatController : ControllerBase
         var conversation = await ResolveConversationAsync(request, ct);
         if (conversation is null) return BadRequest("ConversationId does not belong to the given ProjectId.");
 
-        var context = await BuildInitialContextAsync(request, conversation.Id, ct);
+        var context = await BuildInitialContextAsync(request, conversation, ct);
 
         // U17 / KTD12: the guard runs before anything else touches the turn -- before the pipeline's
         // intent classification (TriageAgent) and every LLM call inside it. A blocked turn must never
@@ -506,7 +508,7 @@ public partial class ChatController : ControllerBase
             return;
         }
 
-        var context = await BuildInitialContextAsync(request, conversation.Id, ct);
+        var context = await BuildInitialContextAsync(request, conversation, ct);
 
         // U17 / KTD12: screened before the progress ping, _triage and every other agent below, so a
         // blocked turn never reaches intent classification or any LLM call (see Query for the same rule).
@@ -588,7 +590,7 @@ public partial class ChatController : ControllerBase
             async Task<string> CompleteDraftAsync(string prompt)
             {
                 var sb = new StringBuilder();
-                await foreach (var token in _llm.StreamCompleteAsync(DrafterAgent.SystemPrompt, prompt, ct))
+                await foreach (var token in _llm.StreamCompleteAsync(DrafterAgent.SystemPromptFor(context), prompt, ct))
                     sb.Append(token);
                 context.AddTokens(DrafterName, _llm.LastTotalTokens);
                 return sb.ToString();

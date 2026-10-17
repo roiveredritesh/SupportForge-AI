@@ -49,9 +49,9 @@ public sealed class GraphImportJob : IIngestionJob
         // scoped per-project. Creating a new-named index instead needs no DROP and no downtime -- the
         // old graphNodeSearch index is simply left orphaned (harmless, unused going forward).
         // U10: purpose/domainTerms are the reason for this particular rename -- they're new fields no
-        // prior index definition covers.
-        await session.ExecuteWriteAsync(tx => tx.RunAsync(
-            "CREATE FULLTEXT INDEX graphNodeSearchV2 IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label, n.summary, n.purpose, n.domainTerms]"));
+        // prior index definition covers. V3 adds nameTerms (identifiers split into words), following the same
+        // rename-not-drop precedent; graphNodeSearchV2 is left orphaned on existing databases.
+        await session.ExecuteWriteAsync(tx => tx.RunAsync(GraphDbQueryTool.CreateSearchIndexCypher));
 
         // Every node MERGE and both MATCHes per edge below look a node up by id. Without an index each lookup scans every
         // GraphNode, so the import grows with nodes x (nodes + edges): fine for a small repo, but a large one (django/django,
@@ -93,6 +93,9 @@ public sealed class GraphImportJob : IIngestionJob
                     n.sourceFile = node.sourceFile,
                     n.sourceLocation = node.sourceLocation,
                     n.summary = node.summary,
+                    n.nameTerms = node.nameTerms,
+                    n.isTest = node.isTest,
+                    n.excerpt = node.excerpt,
                     n.shape = node.shape,
                     n.coverageLevel = node.coverageLevel,
                     n.purpose = node.purpose,
@@ -124,6 +127,9 @@ public sealed class GraphImportJob : IIngestionJob
                         sourceFile = n.SourceFile,
                         sourceLocation = n.SourceLocation,
                         summary = n.Summary,
+                        nameTerms = n.NameTerms,
+                        isTest = n.IsTest,
+                        excerpt = n.Excerpt,
                         shape = n.Shape,
                         coverageLevel = n.CoverageLevel,
                         purpose = n.Purpose,
