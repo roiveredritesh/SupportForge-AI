@@ -86,7 +86,7 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
 
     private readonly IDriver _driver;
     private readonly string _database;
-    private readonly ILogger _logger;
+    private readonly Microsoft.Extensions.Logging.ILogger _logger;
     // A graph imported before V3 existed has no V3 index yet, and querying a missing index throws. It is created on first
     // use (IF NOT EXISTS), so code search keeps working until the next import rewrites the graph with nameTerms.
     private volatile bool _searchIndexEnsured;
