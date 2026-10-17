@@ -909,6 +909,12 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
     - `Guard:CombineWithTriage`: `TriagePrecomputed` logged, the benign turn was decided by Jev, and the injection was blocked.
     - In every configuration, no request text or KB text reached the logs.
     - With the services up, the integration tests that skip in CI also ran, 9 of 9 passing. That needed two fixes to `EndToEndQueryTests`: its sample KB was never copied to the test output, and its file-name check now reads the draft rather than the cited sources.
+  - **Code questions on a large repository**: `.github/workflows/e2e-code.yml` runs `Scripts/e2e/code-qa.sh` against django/django (2,933 Python files), with ten questions checked against its source.
+    - The first run never finished its graph import, because `GraphNode.id` had no index: every node and edge lookup scanned the whole graph. With the index, the import takes 82 s for 42,049 nodes.
+    - Accuracy is 1 of 10 in both `Llm` and `Jev` + `Enforce`, and the right file is retrieved 1 of 10 times. Most misses come from two causes:
+      - Triage sends these questions to `unclear` (6 of 10 with the LLM, 3 of 10 with Jev).
+      - The full-text code search ranks test code first. Django's `tests/` folder holds 73% of all class and function definitions, so its matches fill the top-10 slots before the real class.
+    - This is a limitation of the code path itself, not of Jev.
   - **NIM embedding model**: NVIDIA also retired `nvidia/nv-embedqa-e5-v5` (2026-08-25). It is replaced by `nvidia/llama-nemotron-embed-vl-1b-v2`, which has 2048 dimensions instead of 1024, so existing deployments must re-index (see the configuration guide).
   - **Verifier agreement** with the new LLM model: KB 24/27, code 15/18, vision 10/12, code-node classifier 3/4 (52/61 overall). The DISAGREE lines are findings, not crashes.
   - **Open Questions answered**: 1 (wire format, usage, error codes; no rate-limit headers seen), 5 (no question limit at or below 100, and questions can name JSON-state keys) and 6 (Score takes an ordered criteria array and returns a probability-weighted level, which maps to 0–1 by dividing by the top level). 4 is answered in part (see Triage). 2, 3, 7, 8 and 9 are still open.
