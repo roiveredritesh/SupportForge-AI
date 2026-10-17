@@ -934,6 +934,15 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
         - Jev sends two questions to `unclear`; the LLM sends one.
         - The scorer counts a name anywhere in the draft, so the `Paginator` answer counts although it hedges.
       - Ingesting Django (42,670 nodes) takes 72–82 s.
+    - **No regressions elsewhere** on the same head:
+      - The regular e2e passed with 0 hard failures. The code question about this repository named `TriageDecisionPolicy` again in `Llm` mode.
+      - In `Jev` + `Enforce` mode, this repository's code snippet is still dropped as a possible indirect injection (`IndirectInjectionDropped`), as it was before these changes. Its source is full of LLM prompt text, and `Guard:IndirectThreshold` is still a placeholder.
+      - Triage eval, clear-message accuracy:
+        - Jev went from 93.2% to 94.3%; its `code_question` recall went from 82.4% to 88.2%.
+        - At the shipped `MinConfidence` 0.6 and `MinMargin` 0.2, Jev went from 90.9% to 92.0%.
+        - At those thresholds, clear messages sent to `unclear` went from 3.4% to 4.5%, and ambiguous fixtures caught went from 5 to 4 of 15.
+        - The LLM went from 54.5% to 59.1%; its `code_question` recall went from 52.9% to 76.5%. It sent KB questions to `code_question` 14 times (was 12) and to `code_issue` 4 times (was 6).
+      - Verifier agreement: code went from 15/18 to 17/18 with the corrected judge prompt. KB (24/27) and vision (10/12) are unchanged.
   - **NIM embedding model**: NVIDIA also retired `nvidia/nv-embedqa-e5-v5` (2026-08-25). It is replaced by `nvidia/llama-nemotron-embed-vl-1b-v2`, which has 2048 dimensions instead of 1024, so existing deployments must re-index (see the configuration guide).
   - **Verifier agreement** with the new LLM model: KB 24/27, code 15/18, vision 10/12, code-node classifier 3/4 (52/61 overall). The DISAGREE lines are findings, not crashes.
   - **Open Questions answered**: 1 (wire format, usage, error codes; no rate-limit headers seen), 5 (no question limit at or below 100, and questions can name JSON-state keys) and 6 (Score takes an ordered criteria array and returns a probability-weighted level, which maps to 0–1 by dividing by the top level). 4 is answered in part (see Triage). 2, 3, 7, 8 and 9 are still open.
