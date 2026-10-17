@@ -63,7 +63,9 @@ public class EndToEndQueryTests : IClassFixture<WebApplicationFactory<Program>>
 
         Assert.NotNull(body);
         Assert.Contains("password", body!.Draft, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(".md", raw, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(".cs", raw, StringComparison.OrdinalIgnoreCase);
+        // The answer text must not name source files. The response's Sources list does, on purpose: it is shown as
+        // separate chrome under the answer (Phase E item 1), so the check reads the draft, not the whole response.
+        Assert.DoesNotContain(".md", body.Draft, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(".cs", body.Draft, StringComparison.OrdinalIgnoreCase);
     }
 }
