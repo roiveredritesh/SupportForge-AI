@@ -83,13 +83,13 @@ jobs:
           NIM: https://integrate.api.nvidia.com/v1
         run: |
           if [ -z "$LLM_API_KEY" ]; then echo "::error::LLM_API_KEY not set"; exit 1; fi
-          curl -s -m 20 -H "Authorization: Bearer $LLM_API_KEY" "$NIM/models" -o models.json -w 'models HTTP %{http_code}\n'
+          curl -s -m 20 -H "Authorization: Bearer $LLM_API_KEY" "$NIM/models" -o models.json -w 'models HTTP %{http_code}\n' || true
           echo "=== chat-capable ids (llama / instruct / nemotron / mistral / qwen / gemma / phi)"
           jq -r '.data[].id' models.json | grep -iE 'llama|instruct|nemotron|mistral|qwen|gemma|phi' | sort
           probe() {
             local model=$1
             local body; body=$(jq -nc --arg m "$model" '{model:$m,messages:[{role:"user",content:"Reply with the single word: ok"}],max_tokens:5,temperature:0}')
-            local res; res=$(curl -s -m 20 -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data "$body" -o probe.b -w '%{http_code} %{time_total}' "$NIM/chat/completions")
+            local res; res=$(curl -s -m 20 -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data "$body" -o probe.b -w '%{http_code} %{time_total}' "$NIM/chat/completions" || true)
             echo "=== $model: HTTP ${res% *} ${res#* }s"
             jq -c '{content: .choices[0].message.content, usage, detail, error, title, status}' probe.b 2>/dev/null || head -c 600 probe.b; echo
           }
