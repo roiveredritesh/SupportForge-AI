@@ -915,6 +915,25 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
       - Triage sends these questions to `unclear` (6 of 10 with the LLM, 3 of 10 with Jev).
       - The full-text code search ranks test code first. Django's `tests/` folder holds 73% of all class and function definitions, so its matches fill the top-10 slots before the real class.
     - This is a limitation of the code path itself, not of Jev.
+    - **After the code-path improvements** (same fixture, Django code-QA run 6). Changes:
+      - The extractor captures Python docstrings, splits identifiers into words (`nameTerms`), marks test code and stores each definition's first lines.
+      - The search queries the question's key terms, sets test code aside unless the question is about tests, and shows excerpts for the top three matches.
+      - Triage's `code_question` description names "which class, function, module, middleware or service does X".
+      - L2, L3 and Admin readers get role-based answers: they may name classes, functions and files, but never get pasted code.
+
+      | Mode | Names the answer | Right file retrieved | Deflected by `LeakFallback` |
+      |---|---|---|---|
+      | `Llm` | 6/10 (was 1) | 6/10 (was 1) | 0/10 |
+      | `Jev` + `Enforce` | 6/10 (was 1) | 6/10 (was 1) | 0/10 |
+
+      - Two intermediate findings shaped the final changes:
+        - The internal reader's verbatim-code check first deflected 2–4 of 10 answers that only echoed docstring prose, so it now checks code lines only.
+        - The LLM code judge's prompt still said snippets carry "no source text or comments". It rejected the regular e2e's code question even though the right class was the second match, so the prompt now describes summaries and excerpts.
+      - Still missed in both modes:
+        - `SecurityMiddleware` and `Signer` are not retrieved.
+        - Jev sends two questions to `unclear`; the LLM sends one.
+        - The scorer counts a name anywhere in the draft, so the `Paginator` answer counts although it hedges.
+      - Ingesting Django (42,670 nodes) takes 72–82 s.
   - **NIM embedding model**: NVIDIA also retired `nvidia/nv-embedqa-e5-v5` (2026-08-25). It is replaced by `nvidia/llama-nemotron-embed-vl-1b-v2`, which has 2048 dimensions instead of 1024, so existing deployments must re-index (see the configuration guide).
   - **Verifier agreement** with the new LLM model: KB 24/27, code 15/18, vision 10/12, code-node classifier 3/4 (52/61 overall). The DISAGREE lines are findings, not crashes.
   - **Open Questions answered**: 1 (wire format, usage, error codes; no rate-limit headers seen), 5 (no question limit at or below 100, and questions can name JSON-state keys) and 6 (Score takes an ordered criteria array and returns a probability-weighted level, which maps to 0–1 by dividing by the top level). 4 is answered in part (see Triage). 2, 3, 7, 8 and 9 are still open.
