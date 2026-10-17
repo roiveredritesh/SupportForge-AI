@@ -1,0 +1,17 @@
+{
+  "repo": "django/django",
+  "branch": "main",
+  "note": "Answers checked against django/django main at d430084 (2026-10-15).",
+  "questions": [
+    { "q": "Which middleware protects against cross-site request forgery?", "answer": "CsrfViewMiddleware", "path": "django/middleware/csrf.py" },
+    { "q": "Which class implements the PBKDF2 password hasher?", "answer": "PBKDF2PasswordHasher", "path": "django/contrib/auth/hashers.py" },
+    { "q": "Which class splits a list of objects into pages?", "answer": "Paginator", "path": "django/core/paginator.py" },
+    { "q": "What exception is raised when a template cannot be found?", "answer": "TemplateDoesNotExist", "path": "django/template/exceptions.py" },
+    { "q": "Which function sends an email to the site admins?", "answer": "mail_admins", "path": "django/core/mail/__init__.py" },
+    { "q": "Which cache backend stores cache entries in a database table?", "answer": "DatabaseCache", "path": "django/core/cache/backends/db.py" },
+    { "q": "Which helper returns an object or raises a 404 error when it does not exist?", "answer": "get_object_or_404", "path": "django/shortcuts.py" },
+    { "q": "Which middleware sets security headers such as HSTS?", "answer": "SecurityMiddleware", "path": "django/middleware/security.py" },
+    { "q": "Which class signs values so they cannot be tampered with?", "answer": "Signer", "path": "django/core/signing.py" },
+    { "q": "Which response class streams its content instead of building it in memory?", "answer": "StreamingHttpResponse", "path": "django/http/response.py" }
+  ]
+}
