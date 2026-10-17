@@ -77,33 +77,19 @@ jobs:
           lat q1 '{"model":"jev-latest","state":"My invoice shows the wrong company name.","questions":{"intent":{"type":"choice","criteria":{"billing":"Payments, invoices.","technical":"Bugs.","other":null}}}}'
           lat q5 "$(jq -nc '{model:"jev-latest",state:"My invoice shows the wrong company name.",questions:([range(5)] | map({key:"q\(.)",value:{type:"noul",instructions:"Is aspect \(.) of the text about billing?"}}) | from_entries)}')"
 
-      - name: NIM probe
+      - name: NIM embedding probe
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           NIM: https://integrate.api.nvidia.com/v1
         run: |
-          if [ -z "$LLM_API_KEY" ]; then echo "::error::LLM_API_KEY not set"; exit 1; fi
-          curl -s -m 20 -H "Authorization: Bearer $LLM_API_KEY" "$NIM/models" -o models.json -w 'models HTTP %{http_code}\n' || true
-          echo "=== chat-capable ids (llama / instruct / nemotron / mistral / qwen / gemma / phi)"
-          jq -r '.data[].id' models.json | grep -iE 'llama|instruct|nemotron|mistral|qwen|gemma|phi' | sort
-          probe() {
-            local model=$1
-            local body; body=$(jq -nc --arg m "$model" '{model:$m,messages:[{role:"user",content:"Reply with the single word: ok"}],max_tokens:5,temperature:0}')
-            local res; res=$(curl -s -m 20 -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data "$body" -o probe.b -w '%{http_code} %{time_total}' "$NIM/chat/completions" || true)
-            echo "=== $model: HTTP ${res% *} ${res#* }s"
-            jq -c '{content: .choices[0].message.content, usage, detail, error, title, status}' probe.b 2>/dev/null || head -c 600 probe.b; echo
-          }
-          probe() {
-            local model=$1
-            local body; body=$(jq -nc --arg m "$model" '{model:$m,messages:[{role:"system",content:"You classify customer support messages. Answer with exactly one label from: billing, technical, other. No other words."},{role:"user",content:"I was charged twice for my subscription this month."}],max_tokens:60,temperature:0}')
-            local res; res=$(curl -s -m 30 -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data "$body" -o probe.b -w '%{http_code} %{time_total}' "$NIM/chat/completions" || true)
-            echo "=== $model: HTTP ${res% *} ${res#* }s"
-            jq -c '{content: .choices[0].message.content, usage: (.usage | {prompt_tokens, completion_tokens}), detail}' probe.b 2>/dev/null || head -c 400 probe.b; echo
-            rm -f probe.b
-          }
-          for m in meta/llama-3.2-11b-vision-instruct nv-mistralai/mistral-nemo-12b-instruct mistralai/mistral-7b-instruct-v0.3 google/gemma-3-12b-it nvidia/nemotron-3.5-lightning-30b-a3b nvidia/nemotron-nano-3-30b-a3b microsoft/phi-3.5-moe-instruct nvidia/llama-3.1-nemotron-70b-instruct; do
-            probe "$m"; probe "$m"
+          curl -s -m 20 -H "Authorization: Bearer $LLM_API_KEY" "$NIM/models" -o models.json || true
+          echo "=== embedding-like ids"
+          jq -r '.data[].id' models.json | grep -iE 'embed|retriev|e5|bge|arctic' | sort
+          for m in $(jq -r '.data[].id' models.json | grep -iE 'embed|retriev|e5|bge|arctic' | sort); do
+            for t in query passage; do
+              body=$(jq -nc --arg m "$m" --arg t "$t" '{model:$m,input:["How do I reset my password?"],input_type:$t,encoding_format:"float"}')
+              res=$(curl -s -m 30 -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data "$body" -o e.json -w '%{http_code} %{time_total}' "$NIM/embeddings" || true)
+              echo "=== $m input_type=$t: HTTP ${res% *} ${res#* }s dims=$(jq '.data[0].embedding | length' e.json 2>/dev/null) $(jq -c '{detail, title}' e.json 2>/dev/null | head -c 200)"
+              rm -f e.json
+            done
           done
-          echo "=== embeddings nvidia/nv-embedqa-e5-v5"
-          curl -s -m 30 -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data '{"model":"nvidia/nv-embedqa-e5-v5","input":["hello"],"input_type":"query"}' -o emb.b -w 'HTTP %{http_code} %{time_total}s\n' "$NIM/embeddings" || true
-          jq -c '{dims: (.data[0].embedding | length), detail}' emb.b 2>/dev/null || head -c 400 emb.b; echo
