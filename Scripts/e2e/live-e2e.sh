@@ -70,7 +70,7 @@ start_api() {
     tail -n 40 "$OUT/$name.log"
     return 1
   fi
-  say "- [$name] /health HTTP $code: $(jq -c '[.entries // {} | to_entries[] | {(.key): .value.status}] | add' "$OUT/$name.health.json" 2>/dev/null || head -c 300 "$OUT/$name.health.json")"
+  say "- [$name] /health HTTP $code: $(tr -d '\n' < "$OUT/$name.health.json" | head -c 300)"
 }
 
 stop_api() {
