@@ -76,3 +76,22 @@ jobs:
           }
           lat q1 '{"model":"jev-latest","state":"My invoice shows the wrong company name.","questions":{"intent":{"type":"choice","criteria":{"billing":"Payments, invoices.","technical":"Bugs.","other":null}}}}'
           lat q5 "$(jq -nc '{model:"jev-latest",state:"My invoice shows the wrong company name.",questions:([range(5)] | map({key:"q\(.)",value:{type:"noul",instructions:"Is aspect \(.) of the text about billing?"}}) | from_entries)}')"
+
+      - name: NIM probe
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          NIM: https://integrate.api.nvidia.com/v1
+        run: |
+          if [ -z "$LLM_API_KEY" ]; then echo "::error::LLM_API_KEY not set"; exit 1; fi
+          curl -s -H "Authorization: Bearer $LLM_API_KEY" "$NIM/models" -o models.json -w 'models HTTP %{http_code}\n'
+          echo "=== chat-capable ids (llama / instruct / nemotron / mistral / qwen / gemma / phi)"
+          jq -r '.data[].id' models.json | grep -iE 'llama|instruct|nemotron|mistral|qwen|gemma|phi' | sort
+          probe() {
+            local model=$1
+            local body; body=$(jq -nc --arg m "$model" '{model:$m,messages:[{role:"user",content:"Reply with the single word: ok"}],max_tokens:5,temperature:0}')
+            local res; res=$(curl -s -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' --data "$body" -o probe.b -w '%{http_code} %{time_total}' "$NIM/chat/completions")
+            echo "=== $model: HTTP ${res% *} ${res#* }s"
+            jq -c '{content: .choices[0].message.content, usage, detail, error, title, status}' probe.b 2>/dev/null || head -c 600 probe.b; echo
+          }
+          probe meta/llama-3.1-8b-instruct
+          for m in $(jq -r '.data[].id' models.json | grep -iE '^meta/llama' | grep -iE 'instruct' | sort); do probe "$m"; done
