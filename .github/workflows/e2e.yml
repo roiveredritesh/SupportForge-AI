@@ -1,0 +1,100 @@
+name: E2E live
+
+# Live end-to-end run of the API with real Chroma and Neo4j, the live LLM and Jev (Scripts/e2e/live-e2e.sh).
+# It ingests a small synthetic KB and this repository's own code, then sends chat requests under each
+# Triage/Verification/Guard mode and checks the log events and the fields persisted on assistant messages.
+# It calls paid APIs, so it never runs on ordinary pushes or pull requests.
+#
+# How to run: push any commit to a branch named e2e/<anything>, e.g.
+#   git push origin feature/jev-integration:e2e/jev
+# or use "Run workflow" in the Actions tab once this file is on the default branch.
+#
+# Needs the repository secrets LLM_API_KEY (NVIDIA NIM) and JEV_API_KEY.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["e2e/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      chroma:
+        image: chromadb/chroma:latest
+        ports:
+          - 8000:8000
+      neo4j:
+        image: neo4j:5.26-community
+        env:
+          NEO4J_AUTH: none
+        ports:
+          - 7474:7474
+          - 7687:7687
+
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build
+        run: dotnet build backend/SupportForge.Backend.sln --configuration Release
+
+      # Ingestion embeds with this model. A retired NIM model answers 410, which would only show up later as an
+      # empty KB, so check it first.
+      - name: Check the NIM embedding model
+        run: |
+          code=$(curl -s -o emb.json -w '%{http_code}' -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' \
+            --data '{"model":"nvidia/nv-embedqa-e5-v5","input":["hello"],"input_type":"query"}' \
+            https://integrate.api.nvidia.com/v1/embeddings)
+          echo "embeddings HTTP $code, dimensions $(jq '.data[0].embedding | length' emb.json 2>/dev/null)"
+          if [ "$code" != "200" ]; then jq -c '{detail, title, status}' emb.json 2>/dev/null || head -c 400 emb.json; exit 1; fi
+
+      - name: Wait for Neo4j
+        run: |
+          for _ in $(seq 60); do curl -s -o /dev/null http://localhost:7474 && exit 0; sleep 2; done
+          echo "::error::Neo4j did not start"; exit 1
+
+      - name: Live end-to-end
+        env:
+          GitHub__Token: ${{ github.token }}
+          E2E_CODE_REPO: ${{ github.repository }}
+          E2E_CODE_BRANCH: ${{ github.ref_name }}
+          OUT: ${{ github.workspace }}/e2e-out
+        run: Scripts/e2e/live-e2e.sh
+
+      - name: Summary
+        if: always()
+        run: cat e2e-out/summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      # With Chroma, Neo4j and a live key all present, the integration tests that skip in CI run for real.
+      # EndToEndQueryTests is gated on OpenAI__ApiKey, which the NIM client also reads as its key fallback.
+      - name: Integration tests
+        if: always()
+        env:
+          OpenAI__ApiKey: ${{ secrets.LLM_API_KEY }}
+        run: dotnet test backend/SupportForge.Backend.sln --no-build --configuration Release --filter "Category=Integration"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-out-${{ github.run_number }}
+          path: e2e-out
+          if-no-files-found: ignore
