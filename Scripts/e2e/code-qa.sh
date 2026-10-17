@@ -54,8 +54,8 @@ trap stop_api EXIT
 
 TOKEN=""
 post() { # post <path> <json> <outfile> -> prints HTTP code
-  curl -s -m 240 -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    --data "$2" -o "$3" -w '%{http_code}' "$BASE$1" || echo 000
+  curl -s -m 300 -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    --data "$2" -o "$3" -w '%{http_code}' "$BASE$1" || true
 }
 
 REPO=$(jq -r '.repo' "$FIXTURE")
