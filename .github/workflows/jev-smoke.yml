@@ -1,0 +1,78 @@
+name: Jev smoke
+
+# Throwaway first-contact check of the live Jev API against docs/integrations/typesafe-jev-api.md.
+# Runs only on pushes to smoke/** branches. State is synthetic; the key is never printed.
+
+on:
+  push:
+    branches: ["smoke/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+      BASE: https://api.typesafe.ai
+    steps:
+      - name: Smoke
+        run: |
+          if [ -z "$JEV_API_KEY" ]; then echo "::error::JEV_API_KEY not set"; exit 1; fi
+          mkdir -p out
+
+          # call <label> <method> <path> [json-body] [auth-override]
+          call() {
+            local label=$1 method=$2 path=$3 body=${4:-} auth=${5:-$JEV_API_KEY}
+            local args=(-s -X "$method" -H "Authorization: Bearer $auth" -D "out/$label.h" -o "out/$label.b" -w '%{http_code} %{time_total}')
+            [ -n "$body" ] && args+=(-H 'Content-Type: application/json' --data "$body")
+            local res; res=$(curl "${args[@]}" "$BASE$path")
+            echo "=== $label: HTTP ${res% *}, ${res#* }s"
+            echo "headers: $(grep -i '^[a-z0-9-]*:' "out/$label.h" | cut -d: -f1 | tr 'A-Z' 'a-z' | sort | tr '\n' ' ')"
+            grep -iE '^(x-typesafe-request-id|x-ratelimit[^:]*|retry-after[^:]*|ratelimit[^:]*):' "out/$label.h" || echo "(no request-id / rate-limit headers)"
+            jq . "out/$label.b" 2>/dev/null || head -c 2000 "out/$label.b"; echo
+          }
+
+          call models GET /v1/models
+
+          call noul POST /v1/systemone '{"model":"jev-latest","state":"The sky over the harbour was bright blue this morning.","questions":{"mentions_colour":{"type":"noul","instructions":"Does the text mention a colour?"}}}'
+
+          call noul_criteria POST /v1/systemone '{"model":"jev-latest","state":"The sky over the harbour was bright blue this morning.","questions":{"is_weather":{"type":"noul","criteria":{"true":"The text describes weather or sky conditions.","false":"The text is about something else."}}}}'
+
+          call choice POST /v1/systemone '{"model":"jev-latest","state":"I was charged twice for my subscription this month.","questions":{"intent":{"type":"choice","instructions":"What is the customer asking about?","criteria":{"billing":"Payments, invoices, charges, refunds.","technical":"Bugs, errors, crashes, setup problems.","other":null}}}}'
+
+          call score POST /v1/systemone '{"model":"jev-latest","state":"The app crashes on startup after the latest update.","questions":{"coverage":{"type":"score","instructions":"How fully does the text describe a software problem?","criteria":["Not a software problem.","Mentions a problem vaguely.","Clearly describes a specific problem."]}}}'
+
+          # Open Question 5: mixed types in one request, and a JSON-object state referenced by key.
+          call mixed_json_state POST /v1/systemone '{"model":"jev-latest","state":{"question":"How do I reset my password?","snippet_0":"To reset your password, open Settings > Account and choose Reset password.","snippet_1":"Our office is closed on public holidays."},"questions":{"snippet_0_relevant":{"type":"noul","instructions":"Does snippet_0 help answer question?"},"snippet_1_relevant":{"type":"noul","instructions":"Does snippet_1 help answer question?"},"intent":{"type":"choice","criteria":{"account":"Login, password, account settings.","billing":"Payments and charges.","other":null}},"coverage":{"type":"score","instructions":"How fully do the snippets answer question?","criteria":["Not at all.","Partially.","Fully."]}}}'
+
+          # Error shapes.
+          call err_401 POST /v1/systemone '{"model":"jev-latest","state":"x","questions":{"q":{"type":"noul","instructions":"Is this text?"}}}' invalid-key-for-smoke-test
+          call err_422_empty POST /v1/systemone '{"model":"jev-latest","state":"x","questions":{}}'
+          call err_422_choice POST /v1/systemone '{"model":"jev-latest","state":"x","questions":{"q":{"type":"choice","criteria":{}}}}'
+          call err_404_model POST /v1/systemone '{"model":"jev-does-not-exist","state":"x","questions":{"q":{"type":"noul","instructions":"Is this text?"}}}'
+
+          # Open Question 5: per-request question limit and how latency scales with question count.
+          echo "=== question-count sweep"
+          for n in 1 5 10 20 25 30 50 100; do
+            body=$(jq -nc --argjson n "$n" '{model:"jev-latest",state:"The delivery arrived late and the box was damaged.",questions:([range($n)] | map({key:"q\(.)",value:{type:"noul",instructions:"Does the text mention item \(.)? (synthetic sweep question)"}}) | from_entries)}')
+            res=$(curl -s -X POST -H "Authorization: Bearer $JEV_API_KEY" -H 'Content-Type: application/json' --data "$body" -o out/sweep.b -w '%{http_code} %{time_total}' "$BASE/v1/systemone")
+            answered=$(jq -r '(.answers // {}) | length' out/sweep.b 2>/dev/null || echo "?")
+            usage=$(jq -c '.usage // null' out/sweep.b 2>/dev/null || echo "?")
+            echo "n=$n HTTP ${res% *} ${res#* }s answers=$answered usage=$usage"
+            case ${res% *} in 2*) ;; *) head -c 600 out/sweep.b; echo;; esac
+          done
+
+          # Latency: 20 sequential single-question and 20 sequential 5-question requests.
+          lat() {
+            local label=$1 body=$2; : > "out/lat_$label"
+            for i in $(seq 20); do
+              curl -s -X POST -H "Authorization: Bearer $JEV_API_KEY" -H 'Content-Type: application/json' --data "$body" -o /dev/null -w '%{http_code} %{time_total}\n' "$BASE/v1/systemone" >> "out/lat_$label"
+            done
+            echo "=== latency $label: statuses $(cut -d' ' -f1 out/lat_$label | sort | uniq -c | tr '\n' ' ')"
+            cut -d' ' -f2 "out/lat_$label" | sort -n | awk '{a[NR]=$1} END {printf "n=%d min=%.3f p50=%.3f p95=%.3f max=%.3f\n", NR, a[1], a[int((NR+1)/2)], a[int(NR*0.95+0.999)], a[NR]}'
+          }
+          lat q1 '{"model":"jev-latest","state":"My invoice shows the wrong company name.","questions":{"intent":{"type":"choice","criteria":{"billing":"Payments, invoices.","technical":"Bugs.","other":null}}}}'
+          lat q5 "$(jq -nc '{model:"jev-latest",state:"My invoice shows the wrong company name.",questions:([range(5)] | map({key:"q\(.)",value:{type:"noul",instructions:"Is aspect \(.) of the text about billing?"}}) | from_entries)}')"
