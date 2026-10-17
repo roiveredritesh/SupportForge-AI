@@ -126,6 +126,9 @@ ask_all() {
   done
   say ""
   say "**$mode:** HTTP 200 $n_ok/$COUNT, names the answer $n_named/$COUNT, right file retrieved $n_retrieved/$COUNT, deflected by LeakFallback $n_deflected/$COUNT"
+  # Labels only: which leak check fired, per attempt (DrafterAgent logs no draft text).
+  say "- Leak checks fired ($mode): $(grep -oE 'leak check fired: [a-z-]+ internal=[A-Za-z]+ attempt=[12]' "$OUT/code-qa.$mode.log" \
+    | sed 's/leak check fired: //' | sort | uniq -c | awk '{c=$1; $1=""; printf "%s x%s;", $0, c}')"
   say ""
   say "<details><summary>Drafts ($mode)</summary>"; say ""
   for i in $(seq 0 $((COUNT - 1))); do

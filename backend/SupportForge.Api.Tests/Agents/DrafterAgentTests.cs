@@ -575,4 +575,16 @@ public class DrafterAgentTests
 
         Assert.True(DrafterAgent.LooksLikeLeak("It lives in django/middleware/csrf.py.", context));
     }
+
+    [Fact]
+    public void LeakReason_NamesTheCheckThatFired()
+    {
+        var customer = new AgentContext { ProjectId = "p", Query = "which middleware handles csrf?" };
+        customer.CodeSnippets.Add(GraphSnippet);
+
+        Assert.Equal("code-fence", DrafterAgent.LeakReason("```python\nclass X: pass\n```", InternalContext()));
+        Assert.Equal("verbatim-code", DrafterAgent.LeakReason("It runs def process_view(self, request, callback, callback_args) first.", InternalContext()));
+        Assert.Equal("file-reference", DrafterAgent.LeakReason("It lives in django/middleware/csrf.py.", customer));
+        Assert.Null(DrafterAgent.LeakReason("CSRF is checked by a middleware on unsafe requests.", customer));
+    }
 }

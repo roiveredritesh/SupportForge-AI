@@ -292,27 +292,33 @@ public sealed partial class DrafterAgent : IAgent
     }
 
     /// <summary>Safety net for when the LLM ignores the no-code rules in <see cref="SystemPrompt"/>.</summary>
-    public static bool LooksLikeLeak(string draft, AgentContext context)
+    public static bool LooksLikeLeak(string draft, AgentContext context) => LeakReason(draft, context) is not null;
+
+    /// <summary>
+    /// Which leak check a draft trips: "code-fence", "file-reference" or "verbatim-code"; null when it passes. A label only,
+    /// so it can be logged without any draft text.
+    /// </summary>
+    public static string? LeakReason(string draft, AgentContext context)
     {
-        if (string.IsNullOrEmpty(draft)) return false;
-        if (draft.Contains("```")) return true;
+        if (string.IsNullOrEmpty(draft)) return null;
+        if (draft.Contains("```")) return "code-fence";
 
         // An internal reader may be told which files and classes are involved, so only pasted code counts: a verbatim run
         // from a code excerpt line (CodeGraphOutput.ExcerptLinePrefix), not from the NODE/EDGE metadata that names them.
         if (context.InternalAudience)
-            return context.CodeSnippets.Any(s => ContainsVerbatimRun(draft, ExcerptCode(s)));
+            return context.CodeSnippets.Any(s => ContainsVerbatimRun(draft, ExcerptCode(s))) ? "verbatim-code" : null;
 
         // Echoing a filename the customer themselves wrote isn't a leak, and ".js" frameworks aren't files.
         var customerText = string.Join("\n", context.History.Select(h => h.Content).Append(context.Query));
         if (SourceFileRef().Matches(draft).Any(m =>
                 !FrameworkNames.Contains(m.Value)
                 && !customerText.Contains(m.Value, StringComparison.OrdinalIgnoreCase)))
-            return true;
+            return "file-reference";
 
         // Only proprietary code is checked for verbatim overlap: KB docs are public documentation
         // (e.g. install commands) and are meant to be quoted, so they'd falsely trip this on every
         // exact CLI command or config value.
-        return context.CodeSnippets.Any(s => ContainsVerbatimRun(draft, s));
+        return context.CodeSnippets.Any(s => ContainsVerbatimRun(draft, s)) ? "verbatim-code" : null;
     }
 
     private static bool ContainsVerbatimRun(string draft, string source) =>
@@ -344,13 +350,19 @@ public sealed partial class DrafterAgent : IAgent
             var systemPrompt = SystemPromptFor(context);
             var draft = await _llm.CompleteAsync(systemPrompt, userPrompt, ct);
             context.AddTokens(Name, _llm.LastTotalTokens);
-            var leaked = LooksLikeLeak(draft, context);
-            if (leaked)
+            var leakReason = LeakReason(draft, context);
+            if (leakReason is not null)
             {
+                _logger.LogInformation("{Agent} leak check fired: {LeakReason} internal={InternalAudience} attempt=1",
+                    Name, leakReason, context.InternalAudience);
                 draft = await _llm.CompleteAsync(systemPrompt, userPrompt + LeakRetryNote, ct);
                 context.AddTokens(Name, _llm.LastTotalTokens);
-                leaked = LooksLikeLeak(draft, context);
+                leakReason = LeakReason(draft, context);
+                if (leakReason is not null)
+                    _logger.LogInformation("{Agent} leak check fired: {LeakReason} internal={InternalAudience} attempt=2",
+                        Name, leakReason, context.InternalAudience);
             }
+            var leaked = leakReason is not null;
             context.Draft = leaked ? LeakFallback : draft;
             context.Confidence = leaked ? 0.0 : ComputeConfidence(context);
 
