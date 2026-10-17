@@ -26,6 +26,8 @@ As environment variables, replace `:` with `__` (double underscore) — e.g. `Op
 | `Anthropic` | yes | yes | **no** | `Llm:Anthropic` (`BaseUrl`, `ChatModel`, `ApiKey`) — Anthropic ships no embeddings API, so `Embeddings:Provider` **must** be set to a different provider or startup fails with a clear error |
 | `Bedrock` | yes | yes | yes | `Llm:Bedrock` (`Region`, `ChatModel`, `EmbeddingModel`) — no `ApiKey`; uses the AWS SDK's standard credential chain (IAM role, env vars, `~/.aws/credentials`) |
 
+**NVIDIA model retirements (2026-08)**: NVIDIA retired `meta/llama-3.1-8b-instruct` and `nvidia/nv-embedqa-e5-v5`, which now answer HTTP 410. The shipped NIM models are `meta/llama-3.2-11b-vision-instruct` (chat and vision) and `nvidia/llama-nemotron-embed-vl-1b-v2` (embeddings). The new embedding model returns 2048-dimension vectors where the old one returned 1024, and a Chroma collection keeps the dimension of its first vector. So on an existing deployment, re-index every project: delete its `<projectId>-kb` collection in Chroma (`DELETE /api/v2/tenants/default_tenant/databases/default_database/collections/<projectId>-kb`), then call `POST /api/ingestion/force-reindex` with the project id. `force-reindex` alone clears the content hashes but keeps the old collection, so its upserts would fail.
+
 Example: Anthropic for chat/vision with NVIDIA NIM for embeddings —
 ```json
 "Llm": { "Provider": "Anthropic", "Anthropic": { "ApiKey": "sk-ant-..." } },

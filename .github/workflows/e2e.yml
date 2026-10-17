@@ -60,10 +60,11 @@ jobs:
       # empty KB, so check it first.
       - name: Check the NIM embedding model
         run: |
+          model=$(jq -r '.Llm.NvidiaNim.EmbeddingModel' backend/SupportForge.Api/appsettings.json)
           code=$(curl -s -o emb.json -w '%{http_code}' -H "Authorization: Bearer $LLM_API_KEY" -H 'Content-Type: application/json' \
-            --data '{"model":"nvidia/nv-embedqa-e5-v5","input":["hello"],"input_type":"query"}' \
+            --data "$(jq -nc --arg m "$model" '{model:$m, input:["hello"], input_type:"query"}')" \
             https://integrate.api.nvidia.com/v1/embeddings)
-          echo "embeddings HTTP $code, dimensions $(jq '.data[0].embedding | length' emb.json 2>/dev/null)"
+          echo "$model: embeddings HTTP $code, dimensions $(jq '.data[0].embedding | length' emb.json 2>/dev/null)"
           if [ "$code" != "200" ]; then jq -c '{detail, title, status}' emb.json 2>/dev/null || head -c 400 emb.json; exit 1; fi
 
       - name: Wait for Neo4j
