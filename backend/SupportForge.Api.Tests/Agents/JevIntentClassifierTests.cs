@@ -91,7 +91,7 @@ public class JevIntentClassifierTests
         Assert.Equal("A product, feature or process question answered by documentation, not the source code.", choice.Criteria[TriageLabels.KbQuestion]);
         Assert.Equal("A bug report or error involving the product's source code.", choice.Criteria[TriageLabels.CodeIssue]);
         Assert.Equal(
-            "A question about how the product's source code works that is not a bug report, such as how something works, where something is implemented, or architecture.",
+            "A question about how the product's source code works that is not a bug report, such as how something works, where something is implemented, which class, function, module, middleware or service does something, or architecture.",
             choice.Criteria[TriageLabels.CodeQuestion]);
         Assert.Equal("A question about an attached screenshot showing an error or UI state.", choice.Criteria[TriageLabels.ScreenshotError]);
         Assert.Equal("A greeting, thanks, farewell or other pleasantry with no actual support question in it.", choice.Criteria[TriageLabels.Greeting]);

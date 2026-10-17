@@ -1,0 +1,80 @@
+name: E2E code questions
+
+# Code-question accuracy on an external repository (Scripts/e2e/code-qa.sh): ingests the repository a fixture in
+# Scripts/e2e/code-qa names into the Neo4j code graph, then asks the fixture's questions with the live LLM and Jev
+# and reports how many answers name the right identifier and retrieve the right file. Report-only. It calls paid
+# APIs, so it never runs on ordinary pushes or pull requests.
+#
+# How to run: push any commit to a branch named e2e-code/<anything>, e.g.
+#   git push origin feature/jev-integration:e2e-code/django
+# The fixture defaults to Scripts/e2e/code-qa/django.json; set CODE_QA_FIXTURE below to change it.
+#
+# Needs the repository secrets LLM_API_KEY (NVIDIA NIM) and JEV_API_KEY.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["e2e-code/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-code-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      chroma:
+        image: chromadb/chroma:latest
+        ports:
+          - 8000:8000
+      neo4j:
+        image: neo4j:5.26-community
+        env:
+          NEO4J_AUTH: none
+        ports:
+          - 7474:7474
+          - 7687:7687
+
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+      CODE_QA_FIXTURE: Scripts/e2e/code-qa/django.json
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build
+        run: dotnet build backend/SupportForge.Api/SupportForge.Api.csproj --configuration Release
+
+      - name: Wait for Neo4j
+        run: |
+          for _ in $(seq 60); do curl -s -o /dev/null http://localhost:7474 && exit 0; sleep 2; done
+          echo "::error::Neo4j did not start"; exit 1
+
+      - name: Code questions
+        env:
+          OUT: ${{ github.workspace }}/e2e-out
+        run: Scripts/e2e/code-qa.sh "$CODE_QA_FIXTURE"
+
+      - name: Summary
+        if: always()
+        run: cat e2e-out/code-qa.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-qa-${{ github.run_number }}
+          path: e2e-out
+          if-no-files-found: ignore

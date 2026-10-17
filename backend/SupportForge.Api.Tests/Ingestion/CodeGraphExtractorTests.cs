@@ -323,4 +323,99 @@ public class CodeGraphExtractorTests
         Assert.DoesNotContain(graph.Nodes, n => n.Id.StartsWith("endpoint::", StringComparison.Ordinal));
         Assert.DoesNotContain(graph.Edges, e => e.Relation is "defines_endpoint" or "calls_endpoint");
     }
+
+    [Fact]
+    public void Extract_CapturesPythonDefinitionDocstring_AsDefinitionNodeSummary()
+    {
+        var repoDir = CreateRepoFixture(("hooks.py",
+            "class SignatureCheck:\n    \"\"\"Rejects webhooks whose\n    signature does not match.\"\"\"\n\n    def verify(self):\n        '''Compares the HMAC.'''\n        return True\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Equal("Rejects webhooks whose signature does not match.", graph.Nodes.Single(n => n.Id == "hooks.py::SignatureCheck").Summary);
+        Assert.Equal("Compares the HMAC.", graph.Nodes.Single(n => n.Id == "hooks.py::verify").Summary);
+    }
+
+    // A ':' inside annotations, defaults or brackets must not be taken for the end of the signature.
+    [Fact]
+    public void Extract_CapturesPythonDocstring_AfterMultiLineAnnotatedSignature()
+    {
+        var repoDir = CreateRepoFixture(("svc.py",
+            "async def fetch(\n    url: str,\n    headers: dict[str, str] = {\"a\": \"b\"},\n) -> list[int]:\n    \"\"\"Downloads the page.\"\"\"\n    return []\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Equal("Downloads the page.", graph.Nodes.Single(n => n.Id == "svc.py::fetch").Summary);
+    }
+
+    [Fact]
+    public void Extract_LeavesPythonSummaryEmpty_WhenBodyDoesNotStartWithDocstring()
+    {
+        var repoDir = CreateRepoFixture(("svc.py", "def run():\n    x = \"\"\"not a docstring\"\"\"\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Equal("", graph.Nodes.Single(n => n.Id == "svc.py::run").Summary);
+    }
+
+    [Fact]
+    public void Extract_SplitsIdentifiersAndPathsIntoNameTerms()
+    {
+        var repoDir = CreateRepoFixture(
+            ("django/middleware/csrf.py", "class CsrfViewMiddleware:\n    pass\n\ndef get_object_or_404():\n    pass\n"),
+            ("src/Hashers.cs", "public class PBKDF2PasswordHasher { }\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Equal("csrf view middleware", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py::CsrfViewMiddleware").NameTerms);
+        Assert.Equal("get object or 404", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py::get_object_or_404").NameTerms);
+        Assert.Equal("pbkdf2 password hasher", graph.Nodes.Single(n => n.Id == "src/Hashers.cs::PBKDF2PasswordHasher").NameTerms);
+        Assert.Equal("django middleware csrf", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py").NameTerms);
+    }
+
+    [Theory]
+    [InlineData("tests/cache/test_db.py", true)]
+    [InlineData("django/contrib/auth/test_hashers.py", true)]
+    [InlineData("pkg/server_test.go", true)]
+    [InlineData("backend/SupportForge.Api.Tests/Agents/DrafterAgentTests.cs", true)]
+    [InlineData("src/OrderServiceTests.cs", true)]
+    [InlineData("web/app/page.spec.ts", true)]
+    [InlineData("web/__tests__/page.tsx", true)]
+    [InlineData("conftest.py", true)]
+    [InlineData("src/Latest.cs", false)]
+    [InlineData("src/Contest.java", false)]
+    [InlineData("django/core/paginator.py", false)]
+    [InlineData("src/testimonials.ts", false)]
+    public void IsTestPath_RecognisesTestDirectoriesAndFileNames(string path, bool expected)
+    {
+        Assert.Equal(expected, CodeGraphExtractor.IsTestPath(path));
+    }
+
+    [Fact]
+    public void Extract_MarksTestNodes()
+    {
+        var repoDir = CreateRepoFixture(
+            ("tests/test_cache.py", "def test_get():\n    pass\n"),
+            ("app/cache.py", "def get():\n    pass\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.True(graph.Nodes.Single(n => n.Id == "tests/test_cache.py").IsTest);
+        Assert.True(graph.Nodes.Single(n => n.Id == "tests/test_cache.py::test_get").IsTest);
+        Assert.False(graph.Nodes.Single(n => n.Id == "app/cache.py::get").IsTest);
+    }
+
+    [Fact]
+    public void Extract_StoresDefinitionExcerpt_FromItsFirstLine()
+    {
+        var body = string.Join("\n", Enumerable.Range(1, 30).Select(i => $"    x{i} = {i}"));
+        var repoDir = CreateRepoFixture(("mod.py", $"import os\n\n\ndef build():\n{body}\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        var excerpt = graph.Nodes.Single(n => n.Id == "mod.py::build").Excerpt;
+        Assert.StartsWith("def build():", excerpt);
+        Assert.True(excerpt.Split('\n').Length <= 12);
+        Assert.Equal("", graph.Nodes.Single(n => n.Id == "mod.py").Excerpt);
+    }
 }

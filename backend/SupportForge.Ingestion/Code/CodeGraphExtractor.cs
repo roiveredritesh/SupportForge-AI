@@ -47,7 +47,7 @@ public static class CodeGraphExtractor
             @"^\s*(?:export\s+)?(?:default\s+)?\b(?:class|function)\s+(?<name>[A-Za-z_]\w*)",
             RegexOptions.Compiled | RegexOptions.Multiline),
         ["python"] = new Regex(
-            @"^\s*(?:class|def)\s+(?<name>[A-Za-z_]\w*)",
+            @"^\s*(?:async\s+)?(?:class|def)\s+(?<name>[A-Za-z_]\w*)",
             RegexOptions.Compiled | RegexOptions.Multiline),
         ["java"] = new Regex(
             @"^\s*(?:(?:public|private|protected|static|final|abstract)\s+)*\b(?:class|interface|enum)\s+(?<name>[A-Za-z_]\w*)",
@@ -109,6 +109,38 @@ public static class CodeGraphExtractor
 
     private const int MaxSummaryLength = 500;
 
+    // A Python def/class docstring is the first statement after the signature's closing ':'. \G anchors at the index the
+    // match starts from, so this only accepts a string literal that opens the body.
+    private static readonly Regex PythonBodyDocstring = new(
+        "\\G\\s*[rRuU]?(\"\"\"|''')(?<body>.*?)\\1",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+
+    // How far past a "def"/"class" keyword the signature's closing ':' is looked for. Long enough for a many-parameter,
+    // multi-line signature; a miss just means no docstring.
+    private const int MaxSignatureScan = 2000;
+
+    private const int MaxExcerptLines = 12;
+    private const int MaxExcerptChars = 700;
+
+    // Splits an identifier into words: "CsrfViewMiddleware" -> Csrf View Middleware, "get_object_or_404" -> get object
+    // or 404, "PBKDF2PasswordHasher" -> PBKDF2 Password Hasher.
+    private static readonly Regex IdentifierWord = new(
+        @"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+\d*|[A-Z]+\d*|\d+",
+        RegexOptions.Compiled);
+
+    // Directory names that mark test code anywhere in a path, and suffixes of .NET test-project directories.
+    private static readonly HashSet<string> TestDirNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "test", "tests", "__tests__", "spec", "specs", "testdata",
+    };
+
+    private static readonly string[] TestProjectDirSuffixes = [".Tests", ".Test", ".UnitTests", ".IntegrationTests", ".Specs"];
+
+    // Case-sensitive on purpose: "OrderServiceTests.cs" is a test file, "Latest.cs" is not.
+    private static readonly Regex TestFileName = new(
+        @"^(test_.*\.py|.*_test\.(py|go)|conftest\.py|.*[a-z0-9]Tests?\.(cs|java)|.*\.(test|spec)\.(ts|tsx|js|jsx))$",
+        RegexOptions.Compiled);
+
     // Minified content has nothing meaningful for a regex definition-pattern to match, and a
     // multi-hundred-KB single-line file would dominate header-comment extraction cost for no benefit
     // -- cap what's read for summary purposes to the first 2KB (reused as-is by the Tier 2 enrichment
@@ -147,6 +179,8 @@ public static class CodeGraphExtractor
                 SourceFile = relativePath,
                 SourceLocation = "L1",
                 Summary = ExtractFileHeaderComment(summaryInput, fileType),
+                NameTerms = PathNameTerms(relativePath),
+                IsTest = IsTestPath(relativePath),
                 Shape = ShapeFlagsToNames(admissibility.Shape),
                 CoverageLevel = DetermineCoverageLevel(fileType),
             });
@@ -243,6 +277,7 @@ public static class CodeGraphExtractor
                 SourceFile = relativePath,
                 SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
                 Summary = "",
+                IsTest = IsTestPath(relativePath),
             });
             graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = endpointId, Relation = "defines_endpoint", Confidence = "high" });
         }
@@ -282,6 +317,9 @@ public static class CodeGraphExtractor
             if (!seenNames.Add(name)) continue; // same symbol matched by more than one alternation branch
 
             var nodeId = $"{relativePath}::{name}";
+            // The name, not the match start: the pattern's leading \s* can begin on a blank line above the definition.
+            var nameIndex = match.Groups["name"].Index;
+            var docstring = fileType == "python" ? ExtractPythonDefinitionDocstring(text, nameIndex) : "";
             graph.Nodes.Add(new CodeGraphNode
             {
                 Id = nodeId,
@@ -289,7 +327,10 @@ public static class CodeGraphExtractor
                 FileType = fileType,
                 SourceFile = relativePath,
                 SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
-                Summary = ExtractPrecedingCommentBlock(text, match.Index),
+                Summary = docstring.Length > 0 ? docstring : ExtractPrecedingCommentBlock(text, match.Index),
+                NameTerms = IdentifierTerms(name),
+                IsTest = IsTestPath(relativePath),
+                Excerpt = ExtractExcerpt(text, nameIndex),
             });
             graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = nodeId, Relation = "defines", Confidence = "high" });
         }
@@ -387,8 +428,8 @@ public static class CodeGraphExtractor
     // Backward from a definition's match start: XML-doc (///), JSDoc (/** */), and plain // blocks
     // directly above it, the dominant per-symbol doc-comment convention for C#/TS/JS/Java/Go. Stops
     // at the first blank or non-comment line -- a real doc comment sits with no gap above its symbol.
-    // Not attempted for Python: its docstring is the first statement INSIDE the body, not a comment
-    // above it, and a regex pass can't reliably find where a (possibly multi-line) signature ends.
+    // Python's docstring is the first statement INSIDE the body instead; ExtractPythonDefinitionDocstring
+    // handles that, and this stays the fallback for a Python definition without one.
     private static string ExtractPrecedingCommentBlock(string text, int definitionIndex)
     {
         if (definitionIndex <= 0) return "";
@@ -405,6 +446,68 @@ public static class CodeGraphExtractor
             lineEnd = lineStart - 1;
         }
         return Truncate(string.Join(' ', lines));
+    }
+
+    private static string ExtractPythonDefinitionDocstring(string text, int definitionIndex)
+    {
+        var bodyStart = FindPythonSignatureEnd(text, definitionIndex);
+        if (bodyStart < 0) return "";
+        var match = PythonBodyDocstring.Match(text, bodyStart);
+        return match.Success ? Truncate(Regex.Replace(match.Groups["body"].Value, @"\s+", " ").Trim()) : "";
+    }
+
+    // Index just past the ':' that ends a def/class signature, which may span several lines. Brackets are tracked so a ':'
+    // inside a type annotation, default value or base-class list isn't taken for it. -1 when none is found in range.
+    private static int FindPythonSignatureEnd(string text, int start)
+    {
+        var depth = 0;
+        var end = Math.Min(text.Length, start + MaxSignatureScan);
+        for (var i = start; i < end; i++)
+        {
+            switch (text[i])
+            {
+                case '(' or '[' or '{': depth++; break;
+                case ')' or ']' or '}': depth--; break;
+                case ':' when depth == 0: return i + 1;
+            }
+        }
+        return -1;
+    }
+
+    // From the definition's line: at most MaxExcerptLines lines and MaxExcerptChars characters, trailing blank lines dropped.
+    private static string ExtractExcerpt(string text, int definitionIndex)
+    {
+        var lineStart = definitionIndex > 0 ? text.LastIndexOf('\n', definitionIndex - 1) + 1 : 0;
+        var lines = text[lineStart..Math.Min(text.Length, lineStart + MaxExcerptChars)]
+            .Split('\n')
+            .Take(MaxExcerptLines)
+            .Select(l => l.TrimEnd('\r', ' ', '\t'))
+            .ToList();
+        while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+        return string.Join('\n', lines);
+    }
+
+    internal static string IdentifierTerms(string identifier) =>
+        string.Join(' ', IdentifierWord.Matches(identifier).Select(m => m.Value.ToLowerInvariant()));
+
+    // Every directory and the file name (without extension) of a relative path, split into words:
+    // "django/core/cache/backends/db.py" -> "django core cache backends db".
+    private static string PathNameTerms(string relativePath) =>
+        string.Join(' ', Path.ChangeExtension(relativePath, null)
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(IdentifierTerms)
+            .Where(t => t.Length > 0));
+
+    internal static bool IsTestPath(string relativePath)
+    {
+        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0) return false;
+        foreach (var dir in segments[..^1])
+        {
+            if (TestDirNames.Contains(dir)) return true;
+            if (TestProjectDirSuffixes.Any(suffix => dir.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))) return true;
+        }
+        return TestFileName.IsMatch(segments[^1]);
     }
 
     // U4: no longer filtered by extension -- every file reaches CodeFileAdmissibility in Extract(),
