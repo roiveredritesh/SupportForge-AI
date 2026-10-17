@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Neo4j.Driver;
 using SupportForge.Agents.Tools;
 using SupportForge.Ingestion.Code;
@@ -84,14 +86,16 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
 
     private readonly IDriver _driver;
     private readonly string _database;
+    private readonly ILogger _logger;
     // A graph imported before V3 existed has no V3 index yet, and querying a missing index throws. It is created on first
     // use (IF NOT EXISTS), so code search keeps working until the next import rewrites the graph with nameTerms.
     private volatile bool _searchIndexEnsured;
 
-    public GraphDbQueryTool(IDriver driver, string database)
+    public GraphDbQueryTool(IDriver driver, string database, ILogger<GraphDbQueryTool>? logger = null)
     {
         _driver = driver;
         _database = database;
+        _logger = logger ?? NullLogger<GraphDbQueryTool>.Instance;
     }
 
     public async Task<string?> QueryAsync(string projectId, string question, bool retrying, CancellationToken ct = default)
@@ -127,7 +131,11 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
             return await cursor.ToListAsync();
         });
 
-        if (matchRecords.Count == 0) return null;
+        if (matchRecords.Count == 0)
+        {
+            _logger.LogInformation("CodeSearch terms={TermCount} candidates=0", searchQuery.Split(' ').Length);
+            return null;
+        }
 
         var includeTests = AsksAboutTests(question);
         var candidates = matchRecords
@@ -142,6 +150,10 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         var relevantMatches = ranked
             .Where(r => ClearsRelevanceFloor(r.Score, topScore))
             .ToList();
+        // Counts and scores only, never the question: enough to see which floor a miss falls under.
+        _logger.LogInformation(
+            "CodeSearch terms={TermCount} candidates={Candidates} nonTest={NonTest} top={TopScore:F2} relevant={Relevant}",
+            searchQuery.Split(' ').Length, candidates.Count, candidates.Count(c => !IsTestNode(c.Node)), topScore, relevantMatches.Count);
 
         // Both floors passed and nothing survived (e.g. the top match itself is below the absolute
         // floor) -- "no relevant code found" rather than surfacing the best-scoring noise.

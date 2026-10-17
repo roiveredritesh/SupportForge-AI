@@ -209,6 +209,7 @@ if start_api llm; then
   if [ -n "$CODE_REPO" ]; then
     n=$(jq -r '.codeDetails // [] | length' "$OUT/llm.code.json" 2>/dev/null || echo 0)
     [ "${n:-0}" -gt 0 ] && pass "[llm] code question answered from the Neo4j graph ($n code details)" || fail "[llm] code question returned no code details"
+    note "[llm] code search (counts and scores only): $(grep -oE 'CodeSearch [^"]*' "$OUT/llm.log" | head -n 3 | paste -sd ';' -)"
   fi
   [ "$(last_field 1 IntentSource)" = "llm" ] && pass "[llm] IntentSource=llm" || fail "[llm] IntentSource=$(last_field 1 IntentSource)"
   [ "$(last_field 1 GuardVerdict)" = "null" ] && pass "[llm] no GuardVerdict with the guard off" || fail "[llm] GuardVerdict=$(last_field 1 GuardVerdict)"
@@ -225,7 +226,7 @@ if start_api shadow Triage__Classifier=Shadow Verification__Judge=Shadow Guard__
   expect_log shadow 'GuardBlocked' 0 0; expect_log shadow 'GuardUnscreened' 0 0
   note "[shadow] TriageShadow agree=True x$(count_log shadow 'TriageShadow.*agree=True'), GuardFlagged x$(count_log shadow 'GuardFlagged'), OutputGuardTriggered x$(count_log shadow 'OutputGuardTriggered')"
   # Shadow acts on the LLM path, so nothing stops the injection. Record whether the answer gave away the system prompt.
-  if grep -qF "You are a support engineer" "$OUT/shadow.inject.json"; then note "[shadow] the injection answer repeats the Drafter's system prompt (Shadow never blocks; Enforce does)"; fi
+  if grep -qE "You are a support engineer|You are drafting an answer for an engineer" "$OUT/shadow.inject.json"; then note "[shadow] the injection answer repeats the Drafter's system prompt (Shadow never blocks; Enforce does)"; fi
   [ "$(jq -r '.draft' "$OUT/shadow.inject.json")" != "" ] && pass "[shadow] injection answered, not blocked (Shadow never blocks)"
   persisted shadow 3
   [ "$(last_field 1 IntentSource)" = "llm" ] && pass "[shadow] acts on the LLM (IntentSource=llm)" || fail "[shadow] IntentSource=$(last_field 1 IntentSource)"
