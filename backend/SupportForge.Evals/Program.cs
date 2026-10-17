@@ -436,6 +436,19 @@ void ReportGuard(List<GuardCaseResult> guardCases, bool jevSupplied = false)
                 }
                 Console.WriteLine($"    {signal.Name,-22} {hint}");
             }
+
+            // Every signal at every candidate threshold. A hard negative counts against a signal only when it does not
+            // expect that signal. "max hard-neg" is the highest score any such hard negative got, i.e. the margin left.
+            Console.WriteLine("  threshold sweep per signal (hard-neg fire rate / detection on cases expecting the signal):");
+            foreach (var signal in GuardSignals.All)
+            {
+                var negatives = hard.Where(r => !r.ExpectSignals.Contains(signal.Name)).ToList();
+                var positives = cases.Where(r => r.Class != hardNegative && r.ExpectSignals.Contains(signal.Name)).ToList();
+                var maxNegative = negatives.Count == 0 ? 0.0 : negatives.Max(r => ScoreOf(r, signal.Name));
+                var cells = thresholds.Select(t =>
+                    $"{t:F2}: {Pct(negatives.Count(r => ScoreOf(r, signal.Name) >= t), negatives.Count)}/{Pct(positives.Count(r => ScoreOf(r, signal.Name) >= t), positives.Count)}");
+                Console.WriteLine($"    {signal.Name,-22} ({signal.Class}, n+={positives.Count}, max hard-neg={maxNegative:F2})  {string.Join("  ", cells)}");
+            }
         }
     }
 }
@@ -463,14 +476,16 @@ async Task<List<TriageCaseResult>> RunTriageFixturesAsync(string classifierName,
         {
             await agent.RunAsync(context);
             stopwatch.Stop();
+            // The raw decision is kept so ReportTriage can replay TriageDecisionPolicy at other thresholds without new calls.
+            var decision = new IntentDecision(context.IntentScores, context.IntentConfidence ?? double.NaN, context.IntentSignals, 0, context.IntentSource);
             outcomes.Add(new TriageCaseResult(f.Id, f.Domain, f.Query, f.ExpectIntent, context.Intent, f.Ambiguous, f.History.Count > 0,
-                context.IntentConfidence, context.IntentSource, stopwatch.ElapsedMilliseconds, context.TotalTokensUsed, null));
+                context.IntentConfidence, context.IntentSource, stopwatch.ElapsedMilliseconds, context.TotalTokensUsed, null, decision, f.HasScreenshot));
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
             outcomes.Add(new TriageCaseResult(f.Id, f.Domain, f.Query, f.ExpectIntent, "(error)", f.Ambiguous, f.History.Count > 0,
-                null, "", stopwatch.ElapsedMilliseconds, context.TotalTokensUsed, ex.Message));
+                null, "", stopwatch.ElapsedMilliseconds, context.TotalTokensUsed, ex.Message, null, f.HasScreenshot));
         }
     }
     return outcomes;
@@ -577,6 +592,26 @@ void ReportTriage(string classifierName, List<TriageCaseResult> cases)
     Console.WriteLine(recommended is { } threshold
         ? $"    recommended MinConfidence={threshold:F2}"
         : "    no threshold meets both bars (>= 95% accuracy at or above the threshold, <= 10% of non-ambiguous cases below it)");
+
+    // Replays the production TriageDecisionPolicy on the recorded answers for each MinConfidence/MinMargin pair, so the
+    // trade-off between clear-case accuracy and catching the ambiguous fixtures is read from one run. Fallbacks are left out.
+    var replayable = withConfidence.Where(r => r.Decision is not null).ToList();
+    Console.WriteLine($"  policy sweep (TriageDecisionPolicy replayed on {replayable.Count} recorded answers):");
+    foreach (var minConfidence in new[] { 0.0, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95 })
+    {
+        foreach (var minMargin in new[] { 0.0, 0.1, 0.15, 0.2, 0.3, 0.5 })
+        {
+            var sweepOptions = new TriageOptions { MinConfidence = minConfidence, MinMargin = minMargin };
+            var replayed = replayable.Select(r => (Case: r, Intent: TriageDecisionPolicy.Decide(r.Decision!, r.HasScreenshot, sweepOptions).Intent)).ToList();
+            var clearReplayed = replayed.Where(x => !x.Case.Ambiguous).ToList();
+            var unclearExpected = replayed.Where(x => x.Case.Expected == TriageLabels.Unclear).ToList();
+            Console.WriteLine($"    MinConfidence={minConfidence:F2} MinMargin={minMargin:F2}"
+                + $"  clear accuracy={Pct(clearReplayed.Count(x => x.Intent == x.Case.Expected), clearReplayed.Count)}"
+                + $"  clear->unclear={Pct(clearReplayed.Count(x => x.Intent == TriageLabels.Unclear), clearReplayed.Count)}"
+                + $"  unclear caught={Pct(unclearExpected.Count(x => x.Intent == TriageLabels.Unclear), unclearExpected.Count)}"
+                + $"  overall={Pct(replayed.Count(x => x.Intent == x.Case.Expected), replayed.Count)}");
+        }
+    }
 }
 
 // U10 findings relevance (docs/plans/2026-10-16-002-feat-jev-intent-classification-plan.md, R22). Each mixed-relevance fixture goes
@@ -667,6 +702,14 @@ void ReportSnippetRelevance(List<RelevanceCaseResult> snippetResults)
         {
             var coverageCorrect = covered.Count(r => CoverageLevel(r.Coverage!.Value) == r.ExpectedCoverage);
             Console.WriteLine($"    coverage accuracy: {Pct(coverageCorrect, covered.Count)} ({coverageCorrect}/{covered.Count})");
+
+            // Verification:PartialCoverageBelow: a passing branch gets the partial-coverage hint when coverage is below the cut.
+            // Read as: share of expected-partial cases that get the hint, and of expected-complete cases that get it wrongly.
+            var partialCases = covered.Where(r => r.ExpectedCoverage == "partial").ToList();
+            var completeCases = covered.Where(r => r.ExpectedCoverage == "complete").ToList();
+            Console.WriteLine($"    PartialCoverageBelow sweep (partial flagged / complete wrongly flagged; n={partialCases.Count}/{completeCases.Count}):");
+            foreach (var cut in new[] { 0.5, 0.6, 0.67, 0.75, 0.85, 0.95 })
+                Console.WriteLine($"      below {cut:F2}: {Pct(partialCases.Count(r => r.Coverage!.Value < cut), partialCases.Count)} / {Pct(completeCases.Count(r => r.Coverage!.Value < cut), completeCases.Count)}");
         }
         else
         {
@@ -724,7 +767,8 @@ async Task<List<VisionRelevanceResult>> RunVisionRelevanceAsync(string judgeName
         }
 
         var actualRelevant = context.VisionVerification.Status == VerificationStatus.Passed;
-        outcomes.Add(new VisionRelevanceResult(judgeName, f.Id, f.ExpectRelevant, actualRelevant, findings.Length >= 20, f.Query));
+        var score = context.VisionVerification.Scores is { Count: > 0 } scores ? scores[0] : (double?)null;
+        outcomes.Add(new VisionRelevanceResult(judgeName, f.Id, f.ExpectRelevant, actualRelevant, findings.Length >= 20, f.Query, score));
     }
     return outcomes;
 }
@@ -754,6 +798,15 @@ void ReportVisionRelevance(List<VisionRelevanceResult> visionResults, bool judge
 
     foreach (var row in visionResults.Where(r => !r.Agreed))
         Console.WriteLine($"  DISAGREE [{row.Id}] expected={row.Expected} actual={row.Actual} longFindings={row.LongFindings} query=\"{Truncate(row.Query, 80)}\"");
+
+    // Verification:MinRelevance is also the vision cut-off, so the same candidates are swept on the judge's score when it reports one.
+    var visionScored = visionResults.Where(r => r.Score is not null).ToList();
+    if (visionScored.Count > 0)
+    {
+        Console.WriteLine("  agreement at score thresholds:");
+        foreach (var threshold in new[] { 0.3, 0.5, 0.7 })
+            Console.WriteLine($"    threshold {threshold:F1}: {Pct(visionScored.Count(r => (r.Score!.Value >= threshold) == r.Expected), visionScored.Count)}");
+    }
 }
 
 // The predicted set for the headline numbers: a score-based judge is read at 0.5, a single-pick judge at its one index.
@@ -788,7 +841,7 @@ sealed record CaseResult(string Verifier, string Id, string Domain, string Query
 }
 
 sealed record TriageCaseResult(string Id, string Domain, string Query, string Expected, string Actual, bool Ambiguous, bool HasHistory, double? Confidence,
-    string Source, long LatencyMs, int Tokens, string? Error)
+    string Source, long LatencyMs, int Tokens, string? Error, IntentDecision? Decision, bool HasScreenshot)
 {
     public bool Correct => Expected == Actual;
 }
@@ -796,7 +849,7 @@ sealed record TriageCaseResult(string Id, string Domain, string Query, string Ex
 sealed record RelevanceCaseResult(string Judge, string Id, string Kind, string Query, IReadOnlyList<int> Expected, IReadOnlyList<int> Predicted,
     IReadOnlyList<double>? Scores, double? Coverage, string ExpectedCoverage, long LatencyMs, string? Error);
 
-sealed record VisionRelevanceResult(string Judge, string Id, bool Expected, bool Actual, bool LongFindings, string Query)
+sealed record VisionRelevanceResult(string Judge, string Id, bool Expected, bool Actual, bool LongFindings, string Query, double? Score)
 {
     public bool Agreed => Expected == Actual;
 }
