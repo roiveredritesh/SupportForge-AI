@@ -61,8 +61,8 @@ The guard reads the `Guard` section of the configuration. Each key can be overri
 | `Guard:CombineWithTriage` | `false` | When `true`, the guard and the triage intent share one Jev request, so an allowed turn makes one Jev call instead of two. It needs `Triage:Classifier` set to `Jev` and `Jev:ApiKey`, or startup fails. See [Combined request](#combined-guard-and-triage-request). |
 | `Guard:DefaultBlockThreshold` | `0.9` | Jev score at or above which a block-class signal fires, for signals with no entry in `Thresholds`. |
 | `Guard:DefaultReviewThreshold` | `0.8` | Same, for review-class signals. |
-| `Guard:Thresholds` | `{}` | Per-signal thresholds keyed by signal name, for example `"jailbreak_roleplay": 0.95`. These override the defaults above. The output guard's signals `output_disclosure` and `output_follows_injected` are keyed the same way. Used for Jev scores only. The shipped `appsettings.json` lists placeholder values for every signal. |
-| `Guard:IndirectThreshold` | `0.8` | A KB snippet or vision finding that Jev scores at or above this as containing instructions to an AI is dropped before the Drafter sees it. Read only when `Verification:Judge` is `Jev`. See [Indirect injection](#indirect-injection). |
+| `Guard:Thresholds` | `{}` | Per-signal thresholds keyed by signal name, for example `"jailbreak_roleplay": 0.95`. These override the defaults above. The output guard's signals `output_disclosure` and `output_follows_injected` are keyed the same way. Used for Jev scores only. The shipped values for the four block-class signals come from the guard eval of 2026-10-17 (see below). `extract_raw_code`, `output_disclosure` and `output_follows_injected` are still placeholders, because the eval has no fixtures that measure them. |
+| `Guard:IndirectThreshold` | `0.8` | Placeholder (no eval fixtures yet). A KB snippet or vision finding that Jev scores at or above this as containing instructions to an AI is dropped before the Drafter sees it. Read only when `Verification:Judge` is `Jev`. See [Indirect injection](#indirect-injection). |
 | `Guard:HistoryTurns` | `4` | How much recent history is screened. The heuristic reads the last N customer messages. The Jev request is trimmed to the last N history entries. The recap holds at most 6 messages, so larger values have no further effect. |
 | `Guard:MaxStateChars` | `8000` | Upper bound on the text in the guard's Jev request. Oldest history is dropped first, then the message is cut from its start. The output guard uses the same budget for its own request. |
 | `Guard:JevTimeout` | `00:00:01.5` | Time limit for the Jev check. A slower check counts as a failure. |
@@ -166,7 +166,7 @@ Whenever `Mode` is not `Off`, every turn's verdict (`allowed`, `flagged`, `block
 2. Set `Shadow`. Review the flagged turns, which are logged and stored with their verdict and signals.
 3. Set `Enforce` only after the guard eval shows 1% or fewer false blocks on hard negatives. This applies to the input guard and to the output guard.
 4. Enable `CombineWithTriage` only after the Shadow data shows the block rate and Jev's latency. It needs `Triage:Classifier` at `Jev`.
-5. Threshold values in `appsettings.json` are placeholders. Replace them with the values from the guard eval (`Guard:Thresholds`), and record the report in the plan's implementation status before turning on `Enforce`.
+5. The block-class values in `Guard:Thresholds` come from the guard eval of 2026-10-17, which is recorded in the plan's implementation status. For each signal, the shipped value is the highest threshold within 5 points of that signal's best detection, with no hard negative firing and at least 0.1 above the highest score any hard negative got. Re-run the eval and update both `appsettings.json` files (the API's and `SupportForge.Evals`'s, which are kept in sync) whenever the fixtures or the Jev model change.
 
 Run the guard eval with `dotnet run --project backend/SupportForge.Evals`. The guard report (`=== Guard eval: ...`) is printed after the main eval report. Its fixtures are in `backend/SupportForge.Evals/Fixtures/guard-fixtures.json`. The guard report does not change the exit code. The whole harness also runs the LLM-based evals, so it needs a configured LLM provider.
 
@@ -203,8 +203,8 @@ Data note: turning Jev on sends customer data to TypeSafe. Triage sends the curr
 | Key | Default | Meaning |
 |---|---|---|
 | `Triage:Classifier` | `Llm` | `Llm`, `Jev` or `Shadow` (see the modes above). `Jev` and `Shadow` need `Jev:ApiKey`. |
-| `Triage:MinConfidence` | `0.6` | Below this confidence the turn is `unclear`, and the Drafter asks one clarifying question. Placeholder until the triage eval recommends a value. |
-| `Triage:MinMargin` | `0.15` | Below this gap between the top label and the runner-up, the turn is `unclear`. Placeholder until the triage eval recommends a value. |
+| `Triage:MinConfidence` | `0.6` | Below this confidence the turn is `unclear`, and the Drafter asks one clarifying question. Set from the triage eval of 2026-10-17. |
+| `Triage:MinMargin` | `0.2` | Below this gap between the top label and the runner-up, the turn is `unclear`. Set from the triage eval of 2026-10-17. |
 | `Triage:HighConfidence` | `0.85` | Confidence at or above this is the high band. Confidence between `MinConfidence` and this is the medium band, which adds the Drafter hint below. |
 | `Triage:SecondaryIntentRouting` | `false` | When `true`, a runner-up label whose probability is at or above `SecondaryMinProbability` also runs the retrieval branch it would use. Off until the eval supports it. |
 | `Triage:SecondaryMinProbability` | `0.35` | Minimum runner-up probability for secondary routing. |
@@ -217,7 +217,7 @@ Other behaviour:
 - **Drafter hint**: in the medium band, the Drafter is told to restate its reading of the question in one clause before it answers. The LLM classifier reports no band, so `Llm` mode prompts do not change.
 - **Persistence**: the assistant message stores `Intent`, `IntentConfidence` and `IntentSource`. They are null on blocked turns and on messages saved before these fields existed.
 - **Telemetry**: the Triage span carries the tags `triage.intent`, `triage.confidence`, `triage.source`, `triage.rule` and `triage.runner_up`. Jev token usage is recorded under the `Triage` agent in the turn's token total.
-- **Thresholds**: the defaults above are placeholders. The triage eval (`dotnet run --project backend/SupportForge.Evals`) prints a calibration table and a recommended `MinConfidence` for the Jev run. The LLM run reports no confidence, so it has no calibration table. The Jev run needs the key, and the evals workflow reads it from the optional `JEV_API_KEY` repository secret. Set the thresholds from that report, and run `Shadow` for at least a week before `Jev`. See [the plan](../plans/2026-10-16-002-feat-jev-intent-classification-plan.md).
+- **Thresholds**: `MinConfidence` and `MinMargin` come from the triage eval of 2026-10-17, recorded in the plan's implementation status. The triage eval (`dotnet run --project backend/SupportForge.Evals`) prints a calibration table, a recommended `MinConfidence` and a policy sweep for the Jev run. The sweep replays the decision policy on the recorded answers over a grid of `MinConfidence` and `MinMargin` values, so you can read off the trade-off between clear-case accuracy and how many ambiguous messages become `unclear`. The LLM run reports no confidence, so it has no calibration table. The Jev run needs the key, and the evals workflow reads it from the optional `JEV_API_KEY` repository secret. Set the thresholds from that report, and run `Shadow` for at least a week before `Jev`. See [the plan](../plans/2026-10-16-002-feat-jev-intent-classification-plan.md).
 
 ## Findings verification (`Verification`)
 
@@ -232,8 +232,8 @@ Code-graph snippets are judged by the LLM in every mode unless `Verification:Jev
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `Verification:Judge` | `Llm` | `Llm`, `Jev` or `Shadow` (see the modes above). `Jev` and `Shadow` need `Jev:ApiKey`, and startup fails without it. |
-| `Verification:MinRelevance` | `0.5` | Jev score at or above which a snippet is kept, and the cut-off for a vision finding to count as relevant. Placeholder until the findings relevance eval recommends a value. |
-| `Verification:PartialCoverageBelow` | `0.67` | Jev coverage below this marks the branch as partial, and the Drafter is told the context covers only part of the question. |
+| `Verification:MinRelevance` | `0.3` | Jev score at or above which a snippet is kept, the cut-off for a vision finding to count as relevant, and the cut-off for a sentence to count as supported in the per-sentence groundedness check. Set from the findings relevance eval of 2026-10-17. |
+| `Verification:PartialCoverageBelow` | `0.67` | Jev coverage below this marks the branch as partial, and the Drafter is told the context covers only part of the question. Checked by the findings relevance eval of 2026-10-17: on KB fixtures every cut from 0.60 to 0.75 flags all partial cases and no complete ones. |
 | `Verification:MaxSnippetChars` | `2000` | Longer snippets are cut before they are sent to Jev. |
 | `Verification:MaxStateChars` | `16000` | Upper bound on the serialized Jev request. Snippets that do not fit are scored 0.0 and dropped from the answer. |
 | `Verification:HistoryTurns` | `4` | Recent history turns sent to Jev as context. |
@@ -253,7 +253,7 @@ Code-graph snippets are judged by the LLM in every mode unless `Verification:Jev
 **Rollout**:
 
 1. Ship with `Judge` at `Llm`. This changes no behaviour. Run the findings relevance eval (`dotnet run --project backend/SupportForge.Evals`) for the LLM baseline.
-2. With a Jev key, the same eval also runs the Jev judge. Set `MinRelevance` from the threshold table (0.3, 0.5 and 0.7 are reported): choose the highest threshold that keeps per-snippet recall at or above the LLM judge's while improving precision.
+2. With a Jev key, the same eval also runs the Jev judge. Set `MinRelevance` from the threshold table (0.3, 0.5 and 0.7 are reported): choose the highest threshold that keeps per-snippet recall at or above the LLM judge's while improving precision. The vision eval reports agreement at the same thresholds, because `MinRelevance` is also the vision cut-off.
 3. Run `Shadow` for at least a week. Review how often the two judges agree, how often Jev keeps more than one snippet, and whether Jev drops a snippet the LLM picked. Hand-review those drops against feedback.
 4. Switch `Judge` to `Jev`. Leave `Jev:IncludeCode` off until the data-processing review covers source identifiers.
 5. Turn on `GroundednessPerSentence` last, and only after a separate review of the sentences it flags. Shadow does not judge groundedness per sentence, so start that review on a sample of Jev-mode traffic.
