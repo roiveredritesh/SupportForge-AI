@@ -66,14 +66,28 @@ SupportForge doesn't use an SDK, because none exists for .NET. `SupportForge.Age
 
 | Status | Meaning |
 |---|---|
-| 400 | Bad request |
-| 401 | Authentication (missing or invalid key) |
+| 400 | Bad request, including an unknown model: body `{ "detail": { "error_type": "api_usage_error", "message": "Unknown model: ..." } }` |
+| 401 | Authentication (missing or invalid key): body `{ "detail": { "error_type": "authentication_error", "message": "..." } }` |
 | 403 | Permission denied |
-| 404 | Not found (e.g. unknown model) |
-| 422 | Validation error, body `{ "detail": [ { "loc": [...], "msg": "...", "type": "..." } ] }` |
+| 404 | Not found |
+| 422 | Validation error, body `{ "detail": [ { "type": "...", "loc": [...], "msg": "...", "input": ..., "ctx": { ... } } ] }` |
+
+`detail` is an object for 400 and 401, and an array only for 422. SupportForge reads `detail[].msg` only on a 422.
 | 429 | Rate limited; honours `retry-after` / `retry-after-ms` |
 | 5xx | Server error |
 
 The SDKs retry 408, 429 and 5xx up to 2 times with exponential backoff (0.5 s initial, 5 s max, 25% jitter), and send `X-TypeSafe-Retry-Count` on retries. Their default per-request timeout is 10 s.
 
 SupportForge sits on a request's critical path, so it retries at most once. Each caller also enforces its own tighter time budget: the guard and triage fall back to the LLM path, failing open, when Jev doesn't answer in time.
+
+## Observed behaviour (live check, 2026-10-17)
+
+The first live calls, from a GitHub Actions runner, matched the request and response shapes above field by field. Observed details:
+
+- `GET /v1/models` returns `{ "models": [ { "name", "description", "release_date" } ] }`. Listed names were `jev-latest` and `jev-preview`. `jev-latest` resolved to `jev-1.13.0` in the `model` field of answers.
+- Every response, errors included, carries `x-typesafe-request-id` (format `req_<32 hex>`). No rate-limit headers (`x-ratelimit-*`, `retry-after`) were sent on successful calls.
+- `usage.output_tokens` is non-zero (about 18 per Noul question).
+- Question count: requests with 1, 5, 10, 20, 25, 30, 50 and 100 Noul questions all returned 200 with every answer, so there is no limit at or below 100 (plan Open Question 5). Input tokens grow by about 22 per short question on top of about 270 per request.
+- A JSON-object state works, and questions can refer to its keys by name (for example "Does snippet_0 help answer question?"), which answered 0.98 for a relevant snippet and 0.01 for an unrelated one.
+- Score answers include `legend` (level index to criterion text) next to `score`, `confidence` and `probabilities`.
+- Latency from the runner (US East): 20 sequential one-question requests p50 0.095 s, p95 0.119 s; 20 five-question requests p50 0.080 s, p95 0.169 s; 100 questions in one request 0.12 s. That is well inside the 1.5 s triage and guard budgets.
