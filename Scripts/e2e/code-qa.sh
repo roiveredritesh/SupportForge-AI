@@ -82,18 +82,23 @@ body=$(jq -nc --arg id "$PROJECT" --arg o "${REPO%%/*}" --arg r "${REPO#*/}" --a
 # Clone plus graph import of a large repository takes minutes. The project's node count in Neo4j says when it is done.
 started=$(date +%s); nodes=0; last=-1; stable=0
 cypher=$(jq -nc --arg p "$PROJECT" '{statements:[{statement:"MATCH (n) WHERE n.projectId = $p RETURN count(n)", parameters:{p:$p}}]}')
-for _ in $(seq 180); do
+for i in $(seq 180); do
   nodes=$(curl -s -H 'Content-Type: application/json' --data "$cypher" "$NEO4J/db/neo4j/tx/commit" | jq -r '.results[0].data[0].row[0] // 0')
+  [ $((i % 6)) -eq 0 ] && echo "  ingestion: $(( $(date +%s) - started ))s, $nodes nodes"
   if [ "${nodes:-0}" -gt 0 ] 2>/dev/null && [ "$nodes" = "$last" ]; then stable=$((stable + 1)); else stable=0; fi
   [ "$stable" -ge 3 ] && break
   last=$nodes
   sleep 10
 done
-stop_api
 if [ "${nodes:-0}" -gt 0 ] 2>/dev/null; then
+  stop_api
   say "- Ingested: $nodes graph nodes in about $(( $(date +%s) - started ))s"
 else
-  say "- **No graph nodes reached Neo4j**"; exit 1
+  say "- **No graph nodes reached Neo4j**"
+  # Exception types and messages only (no request text exists yet at this point).
+  curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/ingestion/dead-letters" | head -c 2000; echo
+  grep -iE 'fail|error|exception|retry' "$OUT/code-qa.setup.log" | tail -n 40
+  exit 1
 fi
 
 # ask_all <mode>: every fixture question under the running API. Appends one table row per question.

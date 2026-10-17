@@ -53,6 +53,15 @@ public sealed class GraphImportJob : IIngestionJob
         await session.ExecuteWriteAsync(tx => tx.RunAsync(
             "CREATE FULLTEXT INDEX graphNodeSearchV2 IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label, n.summary, n.purpose, n.domainTerms]"));
 
+        // Every node MERGE and both MATCHes per edge below look a node up by id. Without an index each lookup scans every
+        // GraphNode, so the import grows with nodes x (nodes + edges): fine for a small repo, but a large one (django/django,
+        // tens of thousands of nodes) never committed. Its own transaction for the same schema-vs-data reason as above, and
+        // awaited so the MERGEs below already use it rather than a still-populating index.
+        await session.ExecuteWriteAsync(tx => tx.RunAsync(
+            "CREATE INDEX graphNodeId IF NOT EXISTS FOR (n:GraphNode) ON (n.id)"));
+        var awaitIndexes = await session.RunAsync("CALL db.awaitIndexes(300)");
+        await awaitIndexes.ConsumeAsync();
+
         // U9/KTD1: a fresh extraction+classification is a complete, authoritative snapshot of this
         // repo -- clear its existing graph before writing it, same "full re-embed replaces, not just
         // adds" fix already applied to the KB vector store (KbVectorIndexer's PruneScope). Without
