@@ -46,6 +46,12 @@ public sealed partial class DrafterAgent : IAgent
     public const string LeakRetryNote =
         "\n\nYour previous answer repeated source text too closely (a near-verbatim run from the KB/code context). Rewrite your answer in your own words, following the no-quote rules above exactly.";
 
+    // An internal reader's draft only trips the check by copying a line of code, most often a full signature.
+    public const string InternalLeakRetryNote =
+        "\n\nYour previous answer copied a line of the code context verbatim. Rewrite it: name each class or function by its name alone, without its signature or parameter list, and describe what it does in your own words.";
+
+    public static string LeakRetryNoteFor(AgentContext context) => context.InternalAudience ? InternalLeakRetryNote : LeakRetryNote;
+
     [GeneratedRegex(@"[\w.\\/-]+\.(cs|ts|tsx|js|jsx|py|java|go|rb|php|rs|kt|swift|scala|sql|c|h|cpp|hpp)\b", RegexOptions.IgnoreCase)]
     private static partial Regex SourceFileRef();
 
@@ -109,6 +115,8 @@ public sealed partial class DrafterAgent : IAgent
           in your own words.
         - You may name the classes, functions, modules and files involved, exactly as the code context shows them, so the
           reader can find them. Name only what the context shows; never guess a name or a location it does not contain.
+          Give a function or class by its name alone (send_report, not send_report(user, period, fmt=None)); describe
+          its parameters in words if they matter.
         - Never quote or closely paraphrase KB document text. State every finding in your own plain prose. Exception:
           a Markdown table or other table-shaped data (pricing tiers, status codes, field limits) found in the KB
           context may be reproduced verbatim, since a table's structure is the information - paraphrasing it into
@@ -304,9 +312,10 @@ public sealed partial class DrafterAgent : IAgent
         if (draft.Contains("```")) return "code-fence";
 
         // An internal reader may be told which files and classes are involved, so only pasted code counts: a verbatim run
-        // from a code excerpt line (CodeGraphOutput.ExcerptLinePrefix), not from the NODE/EDGE metadata that names them.
+        // from a code excerpt line (CodeGraphOutput.ExcerptLinePrefix), not from the NODE/EDGE metadata that names them, and
+        // not from the docstring and comment prose in an excerpt, which an explanation may echo.
         if (context.InternalAudience)
-            return context.CodeSnippets.Any(s => ContainsVerbatimRun(draft, ExcerptCode(s))) ? "verbatim-code" : null;
+            return context.CodeSnippets.SelectMany(ExcerptCode).Any(l => ContainsVerbatimRun(draft, l)) ? "verbatim-code" : null;
 
         // Echoing a filename the customer themselves wrote isn't a leak, and ".js" frameworks aren't files.
         var customerText = string.Join("\n", context.History.Select(h => h.Content).Append(context.Query));
@@ -326,11 +335,37 @@ public sealed partial class DrafterAgent : IAgent
         && Enumerable.Range(0, source.Length - VerbatimRunLength + 1)
             .Any(i => draft.AsSpan().Contains(source.AsSpan(i, VerbatimRunLength), StringComparison.Ordinal));
 
-    // The code lines of a code-graph snippet's excerpts, prefix removed; "" when it has none.
-    private static string ExcerptCode(string snippet) =>
-        string.Join("\n", snippet.Split('\n')
-            .Where(l => l.StartsWith(CodeGraphOutput.ExcerptLinePrefix, StringComparison.Ordinal))
-            .Select(l => l[CodeGraphOutput.ExcerptLinePrefix.Length..]));
+    // The code of a code-graph snippet's excerpts, prefix removed, without docstring and comment lines. Consecutive code
+    // lines stay joined, so pasting several short lines still trips the check, but a run never spans the prose dropped
+    // between them.
+    private static IEnumerable<string> ExcerptCode(string snippet)
+    {
+        var block = new List<string>();
+        var inDocstring = false;
+        foreach (var raw in snippet.Split('\n'))
+        {
+            var isExcerpt = raw.StartsWith(CodeGraphOutput.ExcerptLinePrefix, StringComparison.Ordinal);
+            var line = isExcerpt ? raw[CodeGraphOutput.ExcerptLinePrefix.Length..] : "";
+            var quotes = isExcerpt ? TripleQuote().Matches(line).Count : 0;
+            var code = isExcerpt && !inDocstring && quotes == 0 && !CommentLine().IsMatch(line);
+            if (code)
+            {
+                block.Add(line);
+                continue;
+            }
+
+            if (block.Count > 0) yield return string.Join("\n", block);
+            block.Clear();
+            inDocstring = isExcerpt && (quotes % 2 == 1 ? !inDocstring : inDocstring); // a NODE line starts the next excerpt fresh
+        }
+        if (block.Count > 0) yield return string.Join("\n", block);
+    }
+
+    [GeneratedRegex("\"\"\"|'''")]
+    private static partial Regex TripleQuote();
+
+    [GeneratedRegex(@"^\s*(#|//|/\*|\*)")]
+    private static partial Regex CommentLine();
 
     public async Task<AgentContext> RunAsync(AgentContext context, CancellationToken ct = default)
     {
@@ -355,7 +390,7 @@ public sealed partial class DrafterAgent : IAgent
             {
                 _logger.LogInformation("{Agent} leak check fired: {LeakReason} internal={InternalAudience} attempt=1",
                     Name, leakReason, context.InternalAudience);
-                draft = await _llm.CompleteAsync(systemPrompt, userPrompt + LeakRetryNote, ct);
+                draft = await _llm.CompleteAsync(systemPrompt, userPrompt + LeakRetryNoteFor(context), ct);
                 context.AddTokens(Name, _llm.LastTotalTokens);
                 leakReason = LeakReason(draft, context);
                 if (leakReason is not null)

@@ -587,4 +587,45 @@ public class DrafterAgentTests
         Assert.Equal("file-reference", DrafterAgent.LeakReason("It lives in django/middleware/csrf.py.", customer));
         Assert.Null(DrafterAgent.LeakReason("CSRF is checked by a middleware on unsafe requests.", customer));
     }
+
+    private const string DocstringSnippet =
+        "NODE mail_admins [src=django/core/mail/__init__.py loc=L120 community=]: Send a message to the admins.\n"
+        + "    | def mail_admins(subject, message, fail_silently=False, connection=None, html_message=None):\n"
+        + "    |     \"\"\"\n"
+        + "    |     Send a message to the admins, as defined by the ADMINS setting.\n"
+        + "    |     \"\"\"\n"
+        + "    |     # Return early when there is nobody configured to receive the message.\n"
+        + "    |     if not settings.ADMINS:\n";
+
+    private static AgentContext InternalDocstringContext()
+    {
+        var context = new AgentContext { ProjectId = "p", Query = "which function emails the admins?", InternalAudience = true };
+        context.CodeSnippets.Add(DocstringSnippet);
+        return context;
+    }
+
+    [Fact]
+    public void LooksLikeLeak_InternalAudience_MayEchoDocstringAndCommentProse()
+    {
+        var draft = "mail_admins does this: Send a message to the admins, as defined by the ADMINS setting. "
+            + "It will Return early when there is nobody configured to receive the message.";
+
+        Assert.False(DrafterAgent.LooksLikeLeak(draft, InternalDocstringContext()));
+    }
+
+    [Fact]
+    public void LooksLikeLeak_InternalAudience_FlagsACopiedSignature()
+    {
+        var draft = "Use mail_admins(subject, message, fail_silently=False, connection=None) to email them.";
+
+        Assert.Equal("verbatim-code", DrafterAgent.LeakReason(draft, InternalDocstringContext()));
+    }
+
+    [Fact]
+    public void LeakRetryNoteFor_AsksAnInternalReaderForNamesWithoutSignatures()
+    {
+        Assert.Same(DrafterAgent.InternalLeakRetryNote, DrafterAgent.LeakRetryNoteFor(InternalContext()));
+        Assert.Same(DrafterAgent.LeakRetryNote, DrafterAgent.LeakRetryNoteFor(new AgentContext { ProjectId = "p", Query = "q" }));
+        Assert.Contains("by its name alone", DrafterAgent.InternalSystemPrompt);
+    }
 }

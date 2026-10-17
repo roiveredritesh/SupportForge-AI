@@ -600,7 +600,7 @@ public partial class ChatController : ControllerBase
             leaked = DrafterAgent.LooksLikeLeak(draft, context);
             if (leaked)
             {
-                draft = await CompleteDraftAsync(userPrompt + DrafterAgent.LeakRetryNote);
+                draft = await CompleteDraftAsync(userPrompt + DrafterAgent.LeakRetryNoteFor(context));
                 leaked = DrafterAgent.LooksLikeLeak(draft, context);
             }
 
