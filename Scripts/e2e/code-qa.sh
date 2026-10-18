@@ -7,6 +7,10 @@
 # expected file was among the code details retrieved from the graph, and whether the Drafter replaced the answer
 # with its verbatim-code LeakFallback. Writes $OUT/code-qa.md. Report-only: exits 1 only when setup fails.
 #
+# The fixture repositories are public, so by default the project gets the org and project code-classification consent
+# the product requires before it embeds code for semantic search and runs the code classifier (CODE_QA_CONSENT=0 for a
+# project without it).
+#
 # Needs LLM_API_KEY and JEV_API_KEY. No secret is printed. Usage: code-qa.sh [fixture.json]
 set -uo pipefail
 
@@ -16,6 +20,8 @@ OUT=${OUT:-$ROOT/e2e-out}
 FIXTURE=${1:-$ROOT/Scripts/e2e/code-qa/django.json}
 BASE=http://127.0.0.1:5080
 NEO4J=${NEO4J_HTTP_URL:-http://localhost:7474}
+CHROMA=${CHROMA_URL:-http://localhost:8000}
+CONSENT=${CODE_QA_CONSENT:-1}
 PROJECT=code-qa
 USER_NAME=code-qa-admin
 PASSWORD='E2e-Password-123!' # throwaway account on a throwaway runner
@@ -76,13 +82,28 @@ rm -f "$OUT/code-qa.register.json" # holds the token; $OUT is uploaded as an art
 body=$(jq -nc --arg id "$PROJECT" --arg o "${REPO%%/*}" --arg r "${REPO#*/}" --arg b "$BRANCH" \
   '{Id:$id, Name:"Code QA", KbSources:[], Repos:[{Owner:$o, Repo:$r, DefaultBranch:$b}]}')
 [ "$(post /api/projects "$body" "$OUT/code-qa.project.json")" = "200" ] || { echo "::error::project create failed"; exit 1; }
+
+# Test-only consent (see the header). There is no API for it; the JSON stores are read on every call, so the change
+# applies to the ingestion triggered next. Only this run's org and project are touched.
+if [ "$CONSENT" = "1" ]; then
+  data="$API_BIN/App_Data"
+  org=$(jq -r --arg id "$PROJECT" '.[] | select(.Id == $id) | .OrgId // empty' "$data/projects.json")
+  [ -n "$org" ] || { echo "::error::the code-QA project has no OrgId, so consent cannot be set"; exit 1; }
+  jq --arg id "$PROJECT" 'map(if .Id == $id then .CodeClassificationEnabled = true else . end)' "$data/projects.json" > "$data/projects.json.tmp" \
+    && mv "$data/projects.json.tmp" "$data/projects.json"
+  jq --arg id "$org" 'map(if .Id == $id then .CodeClassificationEnabled = true else . end)' "$data/orgs.json" > "$data/orgs.json.tmp" \
+    && mv "$data/orgs.json.tmp" "$data/orgs.json"
+  say "- Code-classification consent: on (semantic code search and the code classifier)"
+else
+  say "- Code-classification consent: off (keyword code search only)"
+fi
 [ "$(post /api/ingestion/trigger "$(jq -nc --arg id "$PROJECT" '{ProjectId:$id}')" "$OUT/code-qa.ingest.json")" = "202" ] \
   || { echo "::error::ingestion trigger failed"; exit 1; }
 
 # Clone plus graph import of a large repository takes minutes. The project's node count in Neo4j says when it is done.
 started=$(date +%s); nodes=0; last=-1; stable=0
 cypher=$(jq -nc --arg p "$PROJECT" '{statements:[{statement:"MATCH (n) WHERE n.projectId = $p RETURN count(n)", parameters:{p:$p}}]}')
-for i in $(seq 180); do
+for i in $(seq 240); do
   nodes=$(curl -s -H 'Content-Type: application/json' --data "$cypher" "$NEO4J/db/neo4j/tx/commit" | jq -r '.results[0].data[0].row[0] // 0')
   [ $((i % 6)) -eq 0 ] && echo "  ingestion: $(( $(date +%s) - started ))s, $nodes nodes"
   if [ "${nodes:-0}" -gt 0 ] 2>/dev/null && [ "$nodes" = "$last" ]; then stable=$((stable + 1)); else stable=0; fi
@@ -90,8 +111,25 @@ for i in $(seq 180); do
   last=$nodes
   sleep 10
 done
+# With consent, the code vectors are embedded after the graph import. Stopping the API before they are done would leave
+# semantic search with nothing (or a part) to search, so wait until the collection's count is stable too.
+vectors="-"
+if [ "${nodes:-0}" -gt 0 ] 2>/dev/null && [ "$CONSENT" = "1" ]; then
+  collections=/api/v2/tenants/default_tenant/databases/default_database/collections
+  vectors=0; last=-1; stable=0
+  for i in $(seq 90); do
+    cid=$(curl -s "$CHROMA$collections" | jq -r --arg n "$PROJECT-code" '.[] | select(.name == $n) | .id' 2>/dev/null | head -n 1)
+    [ -n "$cid" ] && vectors=$(curl -s "$CHROMA$collections/$cid/count" || echo 0)
+    [ $((i % 6)) -eq 0 ] && echo "  code vectors: $vectors"
+    if [ "${vectors:-0}" -gt 0 ] 2>/dev/null && [ "$vectors" = "$last" ]; then stable=$((stable + 1)); else stable=0; fi
+    [ "$stable" -ge 3 ] && break
+    last=$vectors
+    sleep 10
+  done
+fi
 if [ "${nodes:-0}" -gt 0 ] 2>/dev/null; then
   stop_api
+  say "- Code vectors embedded: $vectors"
   say "- Ingested: $nodes graph nodes in about $(( $(date +%s) - started ))s"
 else
   say "- **No graph nodes reached Neo4j**"
