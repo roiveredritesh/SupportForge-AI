@@ -943,6 +943,37 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
         - At those thresholds, clear messages sent to `unclear` went from 3.4% to 4.5%, and ambiguous fixtures caught went from 5 to 4 of 15.
         - The LLM went from 54.5% to 59.1%; its `code_question` recall went from 52.9% to 76.5%. It sent KB questions to `code_question` 14 times (was 12) and to `code_issue` 4 times (was 6).
       - Verifier agreement: code went from 15/18 to 17/18 with the corrected judge prompt. KB (24/27) and vision (10/12) are unchanged.
+  - **Code questions in five languages**: code-QA fixtures were added for NestJS (TypeScript), Jellyfin (C#), Apache Commons Lang (Java) and Prometheus (Go), alongside Django (Python). Each has ten questions, each tagged with a kind (documented, undocumented, method, decorated, arrow). `e2e-code/all` runs them all.
+    - LLM baseline before the changes below (names the answer / right file retrieved):
+
+      | Repository | `Llm` | `Jev` + `Enforce` |
+      |---|---|---|
+      | Django | 7 / 6 | 6 / 6 |
+      | Commons Lang | 7 / 7 | 7 / 8 |
+      | Jellyfin | 6 / 7 | 5 / 5 |
+      | NestJS | 2 / 2 | 2 / 3 |
+      | Prometheus | 7 / 6 | 5 / 4 |
+      | **Total** | **29 / 28** | **25 / 26** |
+
+    - `.github/workflows/code-retrieval.yml` (on `code-retrieval/**` pushes) checks retrieval alone, with no LLM call. It runs the real extractor, import and search on every fixture repository and reports whether the expected definition reaches the answering model's context. Answer in context, out of 50:
+      - Baseline: 27.
+      - With body terms (the words a definition's body uses): 31.
+      - With extractor coverage for C# and Java methods, TypeScript arrow functions, methods, enums and types, annotations and decorators, nested ids, and Kotlin, Ruby, PHP, Rust, Swift and Scala: 36.
+      - With body terms weighted like names and summaries (1.0, chosen by a sweep on all five repositories): 39.
+    - **Semantic code search** (opt-in, under the code-classifier consent) embeds top-level definitions and merges them with keyword matches by reciprocal rank fusion. On the same 50 questions it brings 39 to 42, with no question lost:
+
+      | Repository | Keyword | Hybrid | Definitions embedded |
+      |---|---|---|---|
+      | Django | 9 | 9 | 3,361 (295 s) |
+      | Commons Lang | 7 | 8 | 247 (36 s) |
+      | Jellyfin | 9 | 9 | 1,937 (29 s) |
+      | NestJS | 7 | 8 | 2,383 (35 s) |
+      | Prometheus | 7 | 8 | 3,703 (54 s) |
+      | **Total** | **39** | **42** | |
+
+      - Gained: `ToStringBuilder`, `BaseExceptionFilter`, `WL`.
+      - Ranked higher: `Paginator` (19 to 2), `MovieResolver` (18 to 3), `RandomStringUtils` (8 to 1), `DatabaseCache` (15 to 9).
+      - Still missed: two Java methods (`isBlank`, `abbreviate`; methods are not embedded), and the undocumented `Signer`, `EncoderValidator`, `NestFactory`, `ParseExpr`, plus `ValidationPipe` and `LeveledCompactor`.
   - **NIM embedding model**: NVIDIA also retired `nvidia/nv-embedqa-e5-v5` (2026-08-25). It is replaced by `nvidia/llama-nemotron-embed-vl-1b-v2`, which has 2048 dimensions instead of 1024, so existing deployments must re-index (see the configuration guide).
   - **Verifier agreement** with the new LLM model: KB 24/27, code 15/18, vision 10/12, code-node classifier 3/4 (52/61 overall). The DISAGREE lines are findings, not crashes.
   - **Open Questions answered**: 1 (wire format, usage, error codes; no rate-limit headers seen), 5 (no question limit at or below 100, and questions can name JSON-state keys) and 6 (Score takes an ordered criteria array and returns a probability-weighted level, which maps to 0–1 by dividing by the top level). 4 is answered in part (see Triage). 2, 3, 7, 8 and 9 are still open.
