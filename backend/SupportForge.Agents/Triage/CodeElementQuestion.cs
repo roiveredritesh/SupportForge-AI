@@ -11,7 +11,7 @@ namespace SupportForge.Agents.Triage;
 public static partial class CodeElementQuestion
 {
     [GeneratedRegex(
-        @"\b(?:which|what)\s+(?:[\w-]+\s+){0,2}?(?:class(?:es)?|types?(?!\s+of\b)|interfaces?|structs?|traits?|enums?|methods?|functions?|helpers?|decorators?|annotations?|pipes?|interceptors?|middlewares?|controllers?|resolvers?|handlers?|exceptions?|modules?|services?|hooks?|guards?|validators?|parsers?|serializers?|loggers?|factory|factories|constructors?|callbacks?|listeners?)\b",
+        @"\b(?:which|what)\s+(?:[\w-]+\s+){0,2}?(?:class(?:es)?|types?(?!\s+of\b)|interfaces?|structs?|traits?|enums?|methods?|functions?|helpers?|decorators?|annotations?|pipes?|interceptors?|middlewares?|controllers?|resolvers?|handlers?|exceptions?|modules?|services?|hooks?|guards?|validators?|parsers?|serializers?|loggers?|factory|factories|constructors?|callbacks?|listeners?|backends?)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Pattern();
 

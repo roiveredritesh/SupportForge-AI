@@ -17,6 +17,7 @@ public class CodeElementQuestionTests
     [InlineData("What exception is raised when a template cannot be found?")]
     [InlineData("Which type generates alerts from a PromQL expression?")]
     [InlineData("which built-in logger prints to the console?")]
+    [InlineData("Which cache backend stores cache entries in a database table?")]
     public void Matches_QuestionsThatAskForAPartOfTheCode(string query)
     {
         Assert.True(CodeElementQuestion.Matches(query));

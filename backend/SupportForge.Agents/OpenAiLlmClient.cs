@@ -5,6 +5,7 @@ using OpenAI.Embeddings;
 using Polly;
 using Polly.CircuitBreaker;
 using Polly.Retry;
+using Polly.Timeout;
 
 namespace SupportForge.Agents;
 
@@ -36,30 +37,40 @@ public class OpenAiLlmClient : ILlmClient
     // (see KTD2), so the retry/circuit-breaker pipeline wraps the call site here instead. One pipeline
     // per client instance -- each registered provider (OpenAI/NIM/Azure) gets its own circuit breaker
     // rather than sharing failure state across unrelated endpoints.
-    private readonly ResiliencePipeline _resilience = new ResiliencePipelineBuilder()
-        .AddRetry(new RetryStrategyOptions
-        {
-            MaxRetryAttempts = 3,
-            BackoffType = DelayBackoffType.Exponential,
-            Delay = TimeSpan.FromSeconds(1),
-            UseJitter = true,
-            ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
-        })
-        .AddCircuitBreaker(new CircuitBreakerStrategyOptions
-        {
-            FailureRatio = 0.5,
-            MinimumThroughput = 4,
-            SamplingDuration = TimeSpan.FromSeconds(30),
-            BreakDuration = TimeSpan.FromSeconds(15),
-            ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
-        })
-        .Build();
+    private readonly ResiliencePipeline _resilience;
+
+    // attemptTimeout (Llm:{Provider}:RequestTimeout) cuts one attempt that hangs and lets the retry try again, instead of
+    // the request waiting out the SDK's own 100 s network timeout. Unset, attempts are not timed here.
+    private static ResiliencePipeline BuildResilience(TimeSpan? attemptTimeout)
+    {
+        var builder = new ResiliencePipelineBuilder()
+            .AddRetry(new RetryStrategyOptions
+            {
+                MaxRetryAttempts = 3,
+                BackoffType = DelayBackoffType.Exponential,
+                Delay = TimeSpan.FromSeconds(1),
+                UseJitter = true,
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+            })
+            .AddCircuitBreaker(new CircuitBreakerStrategyOptions
+            {
+                FailureRatio = 0.5,
+                MinimumThroughput = 4,
+                SamplingDuration = TimeSpan.FromSeconds(30),
+                BreakDuration = TimeSpan.FromSeconds(15),
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+            });
+        // Innermost, so each attempt gets its own budget.
+        if (attemptTimeout is { } timeout && timeout > TimeSpan.Zero) builder.AddTimeout(timeout);
+        return builder.Build();
+    }
 
     private static bool IsTransientFailure(Exception ex) => ex switch
     {
         ClientResultException cre => cre.Status == 429 || cre.Status >= 500,
         HttpRequestException => true,
         TimeoutException => true,
+        TimeoutRejectedException => true,
         _ => false,
     };
 
@@ -76,8 +87,10 @@ public class OpenAiLlmClient : ILlmClient
         string? embeddingInputType = null,
         bool supportsVision = true,
         long? seed = null,
-        int? maxOutputTokens = null)
+        int? maxOutputTokens = null,
+        TimeSpan? attemptTimeout = null)
     {
+        _resilience = BuildResilience(attemptTimeout);
         _chatClient = chatClient;
         _embeddingClient = embeddingClient;
         _embeddingModel = embeddingModel;

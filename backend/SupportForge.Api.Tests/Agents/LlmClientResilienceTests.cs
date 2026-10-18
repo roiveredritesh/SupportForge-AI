@@ -159,6 +159,64 @@ public class LlmClientResilienceTests
         chatClient.Verify(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
+    // An attempt that never answers until cancelled, as a hung provider call does.
+    private static async Task<ChatResponse> HangUntilCancelled(CancellationToken token)
+    {
+        await Task.Delay(Timeout.Infinite, token);
+        throw new InvalidOperationException("unreachable");
+    }
+
+    private static Mock<IChatClient> FirstCallHangs(Func<int> next)
+    {
+        var chatClient = new Mock<IChatClient>();
+        chatClient
+            .Setup(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Returns((IEnumerable<ChatMessage> _, ChatOptions? _, CancellationToken token) =>
+                next() == 1 ? HangUntilCancelled(token) : Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "recovered"))));
+        return chatClient;
+    }
+
+    [Fact]
+    public async Task OpenAi_AttemptTimeout_CutsAHungCallAndRetries()
+    {
+        var calls = 0;
+        var chatClient = FirstCallHangs(() => ++calls);
+        var sut = new OpenAiLlmClient(chatClient.Object, null!, "unused-model", attemptTimeout: TimeSpan.FromMilliseconds(200));
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = await sut.CompleteAsync("system", "user");
+
+        Assert.Equal("recovered", result);
+        Assert.Equal(2, calls);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(10), $"took {started.Elapsed}");
+    }
+
+    [Fact]
+    public async Task OpenAi_AttemptTimeout_DoesNotRetryTheCallersOwnCancellation()
+    {
+        var calls = 0;
+        var chatClient = FirstCallHangs(() => ++calls);
+        var sut = new OpenAiLlmClient(chatClient.Object, null!, "unused-model", attemptTimeout: TimeSpan.FromSeconds(30));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sut.CompleteAsync("system", "user", cts.Token));
+
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task OpenAi_WithoutAttemptTimeout_AHungCallIsNotCut()
+    {
+        var calls = 0;
+        var chatClient = FirstCallHangs(() => ++calls);
+        var sut = new OpenAiLlmClient(chatClient.Object, null!, "unused-model");
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        // Only the caller's token ends it: no timeout of ours fired and nothing was retried.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sut.CompleteAsync("system", "user", cts.Token));
+        Assert.Equal(1, calls);
+    }
+
     [Fact]
     public async Task OpenAi_SustainedFailure_SurfacesClearException()
     {
