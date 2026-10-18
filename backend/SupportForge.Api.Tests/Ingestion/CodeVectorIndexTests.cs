@@ -47,7 +47,8 @@ public class CodeVectorIndexTests
         var merged = GraphDbQueryTool.MergeRanked(["values", "headers", "Signer"], ["Signer", "signing"], s => s);
 
         Assert.Equal("Signer", merged[0]);
-        Assert.Equal(["Signer", "values", "signing", "headers"], merged);
+        // headers (keyword rank 2) and signing (semantic rank 2) score the same; the keyword hit goes first.
+        Assert.Equal(["Signer", "values", "headers", "signing"], merged);
     }
 
     [Fact]

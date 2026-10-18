@@ -36,7 +36,7 @@ public static class CodeVectorIndex
     public static string Text(CodeGraphNode node)
     {
         var body = string.Join(' ', node.BodyTerms.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(BodyTermsInText));
-        var text = $"{node.Label}: {node.Summary} {body}".Trim();
+        var text = $"{node.Label}: " + string.Join(' ', new[] { node.Summary.Trim(), body }.Where(s => s.Length > 0)).TrimEnd();
         return text.Length <= MaxTextLength ? text : text[..MaxTextLength];
     }
 
