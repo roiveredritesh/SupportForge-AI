@@ -47,10 +47,17 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     // At most this many search terms reach Lucene, so a long, rambling question doesn't dilute the ones that matter.
     private const int MaxSearchTerms = 12;
 
-    // V3 adds nameTerms (identifiers split into words) to V2's fields. The rename-not-drop history is in GraphImportJob.
-    internal const string SearchIndexName = "graphNodeSearchV3";
+    // V4 drops label and adds bodyTerms. label double-counted every one-word name: "values" matched as a label and again
+    // as nameTerms, while "SecurityMiddleware" is a single label token and matched only once, so generic members
+    // outranked the classes questions ask about. nameTerms carries the whole identifier as well as its words, so nothing
+    // is lost. The rename-not-drop history is in GraphImportJob.
+    internal const string SearchIndexName = "graphNodeSearchV4";
     internal const string CreateSearchIndexCypher =
-        "CREATE FULLTEXT INDEX graphNodeSearchV3 IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.label, n.nameTerms, n.summary, n.purpose, n.domainTerms]";
+        "CREATE FULLTEXT INDEX graphNodeSearchV4 IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.nameTerms, n.summary, n.purpose, n.domainTerms, n.bodyTerms]";
+
+    // Body terms are what the code uses, not what it is for, so a match there counts for less than one in a name or
+    // summary. They decide between otherwise-equal candidates and find undocumented code.
+    internal const double DefaultBodyTermsBoost = 0.4;
 
     // Words that carry no meaning for a code search, including the ones every code question uses ("which class ...").
     private static readonly HashSet<string> StopWords = new(StringComparer.Ordinal)
@@ -87,15 +94,18 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     private readonly IDriver _driver;
     private readonly string _database;
     private readonly Microsoft.Extensions.Logging.ILogger _logger;
-    // A graph imported before V3 existed has no V3 index yet, and querying a missing index throws. It is created on first
-    // use (IF NOT EXISTS), so code search keeps working until the next import rewrites the graph with nameTerms.
+    // A graph imported before V4 existed has no V4 index yet, and querying a missing index throws. It is created on first
+    // use (IF NOT EXISTS), so code search keeps working until the next import rewrites the graph. Until then, nodes
+    // imported without nameTerms (before V3) or bodyTerms are matched only on their other fields.
     private volatile bool _searchIndexEnsured;
+    private readonly double _bodyTermsBoost;
 
-    public GraphDbQueryTool(IDriver driver, string database, ILogger<GraphDbQueryTool>? logger = null)
+    public GraphDbQueryTool(IDriver driver, string database, ILogger<GraphDbQueryTool>? logger = null, double bodyTermsBoost = DefaultBodyTermsBoost)
     {
         _driver = driver;
         _database = database;
         _logger = logger ?? NullLogger<GraphDbQueryTool>.Instance;
+        _bodyTermsBoost = bodyTermsBoost;
     }
 
     public async Task<string?> QueryAsync(string projectId, string question, bool retrying, CancellationToken ct = default)
@@ -127,7 +137,7 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
                 ORDER BY score DESC
                 LIMIT $limit
                 """,
-                new { question = searchQuery, projectId, limit = MaxCandidateMatches });
+                new { question = FieldedQuery(searchQuery, _bodyTermsBoost), projectId, limit = MaxCandidateMatches });
             return await cursor.ToListAsync();
         });
 
@@ -290,6 +300,11 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         return string.Join(' ', terms.Distinct(StringComparer.Ordinal).Take(MaxSearchTerms)
             .Select(t => t.EndsWith('*') ? EscapeLuceneQuery(t[..^1]) + "*" : EscapeLuceneQuery(t)));
     }
+
+    // The search terms applied to every indexed field, with body terms weighted down (see DefaultBodyTermsBoost).
+    internal static string FieldedQuery(string terms, double bodyTermsBoost) =>
+        $"nameTerms:({terms}) summary:({terms}) purpose:({terms}) domainTerms:({terms}) "
+        + $"bodyTerms:({terms})^{bodyTermsBoost.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
     // Strips one common English suffix, keeping at least four letters, so the result works as a prefix query.
     private static string Stem(string word)

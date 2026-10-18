@@ -122,6 +122,26 @@ public static class CodeGraphExtractor
     private const int MaxExcerptLines = 12;
     private const int MaxExcerptChars = 700;
 
+    // A definition's body terms come from at most this much of its body, and at most this many distinct words are kept,
+    // most frequent first. Enough to carry what an undocumented definition does; small enough to keep the index lean.
+    private const int MaxBodyChars = 8000;
+    private const int MaxBodyTerms = 60;
+
+    private static readonly Regex Word = new(@"[A-Za-z][A-Za-z0-9_]*", RegexOptions.Compiled);
+
+    // Keywords and plumbing words of the supported languages, which say nothing about what a definition does.
+    private static readonly HashSet<string> BodyStopWords = new(StringComparer.Ordinal)
+    {
+        "the", "and", "for", "not", "are", "was", "this", "that", "with", "from", "into", "has", "have", "its",
+        "def", "class", "self", "cls", "return", "returns", "none", "null", "nil", "true", "false", "elif", "else",
+        "while", "foreach", "switch", "case", "break", "continue", "try", "catch", "except", "finally", "throw", "throws",
+        "raise", "import", "using", "namespace", "package", "async", "await", "yield", "lambda", "function", "func",
+        "struct", "interface", "type", "extends", "implements", "override", "virtual", "readonly", "final", "abstract",
+        "sealed", "static", "public", "private", "protected", "internal", "void", "var", "let", "const", "new", "get",
+        "set", "string", "int", "bool", "boolean", "long", "double", "float", "char", "byte", "object", "err", "args",
+        "kwargs", "param", "params", "summary", "inheritdoc", "see", "cref", "todo", "nolint", "export", "default",
+    };
+
     // Splits an identifier into words: "CsrfViewMiddleware" -> Csrf View Middleware, "get_object_or_404" -> get object
     // or 404, "PBKDF2PasswordHasher" -> PBKDF2 Password Hasher.
     private static readonly Regex IdentifierWord = new(
@@ -277,6 +297,7 @@ public static class CodeGraphExtractor
                 SourceFile = relativePath,
                 SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
                 Summary = "",
+                NameTerms = IdentifierTerms($"{verb} {route}"),
                 IsTest = IsTestPath(relativePath),
             });
             graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = endpointId, Relation = "defines_endpoint", Confidence = "high" });
@@ -311,8 +332,11 @@ public static class CodeGraphExtractor
         CodeGraphFile graph, string relativePath, string fileType, string text, Regex definitionPattern)
     {
         var seenNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (Match match in definitionPattern.Matches(text))
+        var matches = definitionPattern.Matches(text).Where(m => m.Groups["name"].Success).ToList();
+        var lineStarts = matches.Select(m => LineStart(text, m.Groups["name"].Index)).ToList();
+        for (var i = 0; i < matches.Count; i++)
         {
+            var match = matches[i];
             var name = match.Groups["name"].Value;
             if (!seenNames.Add(name)) continue; // same symbol matched by more than one alternation branch
 
@@ -328,9 +352,10 @@ public static class CodeGraphExtractor
                 SourceFile = relativePath,
                 SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
                 Summary = docstring.Length > 0 ? docstring : ExtractPrecedingCommentBlock(text, match.Index),
-                NameTerms = IdentifierTerms(name),
+                NameTerms = DefinitionNameTerms(name),
                 IsTest = IsTestPath(relativePath),
                 Excerpt = ExtractExcerpt(text, nameIndex),
+                BodyTerms = BodyTerms(text, lineStarts[i], BodyEnd(text, lineStarts, i)),
             });
             graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = nodeId, Relation = "defines", Confidence = "high" });
         }
@@ -485,6 +510,61 @@ public static class CodeGraphExtractor
             .ToList();
         while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
         return string.Join('\n', lines);
+    }
+
+    // A definition's name terms: its words, preceded by the whole identifier when it has more than one word, so a
+    // question that names it exactly ("what does CsrfViewMiddleware do?") still matches it as one term.
+    internal static string DefinitionNameTerms(string name)
+    {
+        var words = IdentifierTerms(name);
+        return words.Contains(' ') ? $"{name.ToLowerInvariant()} {words}" : words;
+    }
+
+    // Where a definition's body ends: at the next definition indented no deeper than it (a sibling, or the next
+    // top-level definition), so a class's body includes its methods. Indentation, not braces, so it works the same way
+    // for every supported language.
+    private static int BodyEnd(string text, IReadOnlyList<int> lineStarts, int index)
+    {
+        var indent = Indentation(text, lineStarts[index]);
+        for (var j = index + 1; j < lineStarts.Count; j++)
+        {
+            if (lineStarts[j] > lineStarts[index] && Indentation(text, lineStarts[j]) <= indent) return lineStarts[j];
+        }
+        return text.Length;
+    }
+
+    private static int LineStart(string text, int index) => index > 0 ? text.LastIndexOf('\n', index - 1) + 1 : 0;
+
+    private static int Indentation(string text, int lineStart)
+    {
+        var width = 0;
+        for (var i = lineStart; i < text.Length && text[i] is ' ' or '\t'; i++) width += text[i] == '\t' ? 4 : 1;
+        return width;
+    }
+
+    // The words a definition's body uses -- identifiers split into words, string literals and comments alike -- most
+    // frequent first, without keywords and plumbing words. This is what makes undocumented code findable: Django's
+    // SecurityMiddleware has no docstring, but its body reads SECURE_HSTS_SECONDS and sets Strict-Transport-Security.
+    internal static string BodyTerms(string text, int start, int end)
+    {
+        var span = text.AsSpan(start, Math.Min(end, start + MaxBodyChars) - start).ToString();
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var order = new List<string>();
+        foreach (Match token in Word.Matches(span))
+        {
+            foreach (Match part in IdentifierWord.Matches(token.Value))
+            {
+                var word = part.Value.ToLowerInvariant();
+                if (word.Length < 3 || BodyStopWords.Contains(word)) continue;
+                if (counts.TryGetValue(word, out var n)) counts[word] = n + 1;
+                else { counts[word] = 1; order.Add(word); }
+            }
+        }
+        return string.Join(' ', order
+            .Select((word, firstSeen) => (word, firstSeen))
+            .OrderByDescending(w => counts[w.word]).ThenBy(w => w.firstSeen)
+            .Take(MaxBodyTerms)
+            .Select(w => w.word));
     }
 
     internal static string IdentifierTerms(string identifier) =>

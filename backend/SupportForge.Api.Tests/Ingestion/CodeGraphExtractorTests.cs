@@ -367,10 +367,101 @@ public class CodeGraphExtractorTests
 
         var graph = CodeGraphExtractor.Extract(repoDir);
 
-        Assert.Equal("csrf view middleware", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py::CsrfViewMiddleware").NameTerms);
-        Assert.Equal("get object or 404", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py::get_object_or_404").NameTerms);
-        Assert.Equal("pbkdf2 password hasher", graph.Nodes.Single(n => n.Id == "src/Hashers.cs::PBKDF2PasswordHasher").NameTerms);
+        Assert.Equal("csrfviewmiddleware csrf view middleware", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py::CsrfViewMiddleware").NameTerms);
+        Assert.Equal("get_object_or_404 get object or 404", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py::get_object_or_404").NameTerms);
+        Assert.Equal("pbkdf2passwordhasher pbkdf2 password hasher", graph.Nodes.Single(n => n.Id == "src/Hashers.cs::PBKDF2PasswordHasher").NameTerms);
         Assert.Equal("django middleware csrf", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py").NameTerms);
+    }
+
+    [Fact]
+    public void Extract_KeepsAOneWordNameAsItsOnlyNameTerm()
+    {
+        var repoDir = CreateRepoFixture(("signing.py", "class Signer:\n    pass\n"));
+
+        Assert.Equal("signer", CodeGraphExtractor.Extract(repoDir).Nodes.Single(n => n.Id == "signing.py::Signer").NameTerms);
+    }
+
+    [Fact]
+    public void Extract_BodyTermsMakeAnUndocumentedClassFindableByWhatItDoes()
+    {
+        // Django's SecurityMiddleware has no docstring; what it does is only in its methods' bodies.
+        const string source = """
+            class SecurityMiddleware(MiddlewareMixin):
+                async_capable = False
+
+                def __init__(self, get_response):
+                    self.sts_seconds = settings.SECURE_HSTS_SECONDS
+
+                def process_response(self, request, response):
+                    if self.sts_seconds:
+                        response.headers["Strict-Transport-Security"] = "max-age=%s" % self.sts_seconds
+                    return response
+
+
+            def unrelated_helper():
+                return "cookie banner"
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("django/middleware/security.py", source)));
+
+        var classTerms = graph.Nodes.Single(n => n.Id == "django/middleware/security.py::SecurityMiddleware").BodyTerms.Split(' ');
+        Assert.Contains("hsts", classTerms);
+        Assert.Contains("transport", classTerms);
+        Assert.Contains("middleware", classTerms); // the base class on the definition line
+        Assert.DoesNotContain("cookie", classTerms); // the next top-level definition is not part of the class
+        Assert.DoesNotContain("self", classTerms);
+        Assert.DoesNotContain("return", classTerms);
+
+        // A method's body stops at the next method.
+        var initTerms = graph.Nodes.Single(n => n.Id == "django/middleware/security.py::__init__").BodyTerms.Split(' ');
+        Assert.Contains("hsts", initTerms);
+        Assert.DoesNotContain("transport", initTerms);
+    }
+
+    [Fact]
+    public void Extract_BodyTermsWorkForBraceLanguages()
+    {
+        const string source = """
+            namespace Demo
+            {
+                public class ReceiptPrinter
+                {
+                    public void Print(Invoice invoice)
+                    {
+                        // Sends the invoice to the thermal printer queue.
+                        _queue.Enqueue(invoice.ToThermalFormat());
+                    }
+                }
+
+                public class Unrelated
+                {
+                    private const string Banner = "cookie banner";
+                }
+            }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("src/ReceiptPrinter.cs", source)));
+
+        var terms = graph.Nodes.Single(n => n.Id == "src/ReceiptPrinter.cs::ReceiptPrinter").BodyTerms.Split(' ');
+        Assert.Contains("thermal", terms);
+        Assert.Contains("invoice", terms);
+        Assert.Equal("invoice", terms[0]); // most frequent first
+        Assert.DoesNotContain("cookie", terms);
+        Assert.DoesNotContain("public", terms);
+    }
+
+    [Fact]
+    public void Extract_GivesEndpointsNameTerms()
+    {
+        const string source = """
+            [Route("api/orders")]
+            public class OrdersController : ControllerBase
+            {
+                [HttpGet("{id}")]
+                public IActionResult Get(int id) => Ok();
+            }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("Controllers/OrdersController.cs", source)));
+
+        Assert.Equal("get api orders id", graph.Nodes.Single(n => n.Id.StartsWith("endpoint::", StringComparison.Ordinal)).NameTerms);
     }
 
     [Theory]

@@ -91,4 +91,19 @@ public class GraphDbQueryToolTests
     {
         Assert.Equal(expected, GraphDbQueryTool.AsksAboutTests(question));
     }
+
+    [Fact]
+    public void FieldedQuery_SearchesEveryFieldAndWeightsBodyTermsDown()
+    {
+        Assert.Equal(
+            "nameTerms:(csrf cross*) summary:(csrf cross*) purpose:(csrf cross*) domainTerms:(csrf cross*) bodyTerms:(csrf cross*)^0.4",
+            GraphDbQueryTool.FieldedQuery("csrf cross*", 0.4));
+    }
+
+    [Fact]
+    public void SearchIndex_DoesNotIndexTheRawLabel()
+    {
+        Assert.DoesNotContain("n.label", GraphDbQueryTool.CreateSearchIndexCypher);
+        Assert.Contains("n.bodyTerms", GraphDbQueryTool.CreateSearchIndexCypher);
+    }
 }

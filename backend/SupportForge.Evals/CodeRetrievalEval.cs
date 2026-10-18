@@ -52,7 +52,11 @@ internal static partial class CodeRetrievalEval
         Console.WriteLine("| # | Kind | Answer | In context | Position | Retry in context | Top 3 |");
         Console.WriteLine("|---|---|---|---|---|---|---|");
 
-        var tool = new GraphDbQueryTool(driver, neo4jOptions.Database);
+        // CODE_BODY_TERMS_BOOST overrides the body-terms weight, so one run can compare several values.
+        var tool = double.TryParse(Environment.GetEnvironmentVariable("CODE_BODY_TERMS_BOOST"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var boost)
+            ? new GraphDbQueryTool(driver, neo4jOptions.Database, bodyTermsBoost: boost)
+            : new GraphDbQueryTool(driver, neo4jOptions.Database);
         var found = 0;
         var foundOnRetry = 0;
         var byKind = new SortedDictionary<string, (int Total, int Found)>(StringComparer.Ordinal);

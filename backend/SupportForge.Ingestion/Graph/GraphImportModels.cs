@@ -52,6 +52,12 @@ public sealed class CodeGraphNode
     [JsonPropertyName("excerpt")]
     public string Excerpt { get; set; } = "";
 
+    // The words a definition's body uses (identifiers split into words, string literals, comments), most frequent first.
+    // Indexed with a lower weight than names and summaries; it is what lets a question find undocumented code. "" on
+    // file and endpoint nodes.
+    [JsonPropertyName("body_terms")]
+    public string BodyTerms { get; set; } = "";
+
     // Tier 0 admissibility marks (CodeFileAdmissibility) as flag names, e.g. ["Minified", "Banner"].
     // Never an exclusion decision on its own -- consumed by later classification-pipeline stages
     // (docs/plans/2026-08-16-001-feat-code-graph-classification-plan.md). Empty for a plain
