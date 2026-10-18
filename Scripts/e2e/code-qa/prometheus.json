@@ -1,0 +1,17 @@
+{
+  "repo": "prometheus/prometheus",
+  "branch": "main",
+  "note": "Answers checked against prometheus/prometheus main at c052a79 (2026-10-16). kind: documented, undocumented, method.",
+  "questions": [
+    { "q": "Which type handles the lifetime of PromQL queries from beginning to end?", "answer": "Engine", "path": "promql/engine.go", "kind": "documented" },
+    { "q": "Which type maintains the scrape pools and starts and stops them when targets change?", "answer": "Manager", "path": "scrape/manager.go", "kind": "documented" },
+    { "q": "Which type dispatches alert notifications to Alertmanager?", "answer": "Manager", "path": "notifier/manager.go", "kind": "documented" },
+    { "q": "Which type generates alerts from a PromQL expression?", "answer": "AlertingRule", "path": "rules/alerting.go", "kind": "documented" },
+    { "q": "Which type compacts TSDB blocks into larger blocks?", "answer": "LeveledCompactor", "path": "tsdb/compact.go", "kind": "documented" },
+    { "q": "Which type is the write-ahead log that protects against torn writes?", "answer": "WL", "path": "tsdb/wlog/wlog.go", "kind": "documented" },
+    { "q": "Which function applies relabeling rules to a set of labels?", "answer": "ProcessBuilder", "path": "model/relabel/relabel.go", "kind": "documented" },
+    { "q": "Which type manages the queue of samples sent to remote write storage?", "answer": "QueueManager", "path": "storage/remote/queue_manager.go", "kind": "documented" },
+    { "q": "Which method parses a PromQL expression string?", "answer": "ParseExpr", "path": "promql/parser/parse.go", "kind": "undocumented" },
+    { "q": "Which method creates an instant query for an expression at a given time?", "answer": "NewInstantQuery", "path": "promql/engine.go", "kind": "method" }
+  ]
+}

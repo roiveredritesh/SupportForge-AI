@@ -1,0 +1,17 @@
+{
+  "repo": "nestjs/nest",
+  "branch": "master",
+  "note": "Answers checked against nestjs/nest master at c8923bd (2026-10-18). kind: documented, undocumented, decorated (doc comment above a decorator), arrow (const arrow function), method.",
+  "questions": [
+    { "q": "Which pipe validates incoming request data against DTO classes using class-validator?", "answer": "ValidationPipe", "path": "packages/common/pipes/validation.pipe.ts", "kind": "decorated" },
+    { "q": "Which pipe converts a route parameter string into an integer?", "answer": "ParseIntPipe", "path": "packages/common/pipes/parse-int.pipe.ts", "kind": "decorated" },
+    { "q": "Which decorator marks a class as a provider that the dependency injection container can manage?", "answer": "Injectable", "path": "packages/common/decorators/core/injectable.decorator.ts", "kind": "documented" },
+    { "q": "Which exception represents an HTTP 404 Not Found error?", "answer": "NotFoundException", "path": "packages/common/exceptions/not-found.exception.ts", "kind": "documented" },
+    { "q": "Which class creates a Nest application instance from the root module?", "answer": "NestFactory", "path": "packages/core/nest-factory.ts", "kind": "undocumented" },
+    { "q": "Which interceptor serializes responses with class-transformer?", "answer": "ClassSerializerInterceptor", "path": "packages/common/serializer/class-serializer.interceptor.ts", "kind": "decorated" },
+    { "q": "Which decorator attaches custom metadata to a class or route handler?", "answer": "SetMetadata", "path": "packages/common/decorators/core/set-metadata.decorator.ts", "kind": "arrow" },
+    { "q": "Which Reflector method retrieves metadata from several targets and merges the results?", "answer": "getAllAndMerge", "path": "packages/core/services/reflector.service.ts", "kind": "method" },
+    { "q": "Which class is the default exception filter that turns unhandled exceptions into HTTP responses?", "answer": "BaseExceptionFilter", "path": "packages/core/exceptions/base-exception-filter.ts", "kind": "undocumented" },
+    { "q": "Which class is the built-in logger that prints log messages to the console?", "answer": "ConsoleLogger", "path": "packages/common/services/console-logger.service.ts", "kind": "decorated" }
+  ]
+}

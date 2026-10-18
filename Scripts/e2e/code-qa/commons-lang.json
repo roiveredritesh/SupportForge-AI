@@ -1,0 +1,17 @@
+{
+  "repo": "apache/commons-lang",
+  "branch": "master",
+  "note": "Answers checked against apache/commons-lang master at c89cdf6 (2026-10-17). kind: documented, method.",
+  "questions": [
+    { "q": "Which class provides a convenient API for timing how long operations take?", "answer": "StopWatch", "path": "src/main/java/org/apache/commons/lang3/time/StopWatch.java", "kind": "documented" },
+    { "q": "Which class helps implement toString() methods?", "answer": "ToStringBuilder", "path": "src/main/java/org/apache/commons/lang3/builder/ToStringBuilder.java", "kind": "documented" },
+    { "q": "Which class helps implement equals() methods?", "answer": "EqualsBuilder", "path": "src/main/java/org/apache/commons/lang3/builder/EqualsBuilder.java", "kind": "documented" },
+    { "q": "Which class is a fast and thread-safe alternative to SimpleDateFormat?", "answer": "FastDateFormat", "path": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java", "kind": "documented" },
+    { "q": "Which class generates random strings?", "answer": "RandomStringUtils", "path": "src/main/java/org/apache/commons/lang3/RandomStringUtils.java", "kind": "documented" },
+    { "q": "Which method checks whether a string is empty, null or only whitespace?", "answer": "isBlank", "path": "src/main/java/org/apache/commons/lang3/StringUtils.java", "kind": "method" },
+    { "q": "Which method shortens a string and ends it with an ellipsis?", "answer": "abbreviate", "path": "src/main/java/org/apache/commons/lang3/StringUtils.java", "kind": "method" },
+    { "q": "Which method changes the first character of a string to title case?", "answer": "capitalize", "path": "src/main/java/org/apache/commons/lang3/StringUtils.java", "kind": "method" },
+    { "q": "Which validation method throws an exception when an argument is null?", "answer": "notNull", "path": "src/main/java/org/apache/commons/lang3/Validate.java", "kind": "method" },
+    { "q": "Which class is a mutable wrapper around an int value?", "answer": "MutableInt", "path": "src/main/java/org/apache/commons/lang3/mutable/MutableInt.java", "kind": "documented" }
+  ]
+}

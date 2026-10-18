@@ -103,13 +103,15 @@ fi
 
 # ask_all <mode>: every fixture question under the running API. Appends one table row per question.
 ask_all() {
-  local mode=$1 i q answer path file code draft details named retrieved deflected
+  local mode=$1 i q answer path kind file code draft details named retrieved deflected
   local n_named=0 n_retrieved=0 n_deflected=0 n_ok=0
+  local -A kind_total=() kind_named=() kind_retrieved=()
   say ""; say "## $mode"; say ""
-  say "| # | Question | Names the answer | Right file retrieved | Deflected | Intent | Conf. |"
-  say "|---|---|---|---|---|---|---|"
+  say "| # | Question | Kind | Names the answer | Right file retrieved | Deflected | Intent | Conf. |"
+  say "|---|---|---|---|---|---|---|---|"
   for i in $(seq 0 $((COUNT - 1))); do
     q=$(jq -r ".questions[$i].q" "$FIXTURE"); answer=$(jq -r ".questions[$i].answer" "$FIXTURE"); path=$(jq -r ".questions[$i].path" "$FIXTURE")
+    kind=$(jq -r ".questions[$i].kind // \"-\"" "$FIXTURE")
     file="$OUT/code-qa.$mode.$i.json"
     code=$(post /api/chat/query "$(jq -nc --arg p "$PROJECT" --arg q "$q" '{ProjectId:$p, Query:$q}')" "$file")
     [ "$code" = "200" ] && n_ok=$((n_ok + 1))
@@ -122,10 +124,18 @@ ask_all() {
     intent=$(jq -r --arg c "$(jq -r '.conversationId // ""' "$file" 2>/dev/null)" \
       '[.[] | select(.Role == "assistant" and .ConversationId == $c)] | last | "\(.Intent)"' "$API_BIN/App_Data/messages.json" 2>/dev/null)
     conf=$(jq -r '.confidence // "-"' "$file" 2>/dev/null)
-    say "| $((i + 1)) | $q | $named | $retrieved | $deflected | ${intent:-?} | $conf |"
+    kind_total[$kind]=$(( ${kind_total[$kind]:-0} + 1 ))
+    [ "$named" = yes ] && kind_named[$kind]=$(( ${kind_named[$kind]:-0} + 1 ))
+    [ "$retrieved" = yes ] && kind_retrieved[$kind]=$(( ${kind_retrieved[$kind]:-0} + 1 ))
+    say "| $((i + 1)) | $q | $kind | $named | $retrieved | $deflected | ${intent:-?} | $conf |"
   done
   say ""
   say "**$mode:** HTTP 200 $n_ok/$COUNT, names the answer $n_named/$COUNT, right file retrieved $n_retrieved/$COUNT, deflected by LeakFallback $n_deflected/$COUNT"
+  local k by_kind=""
+  for k in $(printf '%s\n' "${!kind_total[@]}" | sort); do
+    by_kind+=" $k ${kind_named[$k]:-0}/${kind_total[$k]} named, ${kind_retrieved[$k]:-0}/${kind_total[$k]} retrieved;"
+  done
+  say "- By kind ($mode):$by_kind"
   # Labels only: which leak check fired, per attempt (DrafterAgent logs no draft text).
   say "- Leak checks fired ($mode): $(grep -oE 'leak check fired: [a-z-]+ internal=[A-Za-z]+ attempt=[12]' "$OUT/code-qa.$mode.log" \
     | sed 's/leak check fired: //' | sort | uniq -c | awk '{c=$1; $1=""; printf "%s x%s;", $0, c}')"

@@ -1,0 +1,17 @@
+{
+  "repo": "jellyfin/jellyfin",
+  "branch": "master",
+  "note": "Answers checked against jellyfin/jellyfin master at 08c2ba6 (2026-10-17). kind: documented, undocumented, decorated (doc comment above an attribute), method.",
+  "questions": [
+    { "q": "Which middleware validates whether requests from outside the local network are allowed remote access?", "answer": "IPBasedAccessValidationMiddleware", "path": "Jellyfin.Api/Middleware/IpBasedAccessValidationMiddleware.cs", "kind": "documented" },
+    { "q": "Which middleware redirects requests that are missing the base URL prefix?", "answer": "BaseUrlRedirectionMiddleware", "path": "Jellyfin.Api/Middleware/BaseUrlRedirectionMiddleware.cs", "kind": "documented" },
+    { "q": "Which class manages installing, uninstalling and updating plugins?", "answer": "InstallationManager", "path": "Emby.Server.Implementations/Updates/InstallationManager.cs", "kind": "documented" },
+    { "q": "Which method creates a PBKDF2 hash of a user's password?", "answer": "CreatePasswordHash", "path": "Emby.Server.Implementations/Cryptography/CryptographyProvider.cs", "kind": "method" },
+    { "q": "Which class checks that the installed ffmpeg version is supported?", "answer": "EncoderValidator", "path": "MediaBrowser.MediaEncoding/Encoder/EncoderValidator.cs", "kind": "undocumented" },
+    { "q": "Which method filters a TV series' episodes down to a single season?", "answer": "FilterEpisodesBySeason", "path": "MediaBrowser.Controller/Entities/TV/Series.cs", "kind": "method" },
+    { "q": "Which controller runs the first-time startup wizard?", "answer": "StartupController", "path": "Jellyfin.Api/Controllers/StartupController.cs", "kind": "decorated" },
+    { "q": "Which class implements Quick Connect sign-in?", "answer": "QuickConnectManager", "path": "Emby.Server.Implementations/QuickConnect/QuickConnectManager.cs", "kind": "documented" },
+    { "q": "Which resolver turns movie files and folders into movie items in the library?", "answer": "MovieResolver", "path": "Emby.Server.Implementations/Library/Resolvers/Movies/MovieResolver.cs", "kind": "undocumented" },
+    { "q": "Which middleware turns unhandled exceptions into error responses?", "answer": "ExceptionMiddleware", "path": "Jellyfin.Api/Middleware/ExceptionMiddleware.cs", "kind": "documented" }
+  ]
+}

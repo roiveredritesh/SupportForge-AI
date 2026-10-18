@@ -5,9 +5,11 @@ name: E2E code questions
 # and reports how many answers name the right identifier and retrieve the right file. Report-only. It calls paid
 # APIs, so it never runs on ordinary pushes or pull requests.
 #
-# How to run: push any commit to a branch named e2e-code/<anything>, e.g.
+# How to run: push any commit to a branch named e2e-code/<fixture>, e.g.
 #   git push origin feature/jev-integration:e2e-code/django
-# The fixture defaults to Scripts/e2e/code-qa/django.json; set CODE_QA_FIXTURE below to change it.
+# runs Scripts/e2e/code-qa/django.json. e2e-code/all runs every fixture in that folder, two at a time (one repository
+# per language: django Python, nest TypeScript, jellyfin C#, commons-lang Java, prometheus Go). A branch name that
+# matches no fixture runs django.
 #
 # Needs the repository secrets LLM_API_KEY (NVIDIA NIM) and JEV_API_KEY.
 
@@ -24,9 +26,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.pick.outputs.list }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: pick
+        run: |
+          name="${GITHUB_REF_NAME#e2e-code/}"
+          if [ "$name" = "all" ]; then
+            list=$(ls Scripts/e2e/code-qa/*.json | xargs -n1 basename | sed 's/\.json$//' | jq -R . | jq -sc .)
+          elif [ -f "Scripts/e2e/code-qa/$name.json" ]; then
+            list=$(jq -nc --arg n "$name" '[$n]')
+          else
+            list='["django"]'
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
   code-qa:
+    needs: fixtures
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # NVIDIA's API is rate-limited; more parallel runs slow every answer down.
+      max-parallel: 2
+      matrix:
+        fixture: ${{ fromJson(needs.fixtures.outputs.list) }}
 
     services:
       chroma:
@@ -44,7 +71,7 @@ jobs:
     env:
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
-      CODE_QA_FIXTURE: Scripts/e2e/code-qa/django.json
+      CODE_QA_FIXTURE: Scripts/e2e/code-qa/${{ matrix.fixture }}.json
 
     steps:
       - uses: actions/checkout@v5
@@ -75,6 +102,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: code-qa-${{ github.run_number }}
+          name: code-qa-${{ github.run_number }}-${{ matrix.fixture }}
           path: e2e-out
           if-no-files-found: ignore
