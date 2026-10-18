@@ -974,6 +974,21 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
       - Gained: `ToStringBuilder`, `BaseExceptionFilter`, `WL`.
       - Ranked higher: `Paginator` (19 to 2), `MovieResolver` (18 to 3), `RandomStringUtils` (8 to 1), `DatabaseCache` (15 to 9).
       - Still missed: two Java methods (`isBlank`, `abbreviate`; methods are not embedded), and the undocumented `Signer`, `EncoderValidator`, `NestFactory`, `ParseExpr`, plus `ValidationPipe` and `LeveledCompactor`.
+    - **LLM e2e after the changes** (`e2e-code/all` on 436af1d; keyword search, since the e2e projects do not consent to embeddings). Also changed: triage rule 4b (code-by-signal), the Drafter names the answer in its first sentence, and per-file snippets.
+
+      | Repository | `Llm` | `Jev` + `Enforce` |
+      |---|---|---|
+      | Django | 7 / 8 (was 7 / 6) | 6 / 6 (was 6 / 6) |
+      | Commons Lang | 8 / 9 (was 7 / 7) | 8 / 10 (was 7 / 8) |
+      | Jellyfin | 6 / 7 (was 6 / 7) | 6 / 7 (was 5 / 5) |
+      | NestJS | 5 / 5 (was 2 / 2) | 8 / 7 (was 2 / 3) |
+      | Prometheus | 7 / 8 (was 7 / 6) | 5 / 5 (was 5 / 4) |
+      | **Total** | **33 / 37 (was 29 / 28)** | **33 / 35 (was 25 / 26)** |
+
+      - No answer was replaced by `LeakFallback`. One internal-reader leak check fired on a first attempt and the retry passed.
+      - Four requests got no answer: three Jellyfin questions in `Llm` mode and one Django question in `Jev` mode, after 1 to 5 minutes each. The run records no cause, so these are counted as misses.
+      - Most remaining misses are triage, not retrieval. The LLM sent 7 clear "which X does Y" questions to `unclear`, because its prompt kept `unclear` for anything that "plausibly fits more than one category". Jev sent 8 to `unclear` and 3 to `kb_question`, two of them Go "which type" questions. The prompt and descriptions were changed for both (de04808, bcaf1f7). The triage eval checks that change.
+      - The rest are answers that name a neighbour of the retrieved answer (`pagination` for `Paginator`, `IQuickConnect` for `QuickConnectManager`, `parseAsStringLiteral` for `ParseExpr`), or definitions keyword search does not find (`Signer`, `BaseExceptionFilter`, `LeveledCompactor`).
   - **NIM embedding model**: NVIDIA also retired `nvidia/nv-embedqa-e5-v5` (2026-08-25). It is replaced by `nvidia/llama-nemotron-embed-vl-1b-v2`, which has 2048 dimensions instead of 1024, so existing deployments must re-index (see the configuration guide).
   - **Verifier agreement** with the new LLM model: KB 24/27, code 15/18, vision 10/12, code-node classifier 3/4 (52/61 overall). The DISAGREE lines are findings, not crashes.
   - **Open Questions answered**: 1 (wire format, usage, error codes; no rate-limit headers seen), 5 (no question limit at or below 100, and questions can name JSON-state keys) and 6 (Score takes an ordered criteria array and returns a probability-weighted level, which maps to 0–1 by dividing by the top level). 4 is answered in part (see Triage). 2, 3, 7, 8 and 9 are still open.
