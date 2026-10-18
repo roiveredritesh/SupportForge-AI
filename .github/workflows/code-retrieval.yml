@@ -51,6 +51,9 @@ jobs:
           echo "::error::Neo4j did not start"; exit 1
 
       - name: Retrieval per fixture
+        env:
+          # Extra ranking settings scored on the same imports, boost:floor:max each (see CodeRetrievalEval).
+          CODE_SEARCH_SWEEP: "0.2:0.65:10,0.7:0.65:10,1.0:0.65:10,0.4:0.5:10,0.4:0.5:15,0.7:0.5:15,0.4:0.4:15"
         run: |
           evals=backend/SupportForge.Evals/bin/Release/net9.0/SupportForge.Evals.dll
           : > report.md
@@ -61,7 +64,7 @@ jobs:
             dotnet "$evals" code-retrieval "$f" "$dir" | tee -a report.md
             rm -rf "$dir"
           done
-          grep -E '^\*\*' report.md
+          grep -E '^\*\*|^SWEEP' report.md
 
       - name: Summary
         if: always()

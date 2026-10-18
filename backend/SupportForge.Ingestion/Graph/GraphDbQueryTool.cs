@@ -32,9 +32,9 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     // the actually-relevant node for a "lifecycle hooks" question) -- 0.65/10 trades a little recall
     // for a lot less noise reaching the small drafting model. Revisit with a smarter query (term
     // extraction, stopword stripping) if recall turns out to matter more than this signal-to-noise cut.
-    private const int MaxFulltextMatches = 10;
+    internal const int MaxFulltextMatches = 10;
     private const int MaxTraversalSeeds = 5;
-    private const double RelevanceFloor = 0.65;
+    internal const double RelevanceFloor = 0.65;
 
     // Test code is fetched too and then set aside unless the question is about tests: in a large repository it outnumbers
     // real code (django/django: 73% of definitions), so ranked together its matches fill every slot before the real one.
@@ -57,7 +57,7 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
 
     // Body terms are what the code uses, not what it is for, so a match there counts for less than one in a name or
     // summary. They decide between otherwise-equal candidates and find undocumented code.
-    internal const double DefaultBodyTermsBoost = 0.4;
+    internal const double BodyTermsBoost = 0.4;
 
     // Words that carry no meaning for a code search, including the ones every code question uses ("which class ...").
     private static readonly HashSet<string> StopWords = new(StringComparer.Ordinal)
@@ -98,14 +98,14 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     // use (IF NOT EXISTS), so code search keeps working until the next import rewrites the graph. Until then, nodes
     // imported without nameTerms (before V3) or bodyTerms are matched only on their other fields.
     private volatile bool _searchIndexEnsured;
-    private readonly double _bodyTermsBoost;
+    private readonly CodeSearchTuning _tuning;
 
-    public GraphDbQueryTool(IDriver driver, string database, ILogger<GraphDbQueryTool>? logger = null, double bodyTermsBoost = DefaultBodyTermsBoost)
+    public GraphDbQueryTool(IDriver driver, string database, ILogger<GraphDbQueryTool>? logger = null, CodeSearchTuning? tuning = null)
     {
         _driver = driver;
         _database = database;
         _logger = logger ?? NullLogger<GraphDbQueryTool>.Instance;
-        _bodyTermsBoost = bodyTermsBoost;
+        _tuning = tuning ?? CodeSearchTuning.Default;
     }
 
     public async Task<string?> QueryAsync(string projectId, string question, bool retrying, CancellationToken ct = default)
@@ -137,7 +137,7 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
                 ORDER BY score DESC
                 LIMIT $limit
                 """,
-                new { question = FieldedQuery(searchQuery, _bodyTermsBoost), projectId, limit = MaxCandidateMatches });
+                new { question = FieldedQuery(searchQuery, _tuning.BodyTermsBoost), projectId, limit = MaxCandidateMatches });
             return await cursor.ToListAsync();
         });
 
@@ -154,11 +154,11 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         var ranked = includeTests ? candidates : candidates.Where(c => !IsTestNode(c.Node)).ToList();
         // Only test code matched: that is still better than no answer at all.
         if (ranked.Count == 0) ranked = candidates;
-        ranked = ranked.Take(MaxFulltextMatches).ToList();
+        ranked = ranked.Take(_tuning.MaxMatches).ToList();
 
         var topScore = ranked[0].Score;
         var relevantMatches = ranked
-            .Where(r => ClearsRelevanceFloor(r.Score, topScore))
+            .Where(r => ClearsRelevanceFloor(r.Score, topScore, _tuning.RelevanceFloor))
             .ToList();
         // Counts and scores only, never the question: enough to see which floor a miss falls under.
         _logger.LogInformation(
@@ -301,7 +301,7 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
             .Select(t => t.EndsWith('*') ? EscapeLuceneQuery(t[..^1]) + "*" : EscapeLuceneQuery(t)));
     }
 
-    // The search terms applied to every indexed field, with body terms weighted down (see DefaultBodyTermsBoost).
+    // The search terms applied to every indexed field, with body terms weighted down (see BodyTermsBoost).
     internal static string FieldedQuery(string terms, double bodyTermsBoost) =>
         $"nameTerms:({terms}) summary:({terms}) purpose:({terms}) domainTerms:({terms}) "
         + $"bodyTerms:({terms})^{bodyTermsBoost.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
@@ -325,8 +325,8 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     // A match must clear both floors: relative (close enough to the top match) AND absolute (a
     // genuinely strong Lucene score on its own). Relative-only lets an all-noise result set pass
     // itself off as relevant, since the top match is always >= itself; see MinimumAbsoluteScore.
-    internal static bool ClearsRelevanceFloor(double score, double topScore) =>
-        score >= topScore * RelevanceFloor && score >= MinimumAbsoluteScore;
+    internal static bool ClearsRelevanceFloor(double score, double topScore, double relevanceFloor = RelevanceFloor) =>
+        score >= topScore * relevanceFloor && score >= MinimumAbsoluteScore;
 
     // $question reaches Neo4j as a Lucene query string, not a plain search string -- an unescaped
     // special char (a "/" in a file path, a stray quote, etc.) throws a Lucene TokenMgrError that
@@ -345,4 +345,14 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         }
         return sb.ToString();
     }
+}
+
+/// <summary>
+/// The ranking knobs of <see cref="GraphDbQueryTool"/>. Production uses <see cref="Default"/>; the code-retrieval eval
+/// passes other values to compare them on real repositories.
+/// </summary>
+public sealed record CodeSearchTuning(double BodyTermsBoost, double RelevanceFloor, int MaxMatches)
+{
+    public static CodeSearchTuning Default { get; } =
+        new(GraphDbQueryTool.BodyTermsBoost, GraphDbQueryTool.RelevanceFloor, GraphDbQueryTool.MaxFulltextMatches);
 }

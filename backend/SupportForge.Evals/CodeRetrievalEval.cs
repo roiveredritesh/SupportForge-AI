@@ -52,11 +52,7 @@ internal static partial class CodeRetrievalEval
         Console.WriteLine("| # | Kind | Answer | In context | Position | Retry in context | Top 3 |");
         Console.WriteLine("|---|---|---|---|---|---|---|");
 
-        // CODE_BODY_TERMS_BOOST overrides the body-terms weight, so one run can compare several values.
-        var tool = double.TryParse(Environment.GetEnvironmentVariable("CODE_BODY_TERMS_BOOST"),
-            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var boost)
-            ? new GraphDbQueryTool(driver, neo4jOptions.Database, bodyTermsBoost: boost)
-            : new GraphDbQueryTool(driver, neo4jOptions.Database);
+        var tool = new GraphDbQueryTool(driver, neo4jOptions.Database);
         var found = 0;
         var foundOnRetry = 0;
         var byKind = new SortedDictionary<string, (int Total, int Found)>(StringComparer.Ordinal);
@@ -80,11 +76,36 @@ internal static partial class CodeRetrievalEval
             + string.Join("; ", byKind.Select(k => $"{k.Key} {k.Value.Found}/{k.Value.Total}")));
         Console.WriteLine();
 
+        // CODE_SEARCH_SWEEP="boost:floor:max,..." also scores other ranking settings on the same import, one line each.
+        foreach (var tuning in SweepSettings())
+        {
+            var sweepTool = new GraphDbQueryTool(driver, neo4jOptions.Database, tuning: tuning);
+            var hitsAtTuning = 0;
+            var positions = new List<int>();
+            foreach (var (q, answer, path, _) in questions)
+            {
+                var position = Nodes(await sweepTool.QueryAsync(ProjectId, q, retrying: false))
+                    .FindIndex(n => n.Label == answer && n.Src == path) + 1;
+                if (position > 0) { hitsAtTuning++; positions.Add(position); }
+            }
+            Console.WriteLine($"SWEEP {repo} boost={tuning.BodyTermsBoost} floor={tuning.RelevanceFloor} max={tuning.MaxMatches}: "
+                + $"{hitsAtTuning}/{questions.Count} in context, mean position {(positions.Count > 0 ? positions.Average() : 0):F1}");
+        }
+
         await using var session = driver.AsyncSession(o => o.WithDatabase(neo4jOptions.Database));
         await session.ExecuteWriteAsync(tx => tx.RunAsync(
             "MATCH (n:GraphNode {projectId: $projectId}) DETACH DELETE n", new { projectId = ProjectId }));
         return 0;
     }
+
+    private static IEnumerable<CodeSearchTuning> SweepSettings() =>
+        (Environment.GetEnvironmentVariable("CODE_SEARCH_SWEEP") ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => s.Split(':'))
+            .Select(p => new CodeSearchTuning(
+                double.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture),
+                double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture),
+                int.Parse(p[2], System.Globalization.CultureInfo.InvariantCulture)));
 
     private static List<(string Label, string Src)> Nodes(string? output) =>
         output is null
