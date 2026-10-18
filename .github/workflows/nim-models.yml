@@ -1,0 +1,43 @@
+name: NIM model probe
+
+# TEMP (throwaway branch only): which NIM chat models this key can reach, and whether each answers a text prompt
+# and an image prompt. Prints model ids, HTTP codes, latency and the first words of each reply; never the key.
+on:
+  push:
+    branches: ["nim-models/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+    steps:
+      - name: Probe
+        run: |
+          [ -n "$LLM_API_KEY" ] || { echo "::error::LLM_API_KEY is not set"; exit 1; }
+          base=https://integrate.api.nvidia.com/v1
+          echo "## Chat-capable model ids (filtered)"
+          curl -s -H "Authorization: Bearer $LLM_API_KEY" $base/models | jq -r '.data[].id' | sort \
+            | grep -iE 'llama-3\.3|llama-4|nemotron-(super|ultra)|qwen3|qwen2\.5-(72b|coder)|deepseek|gpt-oss|mistral-(large|medium)|90b-vision|kimi|glm' || true
+          img="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg=="
+          for m in meta/llama-3.2-11b-vision-instruct meta/llama-3.2-90b-vision-instruct meta/llama-4-maverick-17b-128e-instruct \
+                   meta/llama-4-scout-17b-16e-instruct meta/llama-3.3-70b-instruct nvidia/llama-3.3-nemotron-super-49b-v1.5 \
+                   nvidia/llama-3.1-nemotron-ultra-253b-v1 qwen/qwen3-235b-a22b openai/gpt-oss-120b deepseek-ai/deepseek-v3.1 \
+                   mistralai/mistral-medium-3-instruct; do
+            for kind in text image; do
+              if [ $kind = text ]; then
+                content='"Which label fits: How do I change my billing address? Answer with one word: kb or code."'
+              else
+                content=$(jq -nc --arg u "$img" '[{type:"text",text:"What colour is this image? One word."},{type:"image_url",image_url:{url:$u}}]')
+              fi
+              body=$(jq -nc --arg m "$m" --argjson c "$content" '{model:$m, max_tokens:20, temperature:0, messages:[{role:"user", content:$c}]}')
+              out=$(curl -s -m 120 -o resp.json -w '%{http_code} %{time_total}' -H "Authorization: Bearer $LLM_API_KEY" \
+                -H 'Content-Type: application/json' --data "$body" $base/chat/completions || echo "000 -")
+              reply=$(jq -r '.choices[0].message.content // .detail // .title // "" ' resp.json 2>/dev/null | tr '\n' ' ' | cut -c1-40)
+              echo "| $m | $kind | $out | $reply |"
+            done
+          done
