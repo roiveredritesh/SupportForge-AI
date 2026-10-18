@@ -26,8 +26,8 @@ public sealed class LlmIntentClassifier : IIntentClassifier
             - "screenshot_error": the query is about an attached screenshot showing an error or UI state.
             - "greeting": a greeting, thanks, farewell, or other pleasantry with no actual support question
               in it — e.g. "hi", "hello", "thanks!", "that's all for now".
-            - "unclear": you cannot confidently place the query in any of the labels above — it is too vague,
-              missing context, or plausibly fits more than one category.
+            - "unclear": the query has no answerable question — it is too vague or missing the context it needs.
+              When it asks something specific that more than one label could answer, pick the most likely label instead.
             Respond with only the label, nothing else.
             """;
 
