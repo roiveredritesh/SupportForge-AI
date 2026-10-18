@@ -81,6 +81,8 @@ public sealed class TriageAgent : IAgent
             activity?.SetTag("triage.runner_up", context.RunnerUpIntent?.Label);
 
             _logger.LogInformation("{Agent} completed in {ElapsedMs}ms: intent={Intent}", Name, sw.ElapsedMilliseconds, context.Intent);
+            _logger.LogInformation("DIAG triage rule={Rule} confidence={Confidence:F2} scores={Scores}", context.IntentRule, decision.Confidence,
+                string.Join(",", decision.Scores.OrderByDescending(kv => kv.Value).Take(3).Select(kv => $"{kv.Key}:{kv.Value:F2}")));
             return context;
         }
         catch (Exception ex)

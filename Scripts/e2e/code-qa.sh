@@ -101,6 +101,20 @@ else
   exit 1
 fi
 
+# TEMPORARY diagnostic (throwaway branch): the code search's ranking for every fixture question, and where the answer is.
+neo() { curl -s -H 'Content-Type: application/json' --data "$1" "$NEO4J/db/neo4j/tx/commit"; }
+for i in $(seq 0 $((COUNT - 1))); do
+  q=$(jq -r ".questions[$i].q" "$FIXTURE"); answer=$(jq -r ".questions[$i].answer" "$FIXTURE")
+  lq=$(python3 "$ROOT/Scripts/e2e/diag_query.py" "$q")
+  echo "DIAG Q$((i + 1)) query: $lq"
+  neo "$(jq -nc --arg q "$lq" --arg p "$PROJECT" '{statements:[{statement:"CALL db.index.fulltext.queryNodes(\"graphNodeSearchV3\", $q) YIELD node, score WHERE node.projectId = $p AND coalesce(node.isTest,false) = false RETURN node.label, node.sourceFile, score LIMIT 8", parameters:{q:$q, p:$p}}]}')" \
+    | jq -r '.results[0].data[].row | "DIAG   \(.[0]) \(.[1]) \(.[2] * 100 | round / 100)"'
+  neo "$(jq -nc --arg q "$lq" --arg p "$PROJECT" --arg a "$answer" '{statements:[{statement:"CALL db.index.fulltext.queryNodes(\"graphNodeSearchV3\", $q) YIELD node, score WHERE node.projectId = $p AND coalesce(node.isTest,false) = false WITH collect({l: node.label, s: score}) AS hits RETURN [i IN range(0, size(hits)-1) WHERE hits[i].l = $a | [i + 1, hits[i].s]][0], size(hits)", parameters:{q:$q, p:$p, a:$a}}]}')" \
+    | jq -r '.results[0].data[0].row | "DIAG   answer rank (non-test): \(.[0] // "not matched") of \(.[1])"'
+  neo "$(jq -nc --arg p "$PROJECT" --arg a "$answer" '{statements:[{statement:"MATCH (n:GraphNode {projectId: $p}) WHERE n.label = $a AND coalesce(n.isTest,false) = false RETURN n.sourceFile, n.nameTerms, left(coalesce(n.summary, \"\"), 120) LIMIT 2", parameters:{p:$p, a:$a}}]}')" \
+    | jq -r '.results[0].data[].row | "DIAG   answer node: \(.[0]) terms=[\(.[1])] summary=[\(.[2])]"'
+done
+
 # ask_all <mode>: every fixture question under the running API. Appends one table row per question.
 ask_all() {
   local mode=$1 i q answer path file code draft details named retrieved deflected
@@ -137,9 +151,14 @@ ask_all() {
   say ""; say "</details>"
 }
 
-if start_api llm; then ask_all llm; stop_api; fi
+if start_api llm; then ask_all llm; stop_api
+  grep -oE 'DIAG triage [^"]*' "$OUT/code-qa.llm.log" | sed 's/^/DIAG llm /'
+  grep -oE 'CodeAnalyzerVerifier completed[^"]*status=[A-Za-z]+' "$OUT/code-qa.llm.log" | sed 's/^/DIAG llm /'
+fi
 if start_api jev-enforce Triage__Classifier=Jev Verification__Judge=Jev Guard__Mode=Enforce; then
   ask_all jev-enforce; stop_api
+  grep -oE 'DIAG triage [^"]*' "$OUT/code-qa.jev-enforce.log" | sed 's/^/DIAG jev /'
+  grep -oE 'CodeAnalyzerVerifier completed[^"]*status=[A-Za-z]+' "$OUT/code-qa.jev-enforce.log" | sed 's/^/DIAG jev /'
   say "- jev-enforce log: TriageJevFallback x$(grep -c TriageJevFallback "$OUT/code-qa.jev-enforce.log"), GuardBlocked x$(grep -c GuardBlocked "$OUT/code-qa.jev-enforce.log"), OutputGuardTriggered x$(grep -c OutputGuardTriggered "$OUT/code-qa.jev-enforce.log")"
 fi
 exit 0
