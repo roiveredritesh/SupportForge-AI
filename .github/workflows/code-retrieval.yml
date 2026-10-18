@@ -64,6 +64,9 @@ jobs:
           # Extra ranking settings scored on the same imports, boost:floor:max each (see CodeRetrievalEval).
           CODE_SEARCH_SWEEP: "0.4:0.65:10,2.0:0.65:10,1.0:0.5:15"
         run: |
+          # Embed with the model production uses; the Evals appsettings name chat models only.
+          export Llm__NvidiaNim__EmbeddingModel=$(jq -r '.Llm.NvidiaNim.EmbeddingModel' backend/SupportForge.Api/appsettings.json)
+          export Llm__NvidiaNim__EmbeddingInputType=$(jq -r '.Llm.NvidiaNim.EmbeddingInputType' backend/SupportForge.Api/appsettings.json)
           evals=backend/SupportForge.Evals/bin/Release/net9.0/SupportForge.Evals.dll
           : > report.md
           for f in Scripts/e2e/code-qa/*.json; do
