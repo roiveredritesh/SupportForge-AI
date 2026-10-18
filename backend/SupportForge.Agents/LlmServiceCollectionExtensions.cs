@@ -292,6 +292,8 @@ public static class LlmServiceCollectionExtensions
         // ApiKeyCredential still requires a non-empty string client-side -- "ollama" is the value
         // Ollama's own docs use as a placeholder for OpenAI-SDK-compatible clients.
         var credential = new ApiKeyCredential(!string.IsNullOrEmpty(apiKey) ? apiKey : isOllama ? "ollama" : string.Empty);
+        // Optional separate model for image prompts, for a text-only ChatModel. Unset, images go to ChatModel as before.
+        var visionModel = section["VisionModel"];
         return new OpenAiLlmClient(
             new OpenAI.Chat.ChatClient(chatModel, credential, options).AsIChatClient(),
             new OpenAI.Embeddings.EmbeddingClient(embeddingModel, credential, options),
@@ -299,7 +301,8 @@ public static class LlmServiceCollectionExtensions
             embeddingInputType,
             seed: seed,
             maxOutputTokens: maxOutputTokens,
-            attemptTimeout: attemptTimeout);
+            attemptTimeout: attemptTimeout,
+            visionChatClient: string.IsNullOrEmpty(visionModel) ? null : new OpenAI.Chat.ChatClient(visionModel, credential, options).AsIChatClient());
     }
 
     private static OpenAiLlmClient BuildAzureClient(IConfiguration configuration, bool cheapTier = false)

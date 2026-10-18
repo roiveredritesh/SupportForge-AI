@@ -98,4 +98,34 @@ public class OpenAiLlmClientTests
 
         Assert.Equal(8192, captured!.MaxOutputTokens);
     }
+
+    private static Mock<IChatClient> Answers(string text)
+    {
+        var client = new Mock<IChatClient>();
+        client
+            .Setup(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ChatResponse(new ChatMessage(ChatRole.Assistant, text)));
+        return client;
+    }
+
+    [Fact]
+    public async Task AnalyzeImageAsync_UsesTheVisionModel_WhenOneIsConfigured()
+    {
+        var chat = Answers("from chat");
+        var vision = Answers("from vision");
+        var sut = new OpenAiLlmClient(chat.Object, null!, "unused-model", visionChatClient: vision.Object);
+
+        Assert.Equal("from vision", await sut.AnalyzeImageAsync(Convert.ToBase64String(new byte[] { 1, 2, 3 }), "What does it say?"));
+        Assert.Equal("from chat", await sut.CompleteAsync("system", "user"));
+        chat.Verify(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AnalyzeImageAsync_UsesTheChatModel_WithoutAVisionModel()
+    {
+        var chat = Answers("from chat");
+        var sut = new OpenAiLlmClient(chat.Object, null!, "unused-model");
+
+        Assert.Equal("from chat", await sut.AnalyzeImageAsync(Convert.ToBase64String(new byte[] { 1, 2, 3 }), "What does it say?"));
+    }
 }

@@ -26,6 +26,9 @@ public class OpenAiLlmClient : ILlmClient
     private const int DefaultMaxOutputTokens = 4096;
 
     private readonly IChatClient _chatClient;
+    // Answers image prompts. The chat client unless a separate vision model is configured (Llm:{Provider}:VisionModel),
+    // for a text-only chat model such as a large reasoning model.
+    private readonly IChatClient _visionChatClient;
     private readonly EmbeddingClient _embeddingClient;
     private readonly string _embeddingModel;
     private readonly string? _embeddingInputType;
@@ -88,10 +91,12 @@ public class OpenAiLlmClient : ILlmClient
         bool supportsVision = true,
         long? seed = null,
         int? maxOutputTokens = null,
-        TimeSpan? attemptTimeout = null)
+        TimeSpan? attemptTimeout = null,
+        IChatClient? visionChatClient = null)
     {
         _resilience = BuildResilience(attemptTimeout);
         _chatClient = chatClient;
+        _visionChatClient = visionChatClient ?? chatClient;
         _embeddingClient = embeddingClient;
         _embeddingModel = embeddingModel;
         _embeddingInputType = embeddingInputType;
@@ -192,7 +197,7 @@ public class OpenAiLlmClient : ILlmClient
             new DataContent(Convert.FromBase64String(base64Image), "image/png"),
         ]);
         var response = await _resilience.ExecuteAsync(
-            callback: rct => new ValueTask<ChatResponse>(_chatClient.GetResponseAsync([message], cancellationToken: rct)),
+            callback: rct => new ValueTask<ChatResponse>(_visionChatClient.GetResponseAsync([message], cancellationToken: rct)),
             cancellationToken: ct);
         LastTotalTokens = (int)(response.Usage?.TotalTokenCount ?? 0);
         return response.Text.Trim();
