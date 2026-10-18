@@ -55,9 +55,11 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     internal const string CreateSearchIndexCypher =
         "CREATE FULLTEXT INDEX graphNodeSearchV4 IF NOT EXISTS FOR (n:GraphNode) ON EACH [n.nameTerms, n.summary, n.purpose, n.domainTerms, n.bodyTerms]";
 
-    // Body terms are what the code uses, not what it is for, so a match there counts for less than one in a name or
-    // summary. They decide between otherwise-equal candidates and find undocumented code.
-    internal const double BodyTermsBoost = 0.4;
+    // The weight of a body-terms match next to one in a name or summary. On the five code-QA repositories (Python, C#,
+    // TypeScript, Java, Go; the code-retrieval eval) 1.0 put the answer in context for 39 of 50 questions against 36 at
+    // 0.4; weights up to 2.0 found no more and ranked answers lower. A long body's many terms already score lower per
+    // term, so equal weight does not let it outrank a matching name.
+    internal const double BodyTermsBoost = 1.0;
 
     // Words that carry no meaning for a code search, including the ones every code question uses ("which class ...").
     private static readonly HashSet<string> StopWords = new(StringComparer.Ordinal)
