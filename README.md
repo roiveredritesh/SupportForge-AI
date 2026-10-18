@@ -208,6 +208,8 @@ Optional settings:
 
 - `Llm:FallbackProvider`: fail over to a second provider when the primary's circuit breaker is open.
 - `Llm:<Provider>:CheapChatModel`: a cheaper model for Triage and the verifiers. Validate it with the eval harness first.
+- `Llm:<Provider>:VisionModel`: a separate model for screenshots, for a chat model that cannot read images (OpenAI-compatible providers and Azure).
+- `Llm:<Provider>:RequestTimeout`: a per-attempt limit (e.g. `00:00:40`); a provider call that hangs past it is cut and retried. Unset, the SDK's own 100 s network timeout applies.
 
 ### Other key settings
 
