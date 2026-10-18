@@ -21,15 +21,13 @@ public sealed class LlmIntentClassifier : IIntentClassifier
             - "kb_question": product/feature/process questions answered by documentation, not the source code.
             - "code_issue": a bug report or error involving the project's source code.
             - "code_question": a question about the project's source code that is not a bug report — e.g. "how does X work",
-              "explain function Y", "where is Z implemented", "which class, type, interface, method, function, decorator, exception, module, middleware or service does W",
+              "explain function Y", "where is Z implemented", "which class, function, module, middleware or service does W",
               architecture questions.
             - "screenshot_error": the query is about an attached screenshot showing an error or UI state.
             - "greeting": a greeting, thanks, farewell, or other pleasantry with no actual support question
               in it — e.g. "hi", "hello", "thanks!", "that's all for now".
-            - "unclear": the query has no answerable question — it is too vague or missing the context it needs.
-              When it asks something specific that more than one label could answer, pick the most likely label instead.
-              A question about which part of the code does something is a "code_question", even when it does not
-              name the project.
+            - "unclear": you cannot confidently place the query in any of the labels above — it is too vague,
+              missing context, or plausibly fits more than one category.
             Respond with only the label, nothing else.
             """;
 

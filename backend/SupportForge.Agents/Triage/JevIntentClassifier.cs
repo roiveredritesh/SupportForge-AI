@@ -13,8 +13,9 @@ public sealed class JevIntentClassifier : IIntentClassifier
     private const string IntentInstructions = "Which kind of support request is the latest customer message?";
 
     // One-line descriptions, adapted from LlmIntentClassifier's system prompt so both classifiers share one taxonomy.
-    // This is a copy, not a shared constant, so the two are kept in step by hand: the code_question line names "which class,
-    // type, interface, method, function, decorator, exception ..." in both, because the triage of those questions sent them to "unclear".
+    // This is a copy, not a shared constant, so the two are kept in step by hand. The one difference: this code_question line
+    // also names types, interfaces, methods, decorators and exceptions, because Jev sent those which-X questions to "unclear"
+    // or "kb_question". The same wording in the LLM prompt made the LLM send most KB questions to code_question (triage eval).
     private static readonly IReadOnlyDictionary<string, string> LabelDescriptions = new Dictionary<string, string>
     {
         [TriageLabels.KbQuestion] = "A product, feature or process question answered by documentation, not the source code.",
