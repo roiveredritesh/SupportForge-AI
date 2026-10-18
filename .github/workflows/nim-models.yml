@@ -23,18 +23,19 @@ jobs:
           echo "## Chat-capable model ids (filtered)"
           curl -s -H "Authorization: Bearer $LLM_API_KEY" $base/models | jq -r '.data[].id' | sort | tr '\n' ' '; echo
           img="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg=="
-          for m in deepseek-ai/deepseek-v4.1-flash moonshotai/kimi-k2.6 z-ai/glm-5.3 z-ai/glm-5.3-flash \
-                   mistralai/mistral-large-2-instruct openai/gpt-oss-20b meta/llama-3.2-90b-vision-instruct; do
-            for kind in text image; do
+          for m in nvidia/nemotron-3.5-super-vl-120b-a12b google/gemma-4-31b-it nvidia/nemotron-3-super-120b-a12b \
+                   nvidia/nemotron-3-ultra-550b-a55b nvidia/nemotron-3.5-lightning-30b-a3b stepfun-ai/step-5-preview \
+                   z-ai/glm-5.3 meta/llama-3.2-90b-vision-instruct; do
+            for kind in text text image; do
               if [ $kind = text ]; then
                 content='"Which label fits: How do I change my billing address? Answer with one word: kb or code."'
               else
                 content=$(jq -nc --arg u "$img" '[{type:"text",text:"What colour is this image? One word."},{type:"image_url",image_url:{url:$u}}]')
               fi
               body=$(jq -nc --arg m "$m" --argjson c "$content" '{model:$m, max_tokens:200, temperature:0, messages:[{role:"user", content:$c}]}')
-              out=$(curl -s -m 120 -o resp.json -w '%{http_code} %{time_total}' -H "Authorization: Bearer $LLM_API_KEY" \
+              out=$(curl -s -m 90 -o resp.json -w '%{http_code} %{time_total}' -H "Authorization: Bearer $LLM_API_KEY" \
                 -H 'Content-Type: application/json' --data "$body" $base/chat/completions || echo "000 -")
-              reply=$(jq -r '.choices[0].message.content // .detail // .title // "" ' resp.json 2>/dev/null | tr '\n' ' ' | cut -c1-40)
+              reply=$(jq -r '(.choices[0].message.content // .detail // .title // "") + " [reasoning_content: " + ((.choices[0].message.reasoning_content // "") | length | tostring) + " chars; content: " + ((.choices[0].message.content // "") | length | tostring) + " chars]"' resp.json 2>/dev/null | tr '\n' ' ' | cut -c1-110)
               echo "| $m | $kind | $out | $reply |"
             done
           done
