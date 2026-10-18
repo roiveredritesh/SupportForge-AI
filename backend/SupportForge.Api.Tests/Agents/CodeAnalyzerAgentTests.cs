@@ -103,4 +103,33 @@ public class CodeAnalyzerAgentTests
 
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error && e.Exception is InvalidOperationException);
     }
+
+    [Fact]
+    public void SplitByFile_GivesEachFileItsOwnSnippet_MostRelevantFirst()
+    {
+        var output = string.Join('\n',
+            "Traversal: BFS depth=1 | Start: ['num_pages'] | 3 nodes found",
+            "",
+            "NODE num_pages [src=django/core/paginator.py loc=L120 community=]",
+            "    | def num_pages(self):",
+            "NODE Table [src=django/db/backends/ddl_references.py loc=L60 community=]",
+            "NODE Paginator [src=django/core/paginator.py loc=L27 community=]",
+            "    | class Paginator:",
+            "EDGE paginator.py --defines [high]--> Paginator");
+
+        var snippets = CodeAnalyzerAgent.SplitByFile(output);
+
+        Assert.Equal(2, snippets.Count);
+        Assert.StartsWith("Traversal: BFS", snippets[0]);
+        Assert.Contains("NODE Paginator", snippets[0]);
+        Assert.Contains("    | class Paginator:", snippets[0]);
+        Assert.Contains("EDGE paginator.py", snippets[0]);
+        Assert.Equal("NODE Table [src=django/db/backends/ddl_references.py loc=L60 community=]", snippets[1]);
+    }
+
+    [Fact]
+    public void SplitByFile_KeepsOutputWithoutNodeLinesWhole()
+    {
+        Assert.Equal(["plain result"], CodeAnalyzerAgent.SplitByFile("plain result"));
+    }
 }

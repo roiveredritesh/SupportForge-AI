@@ -2,7 +2,7 @@ namespace SupportForge.Agents.Triage;
 
 // The intent chosen by the policy, and the rule that decided it. AppliedRule is logged so each override is visible
 // in traces: "top" | "greeting-has-question" | "screenshot-without-image" | "code-pair-by-malfunction" |
-// "low-confidence" | "small-margin" | "unknown-label".
+// "code-by-signal" | "low-confidence" | "small-margin" | "unknown-label".
 public sealed record TriagePolicyResult(string Intent, string AppliedRule);
 
 // U5 (JEV intent classification plan), R4: the deterministic step that turns label scores into the intent TriageAgent acts on.
@@ -101,7 +101,7 @@ public static class TriageDecisionPolicy
         // Written as !(x >= y) so a NaN confidence or margin fails closed to "unclear".
         if (!(decision.Confidence >= options.MinConfidence))
         {
-            return Unclear("low-confidence");
+            return CodeBySignal(decision, top, options) ?? Unclear("low-confidence");
         }
 
         if (!pairExempt)
@@ -110,12 +110,33 @@ public static class TriageDecisionPolicy
             var margin = Probability(decision, top) - (runnerUp is null ? 0 : Probability(decision, runnerUp));
             if (!(margin >= options.MinMargin))
             {
-                return Unclear("small-margin");
+                return CodeBySignal(decision, top, options) ?? Unclear("small-margin");
             }
         }
 
         // Rule 5: the top label stands.
         return new TriagePolicyResult(top, appliedRule ?? "top");
+    }
+
+    // Rule 4b: a code question Jev was unsure how to label ("What exception is raised when a template cannot be found?"
+    // spread over code_question 0.39, code_issue 0.32 and kb_question 0.29) is still answerable, so it is not sent to
+    // "unclear" when the signals say it is a real support question about the source code and nearly all the probability is
+    // on the labels that retrieve. code_question searches both the KB and the code, so it covers whichever of them was
+    // meant; reports_malfunction picks code_issue instead, as rule 3 does. A vague message ("it broke", "help") does not
+    // read as being about source code, so it still gets the clarifying question.
+    private static TriagePolicyResult? CodeBySignal(IntentDecision decision, string top, TriageOptions options)
+    {
+        if (top is not (TriageLabels.KbQuestion or TriageLabels.CodeQuestion or TriageLabels.CodeIssue)) return null;
+        if (!SignalAtLeast(decision, TriageSignals.AboutSourceCode, SignalYes)) return null;
+        if (!SignalAtLeast(decision, TriageSignals.HasSupportQuestion, SignalYes)) return null;
+
+        var retrievalMass = Probability(decision, TriageLabels.KbQuestion)
+            + Probability(decision, TriageLabels.CodeQuestion)
+            + Probability(decision, TriageLabels.CodeIssue);
+        if (!(retrievalMass >= options.MinConfidence)) return null;
+
+        var intent = SignalAtLeast(decision, TriageSignals.ReportsMalfunction, SignalYes) ? TriageLabels.CodeIssue : TriageLabels.CodeQuestion;
+        return new TriagePolicyResult(intent, "code-by-signal");
     }
 
     // Labels by probability, highest first. Ties follow TriageLabels.All, the same order TriageAgent and AgentContext use.

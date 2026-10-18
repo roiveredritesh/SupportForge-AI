@@ -171,8 +171,10 @@ public sealed partial class DrafterAgent : IAgent
 
     private const string InternalCodeQuestionRules = """
         If Intent is "code_question", answer from the code and documentation context: say which classes, functions or
-        modules are involved and which files they are in, then explain how they work in your own words. If the context
-        does not contain the answer, say so plainly rather than guessing.
+        modules are involved and which files they are in, then explain how they work in your own words. When the question
+        asks which class, function or file does something and the context shows one that does it, name it as the answer
+        in your first sentence, without hedging. Only if nothing in the context does what was asked, say so plainly rather
+        than guessing.
         """;
 
     private const string SharedClosingRules = """
