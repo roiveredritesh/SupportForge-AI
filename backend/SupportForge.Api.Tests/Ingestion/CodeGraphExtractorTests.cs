@@ -658,10 +658,7 @@ public class CodeGraphExtractorTests
     [Fact]
     public void Extract_PythonHashCommentAboveADefinition_IsItsSummary()
     {
-        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("cache.py", "# Stores entries in a database table.
-class DatabaseCache:
-    pass
-")));
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("cache.py", "# Stores entries in a database table.\nclass DatabaseCache:\n    pass\n")));
 
         Assert.Equal("Stores entries in a database table.", graph.Nodes.Single(n => n.Id == "cache.py::DatabaseCache").Summary);
     }
