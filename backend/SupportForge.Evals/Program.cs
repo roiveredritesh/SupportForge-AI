@@ -25,6 +25,13 @@ var configuration = new ConfigurationBuilder()
     .AddEnvironmentVariables()
     .Build();
 
+// Retrieval-only mode (no LLM, no API key): code-retrieval <fixture.json> <repo checkout dir>. See CodeRetrievalEval.
+if (args is ["code-retrieval", var codeFixture, var codeRepoDir])
+{
+    return await CodeRetrievalEval.RunAsync(codeFixture, codeRepoDir,
+        configuration.GetSection("Neo4j").Get<Neo4jOptions>() ?? new Neo4jOptions());
+}
+
 var services = new ServiceCollection();
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
 services.AddLlmProviders(configuration); // same DI wiring SupportForge.Api uses -- one provider, config-selected

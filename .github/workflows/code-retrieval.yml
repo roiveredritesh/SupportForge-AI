@@ -1,0 +1,68 @@
+name: Code retrieval
+
+# Retrieval-only check of the code-question path on real repositories: for every fixture in Scripts/e2e/code-qa, clone
+# the repository, extract and import it into Neo4j with the real ingestion code, and ask each question through
+# GraphDbQueryTool. Reports whether the expected definition reaches the answering model's context. No LLM or Jev call
+# and no secrets, so it is quick and free; the e2e-code workflow measures full answers.
+#
+# How to run: push any commit to a branch named code-retrieval/<anything>, e.g.
+#   git push origin HEAD:code-retrieval/check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["code-retrieval/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: code-retrieval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  retrieval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      neo4j:
+        image: neo4j:5.26-community
+        env:
+          NEO4J_AUTH: none
+        ports:
+          - 7474:7474
+          - 7687:7687
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build
+        run: dotnet build backend/SupportForge.Evals/SupportForge.Evals.csproj --configuration Release
+
+      - name: Wait for Neo4j
+        run: |
+          for _ in $(seq 60); do curl -s -o /dev/null http://localhost:7474 && exit 0; sleep 2; done
+          echo "::error::Neo4j did not start"; exit 1
+
+      - name: Retrieval per fixture
+        run: |
+          evals=backend/SupportForge.Evals/bin/Release/net9.0/SupportForge.Evals.dll
+          : > report.md
+          for f in Scripts/e2e/code-qa/*.json; do
+            repo=$(jq -r .repo "$f"); branch=$(jq -r .branch "$f")
+            dir="$RUNNER_TEMP/repos/${repo//\//_}"
+            git clone -q --depth 1 --branch "$branch" "https://github.com/$repo.git" "$dir"
+            dotnet "$evals" code-retrieval "$f" "$dir" | tee -a report.md
+            rm -rf "$dir"
+          done
+          grep -E '^\*\*' report.md
+
+      - name: Summary
+        if: always()
+        run: cat report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
