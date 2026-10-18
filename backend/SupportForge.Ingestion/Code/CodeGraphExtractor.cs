@@ -33,29 +33,66 @@ public static class CodeGraphExtractor
         [".py"] = "python",
         [".java"] = "java",
         [".go"] = "go",
+        [".kt"] = "kotlin",
+        [".kts"] = "kotlin",
+        [".rb"] = "ruby",
+        [".php"] = "php",
+        [".rs"] = "rust",
+        [".swift"] = "swift",
+        [".scala"] = "scala",
     };
 
+    // One regex per language, every alternative capturing the definition's name as "name" (and, for a Go method, its
+    // receiver type as "recv"). Methods are matched only where a modifier or a same-line body makes them unambiguous, so
+    // an ordinary statement or call is not mistaken for a definition.
     private static readonly Dictionary<string, Regex> DefinitionPatternByFileType = new()
     {
         ["csharp"] = new Regex(
-            @"^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|async|virtual|override)\s+)*\b(?:class|interface|struct|record|enum)\s+(?<name>[A-Za-z_]\w*)",
+            @"^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|async|virtual|override|unsafe|file)\s+)*\b(?:class|interface|struct|record|enum)\s+(?<name>[A-Za-z_]\w*)"
+            + @"|^[ \t]*(?:(?:public|private|protected|internal|static|virtual|override|abstract|async|sealed|extern|unsafe)[ \t]+)+[\w.]+(?:<[^\n()]*?>)?(?:\[\])*\??[ \t]+(?<name>[A-Za-z_]\w*)[ \t]*(?:<[^\n()]*?>)?[ \t]*\(",
             RegexOptions.Compiled | RegexOptions.Multiline),
-        ["typescript"] = new Regex(
-            @"^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?\b(?:class|interface|function)\s+(?<name>[A-Za-z_]\w*)",
-            RegexOptions.Compiled | RegexOptions.Multiline),
-        ["javascript"] = new Regex(
-            @"^\s*(?:export\s+)?(?:default\s+)?\b(?:class|function)\s+(?<name>[A-Za-z_]\w*)",
-            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["typescript"] = JsLikePattern(),
+        ["javascript"] = JsLikePattern(),
         ["python"] = new Regex(
             @"^\s*(?:async\s+)?(?:class|def)\s+(?<name>[A-Za-z_]\w*)",
             RegexOptions.Compiled | RegexOptions.Multiline),
         ["java"] = new Regex(
-            @"^\s*(?:(?:public|private|protected|static|final|abstract)\s+)*\b(?:class|interface|enum)\s+(?<name>[A-Za-z_]\w*)",
+            @"^\s*(?:(?:public|private|protected|static|final|abstract|sealed|strictfp)\s+)*\b(?:class|interface|enum|record)\s+(?<name>[A-Za-z_]\w*)"
+            + @"|^[ \t]*(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|strictfp)[ \t]+)+(?:<[^\n()]*?>[ \t]+)?[\w.]+(?:<[^\n()]*?>)?(?:\[\])*[ \t]+(?<name>[A-Za-z_]\w*)[ \t]*\(",
             RegexOptions.Compiled | RegexOptions.Multiline),
         ["go"] = new Regex(
-            @"^\s*(?:func\s+(?:\([^)]*\)\s*)?(?<name>[A-Za-z_]\w*)\s*\(|type\s+(?<name>[A-Za-z_]\w*)\s+(?:struct|interface)\b)",
+            @"^\s*(?:func\s+(?:\(\s*\w*\s*\*?(?<recv>[A-Za-z_]\w*)(?:\[[^\]]*\])?\s*\)\s*)?(?<name>[A-Za-z_]\w*)\s*[\[(]|type\s+(?<name>[A-Za-z_]\w*)\s+(?:struct|interface)\b)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["kotlin"] = new Regex(
+            @"^\s*(?:(?:public|private|protected|internal|open|abstract|sealed|data|enum|inner|annotation|value|override|suspend|inline|operator|infix|tailrec|external|actual|expect)\s+)*(?:class|interface|object|fun)\s+(?:<[^>\n]*>\s*)?(?:[\w.]+\.)?(?<name>[A-Za-z_]\w*)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["ruby"] = new Regex(
+            @"^\s*(?:class|module)\s+(?:[A-Z]\w*::)*(?<name>[A-Z]\w*)|^\s*def\s+(?:self\.)?(?<name>[A-Za-z_]\w*[?!=]?)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["php"] = new Regex(
+            @"^\s*(?:(?:abstract|final|readonly)\s+)*(?:class|interface|trait|enum)\s+(?<name>[A-Za-z_]\w*)|^\s*(?:(?:public|private|protected|static|abstract|final)\s+)*function\s+&?(?<name>[A-Za-z_]\w*)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["rust"] = new Regex(
+            @"^\s*(?:pub(?:\([^)\n]*\))?\s+)?(?:(?:async|const|unsafe|extern(?:\s+""[^""\n]*"")?)\s+)*(?:fn|struct|enum|trait|type|union)\s+(?<name>[A-Za-z_]\w*)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["swift"] = new Regex(
+            @"^\s*(?:(?:public|private|fileprivate|internal|open|final|static|class|override|mutating|required|convenience|nonisolated)\s+)*(?:class|struct|enum|protocol|actor|func)\s+(?<name>[A-Za-z_]\w*)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["scala"] = new Regex(
+            @"^\s*(?:(?:private|protected|final|sealed|abstract|implicit|override|case|lazy)\s+)*(?:class|object|trait|def|enum)\s+(?<name>[A-Za-z_]\w*)",
             RegexOptions.Compiled | RegexOptions.Multiline),
     };
+
+    // TypeScript and JavaScript: classes, interfaces, functions, enums and type aliases; a top-level const or let bound to
+    // an arrow function or function expression (export const SetMetadata = <K>(...) => ...); a class method with a
+    // modifier (the parameters may continue on later lines); and a method without one whose parameters close and whose
+    // body opens on the same line. Control-flow keywords are excluded so "if (x) {" is not taken for a method.
+    private static Regex JsLikePattern() => new(
+        @"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?\b(?:class|interface|function\*?|enum|type)\s+(?<name>[A-Za-z_$][\w$]*)"
+        + @"|^(?:export\s+)?(?:const|let|var)\s+(?<name>[A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=\s*(?:async\s+)?(?:function\b|\([^)\n]*\)\s*(?::\s*[^=\n]+)?=>|\(\s*$|<[^\n]*>\s*\(|[A-Za-z_$][\w$]*\s*=>)"
+        + @"|^[ \t]+(?:(?:public|private|protected|static|readonly|async|abstract|override)[ \t]+)+(?:get[ \t]+|set[ \t]+)?(?<name>[A-Za-z_$][\w$]*)[ \t]*(?:<[^\n]*?>)?[ \t]*\("
+        + @"|^[ \t]+(?!(?:if|for|while|switch|catch|function|return|else|do|try|new|await|typeof|delete|throw|with)\b)(?:async[ \t]+)?(?<name>[A-Za-z_$][\w$]*)[ \t]*(?:<[^\n]*?>)?[ \t]*\((?:[^()\n]|\([^()\n]*\))*\)[ \t]*(?::[ \t]*[^{;=\n]+)?\{[ \t]*$",
+        RegexOptions.Compiled | RegexOptions.Multiline);
 
     private static readonly Regex JsImportPattern = new(
         @"(?:import[^'""]*from\s*|require\()\s*['""](\.[^'""]+)['""]",
@@ -158,7 +195,7 @@ public static class CodeGraphExtractor
 
     // Case-sensitive on purpose: "OrderServiceTests.cs" is a test file, "Latest.cs" is not.
     private static readonly Regex TestFileName = new(
-        @"^(test_.*\.py|.*_test\.(py|go)|conftest\.py|.*[a-z0-9]Tests?\.(cs|java)|.*\.(test|spec)\.(ts|tsx|js|jsx))$",
+        @"^(test_.*\.py|.*_test\.(py|go|rb|rs)|.*_spec\.rb|conftest\.py|.*[a-z0-9](Tests?|Spec)\.(cs|java|kt|swift|php|scala)|.*\.(test|spec)\.(ts|tsx|js|jsx))$",
         RegexOptions.Compiled);
 
     // Minified content has nothing meaningful for a regex definition-pattern to match, and a
@@ -331,16 +368,27 @@ public static class CodeGraphExtractor
     private static void AddDefinitionNodesAndEdges(
         CodeGraphFile graph, string relativePath, string fileType, string text, Regex definitionPattern)
     {
-        var seenNames = new HashSet<string>(StringComparer.Ordinal);
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
         var matches = definitionPattern.Matches(text).Where(m => m.Groups["name"].Success).ToList();
         var lineStarts = matches.Select(m => LineStart(text, m.Groups["name"].Index)).ToList();
+        var bodyEnds = matches.Select((_, i) => BodyEnd(text, lineStarts, i)).ToList();
+        var nodeIds = new string?[matches.Count];
         for (var i = 0; i < matches.Count; i++)
         {
             var match = matches[i];
             var name = match.Groups["name"].Value;
-            if (!seenNames.Add(name)) continue; // same symbol matched by more than one alternation branch
 
-            var nodeId = $"{relativePath}::{name}";
+            // A member is identified through what contains it (SecurityMiddleware.__init__), so two classes in one file
+            // can each have an __init__ or a ToString. A Go method's container is its receiver type.
+            var container = ContainerIndex(text, lineStarts, bodyEnds, i);
+            var containerId = container is int c ? nodeIds[c] : null;
+            var receiver = match.Groups["recv"].Success ? match.Groups["recv"].Value : null;
+            var nodeId = containerId is not null ? $"{containerId}.{name}"
+                : receiver is not null ? $"{relativePath}::{receiver}.{name}"
+                : $"{relativePath}::{name}";
+            if (!seenIds.Add(nodeId)) continue; // an overload, or the same symbol matched by more than one alternative
+            nodeIds[i] = nodeId;
+
             // The name, not the match start: the pattern's leading \s* can begin on a blank line above the definition.
             var nameIndex = match.Groups["name"].Index;
             var docstring = fileType == "python" ? ExtractPythonDefinitionDocstring(text, nameIndex) : "";
@@ -350,15 +398,29 @@ public static class CodeGraphExtractor
                 Label = name,
                 FileType = fileType,
                 SourceFile = relativePath,
-                SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
-                Summary = docstring.Length > 0 ? docstring : ExtractPrecedingCommentBlock(text, match.Index),
+                SourceLocation = $"L{CountLinesBefore(text, lineStarts[i])}",
+                Summary = docstring.Length > 0 ? docstring : ExtractPrecedingCommentBlock(text, lineStarts[i], fileType),
                 NameTerms = DefinitionNameTerms(name),
                 IsTest = IsTestPath(relativePath),
                 Excerpt = ExtractExcerpt(text, nameIndex),
-                BodyTerms = BodyTerms(text, lineStarts[i], BodyEnd(text, lineStarts, i)),
+                BodyTerms = BodyTerms(text, lineStarts[i], bodyEnds[i]),
             });
             graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = nodeId, Relation = "defines", Confidence = "high" });
+            if (containerId is not null)
+                graph.Edges.Add(new CodeGraphEdge { Source = containerId, Target = nodeId, Relation = "contains", Confidence = "high" });
         }
+    }
+
+    // The nearest earlier definition whose body encloses this one and is indented less: its class (or outer function).
+    private static int? ContainerIndex(string text, IReadOnlyList<int> lineStarts, IReadOnlyList<int> bodyEnds, int index)
+    {
+        var indent = Indentation(text, lineStarts[index]);
+        for (var j = index - 1; j >= 0; j--)
+        {
+            if (lineStarts[j] < lineStarts[index] && bodyEnds[j] > lineStarts[index] && Indentation(text, lineStarts[j]) < indent)
+                return j;
+        }
+        return null;
     }
 
     private static void AddImportEdges(
@@ -411,11 +473,17 @@ public static class CodeGraphExtractor
 
     private static int CountLinesBefore(string text, int index) => text.AsSpan(0, index).Count('\n') + 1;
 
-    private static bool IsCommentLine(string trimmed) =>
-        trimmed.StartsWith("//") || trimmed.StartsWith("*") || trimmed.StartsWith("/*");
+    private static bool IsCommentLine(string trimmed, string fileType) =>
+        trimmed.StartsWith("//") || trimmed.StartsWith("*") || trimmed.StartsWith("/*")
+        || (fileType is "python" or "ruby" && trimmed.StartsWith('#') && !trimmed.StartsWith("#!"));
+
+    // A decorator, annotation or attribute line between a doc comment and its definition (@Injectable(), @Override,
+    // [Authorize], #[derive(Debug)]): skipped when walking up to the comment, so the comment still belongs to it.
+    private static bool IsAnnotationLine(string trimmed) =>
+        trimmed.StartsWith('@') || trimmed.StartsWith("#[") || (trimmed.StartsWith('[') && trimmed.EndsWith(']'));
 
     private static string StripCommentMarkers(string trimmed) =>
-        trimmed.TrimStart('/', '*').TrimEnd('*', '/').Trim();
+        trimmed.TrimStart('/', '*', '#').TrimEnd('*', '/').Trim();
 
     private static string Truncate(string s) =>
         s.Length <= MaxSummaryLength ? s : s[..MaxSummaryLength] + "…";
@@ -437,7 +505,7 @@ public static class CodeGraphExtractor
                 if (lines.Count > 0) break; // blank line after content ends the header
                 continue; // allow blank lines before the header starts
             }
-            if (!IsCommentLine(trimmed)) break;
+            if (!IsCommentLine(trimmed, fileType)) break;
             var stripped = StripCommentMarkers(trimmed);
             if (stripped.Length > 0) lines.Add(stripped);
         }
@@ -455,20 +523,22 @@ public static class CodeGraphExtractor
     // at the first blank or non-comment line -- a real doc comment sits with no gap above its symbol.
     // Python's docstring is the first statement INSIDE the body instead; ExtractPythonDefinitionDocstring
     // handles that, and this stays the fallback for a Python definition without one.
-    private static string ExtractPrecedingCommentBlock(string text, int definitionIndex)
+    // The comment block directly above a definition's line, skipping decorator, annotation and attribute lines in between.
+    private static string ExtractPrecedingCommentBlock(string text, int definitionLineStart, string fileType)
     {
-        if (definitionIndex <= 0) return "";
+        if (definitionLineStart <= 0) return "";
 
         var lines = new List<string>();
-        var lineEnd = text.LastIndexOf('\n', definitionIndex - 1);
+        var lineEnd = definitionLineStart - 1; // the '\n' that ends the line above
         while (lineEnd >= 0)
         {
-            var lineStart = text.LastIndexOf('\n', lineEnd - 1) + 1;
+            var lineStart = lineEnd > 0 ? text.LastIndexOf('\n', lineEnd - 1) + 1 : 0;
             var line = text[lineStart..lineEnd].TrimEnd('\r').Trim();
-            if (line.Length == 0 || !IsCommentLine(line)) break;
+            lineEnd = lineStart - 1;
+            if (lines.Count == 0 && IsAnnotationLine(line)) continue;
+            if (line.Length == 0 || !IsCommentLine(line, fileType)) break;
             var stripped = StripCommentMarkers(line);
             if (stripped.Length > 0) lines.Insert(0, stripped);
-            lineEnd = lineStart - 1;
         }
         return Truncate(string.Join(' ', lines));
     }

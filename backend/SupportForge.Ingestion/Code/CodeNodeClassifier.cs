@@ -197,7 +197,10 @@ public sealed class CodeNodeClassifier
     {
         if (definitions.Count == 0) return;
 
-        var byName = definitions.Where(d => !string.IsNullOrEmpty(d.Name)).ToDictionary(d => d.Name, d => d.Purpose, StringComparer.Ordinal);
+        // A name can repeat now that methods are extracted (two classes' close()); the first purpose given for it is kept.
+        var byName = definitions.Where(d => !string.IsNullOrEmpty(d.Name))
+            .GroupBy(d => d.Name, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Purpose, StringComparer.Ordinal);
         foreach (var defNode in graph.Nodes.Where(n => n.SourceFile == fileNode.SourceFile && n.Id != n.SourceFile && !n.Id.StartsWith("endpoint::", StringComparison.Ordinal)))
         {
             defNode.Kind = fileNode.Kind;

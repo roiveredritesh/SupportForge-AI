@@ -333,7 +333,7 @@ public class CodeGraphExtractorTests
         var graph = CodeGraphExtractor.Extract(repoDir);
 
         Assert.Equal("Rejects webhooks whose signature does not match.", graph.Nodes.Single(n => n.Id == "hooks.py::SignatureCheck").Summary);
-        Assert.Equal("Compares the HMAC.", graph.Nodes.Single(n => n.Id == "hooks.py::verify").Summary);
+        Assert.Equal("Compares the HMAC.", graph.Nodes.Single(n => n.Id == "hooks.py::SignatureCheck.verify").Summary);
     }
 
     // A ':' inside annotations, defaults or brackets must not be taken for the end of the signature.
@@ -412,7 +412,7 @@ public class CodeGraphExtractorTests
         Assert.DoesNotContain("return", classTerms);
 
         // A method's body stops at the next method.
-        var initTerms = graph.Nodes.Single(n => n.Id == "django/middleware/security.py::__init__").BodyTerms.Split(' ');
+        var initTerms = graph.Nodes.Single(n => n.Id == "django/middleware/security.py::SecurityMiddleware.__init__").BodyTerms.Split(' ');
         Assert.Contains("hsts", initTerms);
         Assert.DoesNotContain("transport", initTerms);
     }
@@ -508,5 +508,184 @@ public class CodeGraphExtractorTests
         Assert.StartsWith("def build():", excerpt);
         Assert.True(excerpt.Split('\n').Length <= 12);
         Assert.Equal("", graph.Nodes.Single(n => n.Id == "mod.py").Excerpt);
+    }
+
+    [Fact]
+    public void Extract_IdentifiesMembersThroughTheirContainer_AndLinksThem()
+    {
+        const string source = """
+            class Reader:
+                def close(self):
+                    pass
+
+
+            class Writer:
+                def close(self):
+                    pass
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("io.py", source)));
+
+        Assert.Contains(graph.Nodes, n => n.Id == "io.py::Reader.close" && n.Label == "close");
+        Assert.Contains(graph.Nodes, n => n.Id == "io.py::Writer.close" && n.Label == "close");
+        Assert.Contains(graph.Edges, e => e.Source == "io.py::Writer" && e.Target == "io.py::Writer.close" && e.Relation == "contains");
+    }
+
+    [Fact]
+    public void Extract_CSharpMethods_WithTheirDocComment()
+    {
+        const string source = """
+            namespace Demo
+            {
+                public class CryptographyProvider
+                {
+                    /// <summary>Creates a salted PBKDF2 hash of a password.</summary>
+                    [Obsolete("use the span overload")]
+                    public PasswordHash CreatePasswordHash(ReadOnlySpan<char> password)
+                    {
+                        return Hash(password);
+                    }
+
+                    public IDictionary<FilterOptionType, bool> GetFiltersWithOption() => _filters;
+
+                    private void Log()
+                    {
+                        if (enabled) Write("x");
+                        return;
+                    }
+                }
+            }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("Crypto.cs", source)));
+
+        var method = graph.Nodes.Single(n => n.Id == "Crypto.cs::CryptographyProvider.CreatePasswordHash");
+        Assert.Contains("Creates a salted PBKDF2 hash", method.Summary);
+        Assert.Contains(graph.Nodes, n => n.Id == "Crypto.cs::CryptographyProvider.GetFiltersWithOption");
+        Assert.Contains(graph.Nodes, n => n.Id == "Crypto.cs::CryptographyProvider.Log");
+        Assert.DoesNotContain(graph.Nodes, n => n.Label is "Write" or "Hash" or "if");
+    }
+
+    [Fact]
+    public void Extract_JavaMethods_AndClassDocAboveAnAnnotation()
+    {
+        const string source = """
+            package demo;
+
+            /**
+             * Validates arguments.
+             */
+            @Deprecated
+            public class Validate {
+                /**
+                 * Throws when the object is null.
+                 */
+                public static <T> T notNull(final T object, final String message) {
+                    return Objects.requireNonNull(object, message);
+                }
+            }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("Validate.java", source)));
+
+        Assert.Equal("Validates arguments.", graph.Nodes.Single(n => n.Id == "Validate.java::Validate").Summary);
+        Assert.Equal("Throws when the object is null.", graph.Nodes.Single(n => n.Id == "Validate.java::Validate.notNull").Summary);
+        Assert.DoesNotContain(graph.Nodes, n => n.Label == "requireNonNull");
+    }
+
+    [Fact]
+    public void Extract_TypeScriptArrowFunctionsDecoratedClassesAndMethods()
+    {
+        const string source = """
+            /**
+             * Attaches custom metadata to a handler.
+             */
+            export const SetMetadata = <K = string, V = any>(
+              metadataKey: K,
+              metadataValue: V,
+            ) => decorator;
+
+            /**
+             * Validates request payloads.
+             */
+            @Injectable()
+            export class ValidationPipe implements PipeTransform {
+              public getAllAndMerge<TParam = any>(
+                decorator: ReflectableDecorator<TParam>,
+              ): TParam[] {
+                if (decorator) {
+                  return [];
+                }
+              }
+
+              transform(value: unknown, metadata: ArgumentMetadata) {
+                return value;
+              }
+            }
+
+            const local = compute(1);
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("pipes.ts", source)));
+
+        Assert.Equal("Attaches custom metadata to a handler.", graph.Nodes.Single(n => n.Id == "pipes.ts::SetMetadata").Summary);
+        Assert.Equal("Validates request payloads.", graph.Nodes.Single(n => n.Id == "pipes.ts::ValidationPipe").Summary);
+        Assert.Contains(graph.Nodes, n => n.Id == "pipes.ts::ValidationPipe.getAllAndMerge");
+        Assert.Contains(graph.Nodes, n => n.Id == "pipes.ts::ValidationPipe.transform");
+        Assert.DoesNotContain(graph.Nodes, n => n.Label is "if" or "local" or "compute");
+    }
+
+    [Fact]
+    public void Extract_GoMethodsAreIdentifiedThroughTheirReceiver()
+    {
+        const string source = """
+            package promql
+
+            // Engine handles the lifetime of queries.
+            type Engine struct{}
+
+            // NewInstantQuery returns an evaluation query.
+            func (ng *Engine) NewInstantQuery(qs string) (Query, error) {
+                return nil, nil
+            }
+
+            func (q *query) String() string { return "" }
+            func (e Expr) String() string { return "" }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("engine.go", source)));
+
+        Assert.Equal("NewInstantQuery returns an evaluation query.", graph.Nodes.Single(n => n.Id == "engine.go::Engine.NewInstantQuery").Summary);
+        Assert.Contains(graph.Nodes, n => n.Id == "engine.go::query.String");
+        Assert.Contains(graph.Nodes, n => n.Id == "engine.go::Expr.String");
+    }
+
+    [Fact]
+    public void Extract_PythonHashCommentAboveADefinition_IsItsSummary()
+    {
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("cache.py", "# Stores entries in a database table.
+class DatabaseCache:
+    pass
+")));
+
+        Assert.Equal("Stores entries in a database table.", graph.Nodes.Single(n => n.Id == "cache.py::DatabaseCache").Summary);
+    }
+
+    [Theory]
+    [InlineData("Billing.kt", "/** Charges cards. */\ndata class Invoice(val id: Int)\nfun String.slugify(): String = this\n", "Billing.kt::Invoice", "Billing.kt::slugify")]
+    [InlineData("billing.rb", "# Charges cards.\nclass Billing::Invoice\n  def total?\n  end\nend\n", "billing.rb::Invoice", "billing.rb::Invoice.total?")]
+    [InlineData("Invoice.php", "<?php\nfinal class Invoice {\n    public static function total() {}\n}\n", "Invoice.php::Invoice", "Invoice.php::Invoice.total")]
+    [InlineData("invoice.rs", "/// Charges cards.\n#[derive(Debug)]\npub struct Invoice {}\npub async fn total() {}\n", "invoice.rs::Invoice", "invoice.rs::total")]
+    [InlineData("Invoice.swift", "public final class Invoice {\n    func total() -> Int { 0 }\n}\n", "Invoice.swift::Invoice", "Invoice.swift::Invoice.total")]
+    [InlineData("Invoice.scala", "case class Invoice(id: Int)\nobject Billing {\n  def total(): Int = 0\n}\n", "Invoice.scala::Invoice", "Invoice.scala::Billing.total")]
+    public void Extract_DefinitionsInMoreLanguages(string file, string source, string typeId, string memberId)
+    {
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture((file, source)));
+
+        Assert.Contains(graph.Nodes, n => n.Id == typeId);
+        Assert.Contains(graph.Nodes, n => n.Id == memberId);
+    }
+
+    [Fact]
+    public void Extract_RustDocCommentAboveAnAttribute_IsItsSummary()
+    {
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("invoice.rs", "/// Charges cards.\n#[derive(Debug)]\npub struct Invoice {}\n")));
+
+        Assert.Equal("Charges cards.", graph.Nodes.Single(n => n.Id == "invoice.rs::Invoice").Summary);
     }
 }
