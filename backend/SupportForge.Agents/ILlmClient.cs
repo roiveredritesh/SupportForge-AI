@@ -20,6 +20,16 @@ public interface ILlmEmbeddingClient
 {
     Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query);
     int LastTotalTokens { get; }
+
+    // Embeds several texts, in input order. A provider whose API takes a batch overrides this with one request; the
+    // default makes one EmbedAsync call per text, so every provider supports it.
+    async Task<IReadOnlyList<float[]>> EmbedManyAsync(
+        IReadOnlyList<string> texts, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Passage)
+    {
+        var vectors = new List<float[]>(texts.Count);
+        foreach (var text in texts) vectors.Add(await EmbedAsync(text, ct, purpose));
+        return vectors;
+    }
 }
 
 // Anthropic ships no embeddings API, so a provider can implement ILlmChatClient without

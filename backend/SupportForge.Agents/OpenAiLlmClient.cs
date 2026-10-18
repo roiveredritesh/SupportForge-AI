@@ -130,12 +130,18 @@ public class OpenAiLlmClient : ILlmClient
     // Uses the protocol-level (raw JSON) embeddings call rather than IEmbeddingGenerator: the OpenAI SDK's
     // typed EmbeddingGenerationOptions silently drops unrecognized fields like NIM's "input_type" instead
     // of forwarding them, so the strongly-typed path can't express this provider-specific parameter.
-    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query)
+    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query) =>
+        (await EmbedManyAsync([text], ct, purpose))[0];
+
+    // One request for the whole batch: the OpenAI-compatible embeddings API (and NIM's) takes an input array and returns
+    // one vector per input, each tagged with its index.
+    public virtual async Task<IReadOnlyList<float[]>> EmbedManyAsync(
+        IReadOnlyList<string> texts, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Passage)
     {
         var payload = new Dictionary<string, object?>
         {
             ["model"] = _embeddingModel,
-            ["input"] = new[] { text },
+            ["input"] = texts,
             ["encoding_format"] = "float",
         };
         if (_embeddingInputType is not null)
@@ -146,15 +152,23 @@ public class OpenAiLlmClient : ILlmClient
             new System.ClientModel.Primitives.RequestOptions { CancellationToken = ct });
 
         using var doc = JsonDocument.Parse(response.GetRawResponse().Content);
-        var vectorJson = doc.RootElement.GetProperty("data")[0].GetProperty("embedding");
-        var vector = new float[vectorJson.GetArrayLength()];
-        for (var i = 0; i < vector.Length; i++)
-            vector[i] = vectorJson[i].GetSingle();
+        var vectors = new float[texts.Count][];
+        var position = 0;
+        foreach (var item in doc.RootElement.GetProperty("data").EnumerateArray())
+        {
+            var index = item.TryGetProperty("index", out var i) ? i.GetInt32() : position;
+            var vectorJson = item.GetProperty("embedding");
+            var vector = new float[vectorJson.GetArrayLength()];
+            for (var j = 0; j < vector.Length; j++)
+                vector[j] = vectorJson[j].GetSingle();
+            vectors[index] = vector;
+            position++;
+        }
 
         LastTotalTokens = doc.RootElement.TryGetProperty("usage", out var usage) && usage.TryGetProperty("total_tokens", out var total)
             ? total.GetInt32()
             : 0;
-        return vector;
+        return vectors;
     }
 
     public virtual async Task<string> AnalyzeImageAsync(string base64Image, string prompt, CancellationToken ct = default)

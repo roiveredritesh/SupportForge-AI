@@ -26,10 +26,22 @@ var configuration = new ConfigurationBuilder()
     .Build();
 
 // Retrieval-only mode (no LLM, no API key): code-retrieval <fixture.json> <repo checkout dir>. See CodeRetrievalEval.
+// CODE_SEMANTIC=1 adds semantic code search, which needs the LLM provider's embeddings (Llm:ApiKey) and a vector store.
 if (args is ["code-retrieval", var codeFixture, var codeRepoDir])
 {
+    (SupportForge.VectorStore.IVectorStoreService, ILlmEmbeddingClient)? semantic = null;
+    if (Environment.GetEnvironmentVariable("CODE_SEMANTIC") == "1")
+    {
+        var semanticServices = new ServiceCollection();
+        semanticServices.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        semanticServices.AddLlmProviders(configuration);
+        SupportForge.VectorStore.VectorStoreServiceCollectionExtensions.AddVectorStore(semanticServices, configuration);
+        var semanticProvider = semanticServices.BuildServiceProvider();
+        semantic = (semanticProvider.GetRequiredService<SupportForge.VectorStore.IVectorStoreService>(),
+            semanticProvider.GetRequiredService<ILlmEmbeddingClient>());
+    }
     return await CodeRetrievalEval.RunAsync(codeFixture, codeRepoDir,
-        configuration.GetSection("Neo4j").Get<Neo4jOptions>() ?? new Neo4jOptions());
+        configuration.GetSection("Neo4j").Get<Neo4jOptions>() ?? new Neo4jOptions(), semantic);
 }
 
 var services = new ServiceCollection();

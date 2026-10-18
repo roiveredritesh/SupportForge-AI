@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Neo4j.Driver;
+using SupportForge.Agents;
+using SupportForge.VectorStore;
 using SupportForge.Ingestion.Code;
 using SupportForge.Ingestion.Graph;
 
@@ -18,7 +20,10 @@ internal static partial class CodeRetrievalEval
     [GeneratedRegex(@"^NODE (?<label>\S+) \[src=(?<src>\S+) ")]
     private static partial Regex NodeLine();
 
-    public static async Task<int> RunAsync(string fixturePath, string repoDir, Neo4jOptions neo4jOptions)
+    // semantic: when given, the repository's definitions are also embedded (no consent gate: these are the public
+    // fixture repositories) and every question is asked again with semantic search merged in.
+    public static async Task<int> RunAsync(
+        string fixturePath, string repoDir, Neo4jOptions neo4jOptions, (IVectorStoreService Store, ILlmEmbeddingClient Embeddings)? semantic = null)
     {
         using var fixture = JsonDocument.Parse(await File.ReadAllTextAsync(fixturePath));
         var repo = fixture.RootElement.GetProperty("repo").GetString() ?? "repo";
@@ -48,13 +53,25 @@ internal static partial class CodeRetrievalEval
         }
 
         Console.WriteLine($"## {repo}: {graph.Nodes.Count} nodes extracted and imported in {(DateTime.UtcNow - started).TotalSeconds:F0}s");
+
+        GraphDbQueryTool? hybridTool = null;
+        if (semantic is { } semanticServices)
+        {
+            var (store, embeddings) = semanticServices;
+            var indexStarted = DateTime.UtcNow;
+            await store.DeleteCollectionAsync(CodeVectorIndex.CollectionName(ProjectId));
+            var indexed = await CodeVectorIndex.IndexAsync(store, embeddings, ProjectId, repo, graph, CancellationToken.None);
+            Console.WriteLine($"Semantic index: {indexed} definitions embedded in {(DateTime.UtcNow - indexStarted).TotalSeconds:F0}s");
+            hybridTool = new GraphDbQueryTool(driver, neo4jOptions.Database, semantic: new VectorCodeSemanticSearch(store, embeddings));
+        }
         Console.WriteLine();
-        Console.WriteLine("| # | Kind | Answer | In context | Position | Retry in context | Top 3 |");
-        Console.WriteLine("|---|---|---|---|---|---|---|");
+        Console.WriteLine("| # | Kind | Answer | In context | Position | Retry in context | Hybrid in context | Top 3 |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|");
 
         var tool = new GraphDbQueryTool(driver, neo4jOptions.Database);
         var found = 0;
         var foundOnRetry = 0;
+        var foundHybrid = 0;
         var byKind = new SortedDictionary<string, (int Total, int Found)>(StringComparer.Ordinal);
         for (var i = 0; i < questions.Count; i++)
         {
@@ -67,13 +84,22 @@ internal static partial class CodeRetrievalEval
             if (retryHit) foundOnRetry++;
             var (total, hits) = byKind.GetValueOrDefault(kind);
             byKind[kind] = (total + 1, hits + (position > 0 ? 1 : 0));
+            var hybrid = "-";
+            if (hybridTool is not null)
+            {
+                var hybridPosition = Nodes(await hybridTool.QueryAsync(ProjectId, q, retrying: false))
+                    .FindIndex(n => n.Label == answer && n.Src == path) + 1;
+                if (hybridPosition > 0) foundHybrid++;
+                hybrid = hybridPosition > 0 ? $"yes ({hybridPosition})" : "no";
+            }
             var top = string.Join(", ", nodes.Take(3).Select(n => n.Label));
-            Console.WriteLine($"| {i + 1} | {kind} | {answer} | {(position > 0 ? "yes" : "no")} | {(position > 0 ? position : "-")} | {(retryHit ? "yes" : "no")} | {top} |");
+            Console.WriteLine($"| {i + 1} | {kind} | {answer} | {(position > 0 ? "yes" : "no")} | {(position > 0 ? position : "-")} | {(retryHit ? "yes" : "no")} | {hybrid} | {top} |");
         }
 
         Console.WriteLine();
-        Console.WriteLine($"**{repo}:** answer in context {found}/{questions.Count}, on retry {foundOnRetry}/{questions.Count}; by kind: "
-            + string.Join("; ", byKind.Select(k => $"{k.Key} {k.Value.Found}/{k.Value.Total}")));
+        Console.WriteLine($"**{repo}:** answer in context {found}/{questions.Count}, on retry {foundOnRetry}/{questions.Count}"
+            + (hybridTool is not null ? $", with semantic search {foundHybrid}/{questions.Count}" : "")
+            + "; by kind: " + string.Join("; ", byKind.Select(k => $"{k.Key} {k.Value.Found}/{k.Value.Total}")));
         Console.WriteLine();
 
         // CODE_SEARCH_SWEEP="boost:floor:max,..." also scores other ranking settings on the same import, one line each.
@@ -91,6 +117,8 @@ internal static partial class CodeRetrievalEval
             Console.WriteLine($"SWEEP {repo} boost={tuning.BodyTermsBoost} floor={tuning.RelevanceFloor} max={tuning.MaxMatches}: "
                 + $"{hitsAtTuning}/{questions.Count} in context, mean position {(positions.Count > 0 ? positions.Average() : 0):F1}");
         }
+
+        if (semantic is { } cleanup) await cleanup.Store.DeleteCollectionAsync(CodeVectorIndex.CollectionName(ProjectId));
 
         await using var session = driver.AsyncSession(o => o.WithDatabase(neo4jOptions.Database));
         await session.ExecuteWriteAsync(tx => tx.RunAsync(

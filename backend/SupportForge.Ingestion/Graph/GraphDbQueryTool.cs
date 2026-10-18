@@ -44,6 +44,9 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     // Source excerpts are shown for this many matched definitions, best first; the rest are NODE lines only.
     private const int MaxExcerptedNodes = 3;
 
+    // Semantic hits merged with the keyword matches (see SemanticMatchesAsync).
+    private const int SemanticMatches = 5;
+
     // At most this many search terms reach Lucene, so a long, rambling question doesn't dilute the ones that matter.
     private const int MaxSearchTerms = 12;
 
@@ -101,13 +104,17 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
     // imported without nameTerms (before V3) or bodyTerms are matched only on their other fields.
     private volatile bool _searchIndexEnsured;
     private readonly CodeSearchTuning _tuning;
+    private readonly ICodeSemanticSearch? _semantic;
 
-    public GraphDbQueryTool(IDriver driver, string database, ILogger<GraphDbQueryTool>? logger = null, CodeSearchTuning? tuning = null)
+    public GraphDbQueryTool(
+        IDriver driver, string database, ILogger<GraphDbQueryTool>? logger = null, CodeSearchTuning? tuning = null,
+        ICodeSemanticSearch? semantic = null)
     {
         _driver = driver;
         _database = database;
         _logger = logger ?? NullLogger<GraphDbQueryTool>.Instance;
         _tuning = tuning ?? CodeSearchTuning.Default;
+        _semantic = semantic;
     }
 
     public async Task<string?> QueryAsync(string projectId, string question, bool retrying, CancellationToken ct = default)
@@ -119,60 +126,66 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         var traversalLabel = retrying ? "DFS" : "BFS";
 
         var searchQuery = BuildSearchQuery(question);
-        if (searchQuery.Length == 0) return null;
-
-        if (!_searchIndexEnsured)
-        {
-            await session.ExecuteWriteAsync(tx => tx.RunAsync(CreateSearchIndexCypher));
-            var awaitIndexes = await session.RunAsync("CALL db.awaitIndexes(300)");
-            await awaitIndexes.ConsumeAsync();
-            _searchIndexEnsured = true;
-        }
-
-        var matchRecords = await session.ExecuteReadAsync(async tx =>
-        {
-            var cursor = await tx.RunAsync(
-                $"""
-                CALL db.index.fulltext.queryNodes('{SearchIndexName}', $question) YIELD node, score
-                WHERE node.projectId = $projectId
-                RETURN node, score
-                ORDER BY score DESC
-                LIMIT $limit
-                """,
-                new { question = FieldedQuery(searchQuery, _tuning.BodyTermsBoost), projectId, limit = MaxCandidateMatches });
-            return await cursor.ToListAsync();
-        });
-
-        if (matchRecords.Count == 0)
-        {
-            _logger.LogInformation("CodeSearch terms={TermCount} candidates=0", searchQuery.Split(' ').Length);
-            return null;
-        }
-
         var includeTests = AsksAboutTests(question);
-        var candidates = matchRecords
-            .Select(r => (Node: r["node"].As<INode>(), Score: r["score"].As<double>()))
-            .ToList();
-        var ranked = includeTests ? candidates : candidates.Where(c => !IsTestNode(c.Node)).ToList();
-        // Only test code matched: that is still better than no answer at all.
-        if (ranked.Count == 0) ranked = candidates;
-        ranked = ranked.Take(_tuning.MaxMatches).ToList();
+        List<INode> keywordMatches = [];
+        if (searchQuery.Length > 0)
+        {
+            if (!_searchIndexEnsured)
+            {
+                await session.ExecuteWriteAsync(tx => tx.RunAsync(CreateSearchIndexCypher));
+                var awaitIndexes = await session.RunAsync("CALL db.awaitIndexes(300)");
+                await awaitIndexes.ConsumeAsync();
+                _searchIndexEnsured = true;
+            }
 
-        var topScore = ranked[0].Score;
-        var relevantMatches = ranked
-            .Where(r => ClearsRelevanceFloor(r.Score, topScore, _tuning.RelevanceFloor))
-            .ToList();
-        // Counts and scores only, never the question: enough to see which floor a miss falls under.
-        _logger.LogInformation(
-            "CodeSearch terms={TermCount} candidates={Candidates} nonTest={NonTest} top={TopScore:F2} relevant={Relevant}",
-            searchQuery.Split(' ').Length, candidates.Count, candidates.Count(c => !IsTestNode(c.Node)), topScore, relevantMatches.Count);
+            var matchRecords = await session.ExecuteReadAsync(async tx =>
+            {
+                var cursor = await tx.RunAsync(
+                    $"""
+                    CALL db.index.fulltext.queryNodes('{SearchIndexName}', $question) YIELD node, score
+                    WHERE node.projectId = $projectId
+                    RETURN node, score
+                    ORDER BY score DESC
+                    LIMIT $limit
+                    """,
+                    new { question = FieldedQuery(searchQuery, _tuning.BodyTermsBoost), projectId, limit = MaxCandidateMatches });
+                return await cursor.ToListAsync();
+            });
 
-        // Both floors passed and nothing survived (e.g. the top match itself is below the absolute
-        // floor) -- "no relevant code found" rather than surfacing the best-scoring noise.
-        if (relevantMatches.Count == 0) return null;
+            if (matchRecords.Count == 0)
+            {
+                _logger.LogInformation("CodeSearch terms={TermCount} candidates=0", searchQuery.Split(' ').Length);
+            }
+            else
+            {
+                var candidates = matchRecords
+                    .Select(r => (Node: r["node"].As<INode>(), Score: r["score"].As<double>()))
+                    .ToList();
+                var ranked = includeTests ? candidates : candidates.Where(c => !IsTestNode(c.Node)).ToList();
+                // Only test code matched: that is still better than no answer at all.
+                if (ranked.Count == 0) ranked = candidates;
+                ranked = ranked.Take(_tuning.MaxMatches).ToList();
 
-        var seedIds = relevantMatches.Take(MaxTraversalSeeds)
-            .Select(r => r.Node.Properties["id"].As<string>()).ToArray();
+                // Both floors must pass: a top match below the absolute floor means "no relevant code found" rather
+                // than surfacing the best-scoring noise.
+                var topScore = ranked[0].Score;
+                keywordMatches = ranked
+                    .Where(r => ClearsRelevanceFloor(r.Score, topScore, _tuning.RelevanceFloor))
+                    .Select(r => r.Node)
+                    .ToList();
+                // Counts and scores only, never the question: enough to see which floor a miss falls under.
+                _logger.LogInformation(
+                    "CodeSearch terms={TermCount} candidates={Candidates} nonTest={NonTest} top={TopScore:F2} relevant={Relevant}",
+                    searchQuery.Split(' ').Length, candidates.Count, candidates.Count(c => !IsTestNode(c.Node)), topScore, keywordMatches.Count);
+            }
+        }
+
+        var semanticMatches = await SemanticMatchesAsync(session, projectId, question, includeTests, ct);
+        var relevantNodes = MergeRanked(keywordMatches, semanticMatches, n => n.ElementId).Take(_tuning.MaxMatches).ToList();
+        if (relevantNodes.Count == 0) return null;
+
+        var seedIds = relevantNodes.Take(MaxTraversalSeeds)
+            .Select(n => n.Properties["id"].As<string>()).ToArray();
 
         var traversalRecords = await session.ExecuteReadAsync(async tx =>
         {
@@ -204,14 +217,14 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
         // then whatever same-file context traversal turned up that isn't already in that list.
         var seenIds = new HashSet<string>();
         List<INode> nodes = [];
-        foreach (var m in relevantMatches)
-            if (seenIds.Add(m.Node.ElementId)) nodes.Add(m.Node);
+        foreach (var m in relevantNodes)
+            if (seenIds.Add(m.ElementId)) nodes.Add(m);
         foreach (var n in traversalNodes)
             if (seenIds.Add(n.ElementId)) nodes.Add(n);
 
         if (nodes.Count == 0) return null;
 
-        return FormatAndTruncate(traversalLabel, depth, relevantMatches.Select(m => m.Node.Properties.GetValueOrDefault("label")?.ToString() ?? ""), nodes, edges, budget);
+        return FormatAndTruncate(traversalLabel, depth, relevantNodes.Select(m => m.Properties.GetValueOrDefault("label")?.ToString() ?? ""), nodes, edges, budget);
     }
 
     private static string FormatAndTruncate(
@@ -301,6 +314,64 @@ public sealed class GraphDbQueryTool : ICodeGraphQueryTool
 
         return string.Join(' ', terms.Distinct(StringComparer.Ordinal).Take(MaxSearchTerms)
             .Select(t => t.EndsWith('*') ? EscapeLuceneQuery(t[..^1]) + "*" : EscapeLuceneQuery(t)));
+    }
+
+    // The definitions the semantic index finds for the question, closest first; empty when there is no index or it
+    // fails (keyword search alone then answers, as before). Test code is set aside as in the keyword path.
+    private async Task<List<INode>> SemanticMatchesAsync(IAsyncSession session, string projectId, string question, bool includeTests, CancellationToken ct)
+    {
+        if (_semantic is null) return [];
+        try
+        {
+            var hits = await _semantic.SearchAsync(projectId, question, SemanticMatches, ct);
+            if (hits.Count == 0) return [];
+
+            var records = await session.ExecuteReadAsync(async tx =>
+            {
+                var cursor = await tx.RunAsync(
+                    "MATCH (n:GraphNode {projectId: $projectId}) WHERE n.id IN $ids RETURN n",
+                    new { projectId, ids = hits.Select(h => h.NodeId).Distinct().ToArray() });
+                return await cursor.ToListAsync();
+            });
+            var byKey = records.Select(r => r["n"].As<INode>())
+                .GroupBy(n => (Repo: n.Properties.GetValueOrDefault("repo")?.ToString() ?? "", Id: n.Properties["id"].As<string>()))
+                .ToDictionary(g => g.Key, g => g.First());
+            var nodes = hits
+                .Select(h => byKey.GetValueOrDefault((h.Repo, h.NodeId)))
+                .OfType<INode>()
+                .Where(n => includeTests || !IsTestNode(n))
+                .ToList();
+            _logger.LogInformation("CodeSemanticSearch hits={Hits} nodes={Nodes}", hits.Count, nodes.Count);
+            return nodes;
+        }
+        catch (Exception ex)
+        {
+            // Exception type only: the message can carry provider or request details.
+            _logger.LogWarning("CodeSemanticSearch failed ({ExceptionType}); keyword search only", ex.GetType().Name);
+            return [];
+        }
+    }
+
+    // Reciprocal rank fusion of the keyword and semantic rankings: an item scores 1/(60 + rank) in each list it is in.
+    // Found by both, it rises; found by one, it keeps its place among the others. Ties keep the keyword order.
+    internal static List<T> MergeRanked<T>(IReadOnlyList<T> keyword, IReadOnlyList<T> semantic, Func<T, string> key)
+    {
+        const double k = 60;
+        var scores = new Dictionary<string, (T Item, double Score, int Order)>(StringComparer.Ordinal);
+        void Add(IReadOnlyList<T> list, int orderBase)
+        {
+            for (var rank = 0; rank < list.Count; rank++)
+            {
+                var id = key(list[rank]);
+                var add = 1.0 / (k + rank + 1);
+                scores[id] = scores.TryGetValue(id, out var existing)
+                    ? (existing.Item, existing.Score + add, existing.Order)
+                    : (list[rank], add, orderBase + rank);
+            }
+        }
+        Add(keyword, 0);
+        Add(semantic, keyword.Count);
+        return scores.Values.OrderByDescending(v => v.Score).ThenBy(v => v.Order).Select(v => v.Item).ToList();
     }
 
     // The search terms applied to every indexed field, with body terms weighted down (see BodyTermsBoost).

@@ -3,7 +3,9 @@ name: Code retrieval
 # Retrieval-only check of the code-question path on real repositories: for every fixture in Scripts/e2e/code-qa, clone
 # the repository, extract and import it into Neo4j with the real ingestion code, and ask each question through
 # GraphDbQueryTool. Reports whether the expected definition reaches the answering model's context. No LLM or Jev call
-# and no secrets, so it is quick and free; the e2e-code workflow measures full answers.
+# and no secrets, so it is quick and free; the e2e-code workflow measures full answers. A branch name containing
+# "semantic" also embeds each repository's definitions (NVIDIA embeddings, LLM_API_KEY, Chroma) and reports semantic
+# search merged in.
 #
 # How to run: push any commit to a branch named code-retrieval/<anything>, e.g.
 #   git push origin HEAD:code-retrieval/check
@@ -26,6 +28,10 @@ jobs:
     timeout-minutes: 45
 
     services:
+      chroma:
+        image: chromadb/chroma:latest
+        ports:
+          - 8000:8000
       neo4j:
         image: neo4j:5.26-community
         env:
@@ -52,6 +58,9 @@ jobs:
 
       - name: Retrieval per fixture
         env:
+          CODE_SEMANTIC: ${{ contains(github.ref_name, 'semantic') && '1' || '' }}
+          Llm__Provider: NvidiaNim
+          Llm__ApiKey: ${{ contains(github.ref_name, 'semantic') && secrets.LLM_API_KEY || '' }}
           # Extra ranking settings scored on the same imports, boost:floor:max each (see CodeRetrievalEval).
           CODE_SEARCH_SWEEP: "0.4:0.65:10,2.0:0.65:10,1.0:0.5:15"
         run: |
