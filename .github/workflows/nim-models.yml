@@ -1,7 +1,8 @@
 name: NIM model probe
 
-# TEMP (throwaway branch only): which NIM chat models this key can reach, and whether each answers a text prompt
-# and an image prompt. Prints model ids, HTTP codes, latency and the first words of each reply; never the key.
+# TEMP (throwaway branch only): the exact request shape SupportForge's chat client sends (system + user messages,
+# temperature 0, seed, max_tokens 4096) with a code root-cause prompt, three times per model. Prints HTTP code, latency,
+# reply length, reasoning length and the first words of the reply; never the key.
 on:
   push:
     branches: ["nim-models/**"]
@@ -12,7 +13,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
     steps:
@@ -20,22 +21,29 @@ jobs:
         run: |
           [ -n "$LLM_API_KEY" ] || { echo "::error::LLM_API_KEY is not set"; exit 1; }
           base=https://integrate.api.nvidia.com/v1
-          echo "## Chat-capable model ids (filtered)"
-          curl -s -H "Authorization: Bearer $LLM_API_KEY" $base/models | jq -r '.data[].id' | sort | tr '\n' ' '; echo
-          img="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NsQ0AAAzCMP5/un0CNkuZ41wybXsHAAAAAAAAAAAAxR4yw/wuPL6QkAAAAABJRU5ErkJggg=="
-          for m in nvidia/nemotron-3.5-super-vl-120b-a12b google/gemma-4-31b-it nvidia/nemotron-3-super-120b-a12b \
-                   nvidia/nemotron-3-ultra-550b-a55b nvidia/nemotron-3.5-lightning-30b-a3b stepfun-ai/step-5-preview \
-                   z-ai/glm-5.3 meta/llama-3.2-90b-vision-instruct; do
-            for kind in text text image; do
-              if [ $kind = text ]; then
-                content='"Which label fits: How do I change my billing address? Answer with one word: kb or code."'
-              else
-                content=$(jq -nc --arg u "$img" '[{type:"text",text:"What colour is this image? One word."},{type:"image_url",image_url:{url:$u}}]')
-              fi
-              body=$(jq -nc --arg m "$m" --argjson c "$content" '{model:$m, max_tokens:200, temperature:0, messages:[{role:"user", content:$c}]}')
-              out=$(curl -s -m 90 -o resp.json -w '%{http_code} %{time_total}' -H "Authorization: Bearer $LLM_API_KEY" \
+          sys='You are a support engineer. Using only the code context, name the function where the root cause lives in your first sentence, then explain why in 3-5 sentences. Never paste code.'
+          user='Question: Our Django app returns 400 Bad Request in production and the log says "Invalid HTTP_HOST header: shop.example.com". It works locally. Why?
+
+          Code context:
+          NODE get_host [src=django/http/request.py kind=method]
+          | def get_host(self):
+          |     host = self._get_raw_host()
+          |     allowed_hosts = settings.ALLOWED_HOSTS
+          |     if settings.DEBUG and not allowed_hosts:
+          |         allowed_hosts = [".localhost", "127.0.0.1", "[::1]"]
+          |     domain, port = split_domain_port(host)
+          |     if domain and validate_host(domain, allowed_hosts):
+          |         return host
+          |     msg = "Invalid HTTP_HOST header: %r." % host
+          |     raise DisallowedHost(msg)
+          NODE validate_host [src=django/http/request.py kind=function]'
+          for m in nvidia/nemotron-3-ultra-550b-a55b nvidia/nemotron-3-super-120b-a12b meta/llama-3.2-11b-vision-instruct; do
+            for run in 1 2 3; do
+              body=$(jq -nc --arg m "$m" --arg s "$sys" --arg u "$user" \
+                '{model:$m, temperature:0, seed:42, max_tokens:4096, messages:[{role:"system",content:$s},{role:"user",content:$u}]}')
+              out=$(curl -s -m 150 -o resp.json -w '%{http_code} %{time_total}' -H "Authorization: Bearer $LLM_API_KEY" \
                 -H 'Content-Type: application/json' --data "$body" $base/chat/completions || echo "000 -")
-              reply=$(jq -r '(.choices[0].message.content // .detail // .title // "") + " [reasoning_content: " + ((.choices[0].message.reasoning_content // "") | length | tostring) + " chars; content: " + ((.choices[0].message.content // "") | length | tostring) + " chars]"' resp.json 2>/dev/null | tr '\n' ' ' | cut -c1-110)
-              echo "| $m | $kind | $out | $reply |"
+              info=$(jq -r '"content " + ((.choices[0].message.content // "") | length | tostring) + " chars, reasoning " + ((.choices[0].message.reasoning_content // "") | length | tostring) + " chars, tokens " + ((.usage.total_tokens // 0) | tostring) + " | " + ((.choices[0].message.content // .detail // "") | gsub("\n"; " ") | .[0:160])' resp.json 2>/dev/null)
+              echo "| $m | $run | $out | $info |"
             done
           done
