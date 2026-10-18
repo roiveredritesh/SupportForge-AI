@@ -282,6 +282,10 @@ public static class LlmServiceCollectionExtensions
         // Bug fix: optional override for the max-output-token cap (see OpenAiLlmClient's
         // DefaultMaxOutputTokens comment); unset/unparseable falls back to that default.
         var maxOutputTokens = int.TryParse(section["MaxTokens"], out var configuredMaxTokens) ? configuredMaxTokens : (int?)null;
+        // Optional per-attempt timeout, e.g. "00:01:00": a call that hangs is cut and retried (see OpenAiLlmClient).
+        var attemptTimeout = TimeSpan.TryParse(section["RequestTimeout"], System.Globalization.CultureInfo.InvariantCulture, out var configuredTimeout)
+            ? configuredTimeout
+            : (TimeSpan?)null;
 
         var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
         // Ollama's server ignores the Authorization header entirely (no auth), but the OpenAI SDK's
@@ -294,7 +298,8 @@ public static class LlmServiceCollectionExtensions
             embeddingModel,
             embeddingInputType,
             seed: seed,
-            maxOutputTokens: maxOutputTokens);
+            maxOutputTokens: maxOutputTokens,
+            attemptTimeout: attemptTimeout);
     }
 
     private static OpenAiLlmClient BuildAzureClient(IConfiguration configuration, bool cheapTier = false)
@@ -316,6 +321,10 @@ public static class LlmServiceCollectionExtensions
         var seed = long.TryParse(section["Seed"], out var configuredSeed) ? configuredSeed : (long?)null;
         // Bug fix: see BuildOpenAiCompatibleClient's MaxTokens comment.
         var maxOutputTokens = int.TryParse(section["MaxTokens"], out var configuredMaxTokens) ? configuredMaxTokens : (int?)null;
+        // Optional per-attempt timeout, e.g. "00:01:00": a call that hangs is cut and retried (see OpenAiLlmClient).
+        var attemptTimeout = TimeSpan.TryParse(section["RequestTimeout"], System.Globalization.CultureInfo.InvariantCulture, out var configuredTimeout)
+            ? configuredTimeout
+            : (TimeSpan?)null;
 
         var azureClient = new AzureOpenAIClient(new Uri(endpoint), new ApiKeyCredential(apiKey ?? string.Empty));
         return new OpenAiLlmClient(
@@ -324,6 +333,7 @@ public static class LlmServiceCollectionExtensions
             embeddingDeployment,
             embeddingInputType,
             seed: seed,
-            maxOutputTokens: maxOutputTokens);
+            maxOutputTokens: maxOutputTokens,
+            attemptTimeout: attemptTimeout);
     }
 }

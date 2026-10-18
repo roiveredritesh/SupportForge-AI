@@ -54,6 +54,8 @@ public sealed class TriageAgent : IAgent
             var policy = classification.FromJev
                 ? TriageDecisionPolicy.Decide(decision, hasScreenshot, _options)
                 : LlmRule(decision);
+            // A "which <code element>" question is a code question whichever classifier answered (see CodeElementQuestion).
+            policy = CodeElementQuestion.Apply(policy, context.Query);
 
             context.Intent = policy.Intent;
             context.IntentRule = policy.AppliedRule;

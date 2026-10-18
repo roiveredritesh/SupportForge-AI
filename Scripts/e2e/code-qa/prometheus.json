@@ -1,0 +1,22 @@
+{
+  "repo": "prometheus/prometheus",
+  "branch": "main",
+  "note": "Answers checked against prometheus/prometheus main at c052a79 (2026-10-16). kind: documented, undocumented, method, rca (bug reports whose answer is the root-cause definition; checked against the branch head on 2026-10-18).",
+  "questions": [
+    { "q": "Which type handles the lifetime of PromQL queries from beginning to end?", "answer": "Engine", "path": "promql/engine.go", "kind": "documented" },
+    { "q": "Which type maintains the scrape pools and starts and stops them when targets change?", "answer": "Manager", "path": "scrape/manager.go", "kind": "documented" },
+    { "q": "Which type dispatches alert notifications to Alertmanager?", "answer": "Manager", "path": "notifier/manager.go", "kind": "documented" },
+    { "q": "Which type generates alerts from a PromQL expression?", "answer": "AlertingRule", "path": "rules/alerting.go", "kind": "documented" },
+    { "q": "Which type compacts TSDB blocks into larger blocks?", "answer": "LeveledCompactor", "path": "tsdb/compact.go", "kind": "documented" },
+    { "q": "Which type is the write-ahead log that protects against torn writes?", "answer": "WL", "path": "tsdb/wlog/wlog.go", "kind": "documented" },
+    { "q": "Which function applies relabeling rules to a set of labels?", "answer": "ProcessBuilder", "path": "model/relabel/relabel.go", "kind": "documented" },
+    { "q": "Which type manages the queue of samples sent to remote write storage?", "answer": "QueueManager", "path": "storage/remote/queue_manager.go", "kind": "documented" },
+    { "q": "Which method parses a PromQL expression string?", "answer": "ParseExpr", "path": "promql/parser/parse.go", "kind": "undocumented" },
+    { "q": "Which method creates an instant query for an expression at a given time?", "answer": "NewInstantQuery", "path": "promql/engine.go", "kind": "method" },
+    { "q": "Our Grafana dashboard fails when someone selects a 'last 30 days' time range. The HTTP API at /api/v1/query_range returns status 400 with errorType bad_data and the message \"exceeded maximum resolution of 11,000 points per timeseries. Try decreasing the query resolution\". The query itself is a simple rate() and works over 7 days. Where is this limit enforced and what decides when it trips?", "answer": "queryRange", "path": "web/api/v1/api.go", "kind": "rca" },
+    { "q": "We split our scrape jobs out of prometheus.yml using scrape_config_files with a glob. After adding a new file, the config reload fails with: found multiple scrape configs with job name \"node\", first found in main config file. We do not think we defined the job twice on purpose. Which code compares job names across the main config and the included files, and why does it reject this?", "answer": "GetScrapeConfigs", "path": "config/config.go", "kind": "rca" },
+    { "q": "A recording rule using label_replace started failing to evaluate after a colleague edited it. The rule manager reports the error \"invalid regular expression in label_replace()\" followed by our pattern. The same pattern compiles fine in an online regex tester. Also, a different label_replace with regex \"foo\" never matches values like \"foobar\". Where is the regex for this function compiled and why does it behave this way?", "answer": "evalLabelReplace", "path": "promql/functions.go", "kind": "rca" },
+    { "q": "We scrape a federation-like exporter with honor_labels left at the default (false). Some series now show up with labels named exported_job and even exported_exported_instance, while the original job and instance labels hold our target's values. Where does Prometheus decide to rename conflicting labels exposed by the target, and how does it pick the new name when exported_ is already taken?", "answer": "resolveConflictingExposedLabels", "path": "scrape/scrape.go", "kind": "rca" },
+    { "q": "We set --storage.tsdb.retention.size=50GB. The persisted blocks in the data directory add up to only about 38GB, but Prometheus keeps deleting the oldest blocks and prometheus_tsdb_size_retentions_total keeps increasing. Why are blocks being removed before the block data reaches the configured size limit?", "answer": "BeyondSizeRetention", "path": "tsdb/db.go", "kind": "rca" }
+  ]
+}

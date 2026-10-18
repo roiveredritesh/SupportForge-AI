@@ -909,6 +909,92 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
     - `Guard:CombineWithTriage`: `TriagePrecomputed` logged, the benign turn was decided by Jev, and the injection was blocked.
     - In every configuration, no request text or KB text reached the logs.
     - With the services up, the integration tests that skip in CI also ran, 9 of 9 passing. That needed two fixes to `EndToEndQueryTests`: its sample KB was never copied to the test output, and its file-name check now reads the draft rather than the cited sources.
+  - **Code questions on a large repository**: `.github/workflows/e2e-code.yml` runs `Scripts/e2e/code-qa.sh` against django/django (2,933 Python files), with ten questions checked against its source.
+    - The first run never finished its graph import, because `GraphNode.id` had no index: every node and edge lookup scanned the whole graph. With the index, the import takes 82 s for 42,049 nodes.
+    - Accuracy is 1 of 10 in both `Llm` and `Jev` + `Enforce`, and the right file is retrieved 1 of 10 times. Most misses come from two causes:
+      - Triage sends these questions to `unclear` (6 of 10 with the LLM, 3 of 10 with Jev).
+      - The full-text code search ranks test code first. Django's `tests/` folder holds 73% of all class and function definitions, so its matches fill the top-10 slots before the real class.
+    - This is a limitation of the code path itself, not of Jev.
+    - **After the code-path improvements** (same fixture, Django code-QA run 6). Changes:
+      - The extractor captures Python docstrings, splits identifiers into words (`nameTerms`), marks test code and stores each definition's first lines.
+      - The search queries the question's key terms, sets test code aside unless the question is about tests, and shows excerpts for the top three matches.
+      - Triage's `code_question` description names "which class, function, module, middleware or service does X".
+      - L2, L3 and Admin readers get role-based answers: they may name classes, functions and files, but never get pasted code.
+
+      | Mode | Names the answer | Right file retrieved | Deflected by `LeakFallback` |
+      |---|---|---|---|
+      | `Llm` | 6/10 (was 1) | 6/10 (was 1) | 0/10 |
+      | `Jev` + `Enforce` | 6/10 (was 1) | 6/10 (was 1) | 0/10 |
+
+      - Two intermediate findings shaped the final changes:
+        - The internal reader's verbatim-code check first deflected 2–4 of 10 answers that only echoed docstring prose, so it now checks code lines only.
+        - The LLM code judge's prompt still said snippets carry "no source text or comments". It rejected the regular e2e's code question even though the right class was the second match, so the prompt now describes summaries and excerpts.
+      - Still missed in both modes:
+        - `SecurityMiddleware` and `Signer` are not retrieved.
+        - Jev sends two questions to `unclear`; the LLM sends one.
+        - The scorer counts a name anywhere in the draft, so the `Paginator` answer counts although it hedges.
+      - Ingesting Django (42,670 nodes) takes 72–82 s.
+    - **No regressions elsewhere** on the same head:
+      - The regular e2e passed with 0 hard failures. The code question about this repository named `TriageDecisionPolicy` again in `Llm` mode.
+      - In `Jev` + `Enforce` mode, this repository's code snippet is still dropped as a possible indirect injection (`IndirectInjectionDropped`), as it was before these changes. Its source is full of LLM prompt text, and `Guard:IndirectThreshold` is still a placeholder.
+      - Triage eval, clear-message accuracy:
+        - Jev went from 93.2% to 94.3%; its `code_question` recall went from 82.4% to 88.2%.
+        - At the shipped `MinConfidence` 0.6 and `MinMargin` 0.2, Jev went from 90.9% to 92.0%.
+        - At those thresholds, clear messages sent to `unclear` went from 3.4% to 4.5%, and ambiguous fixtures caught went from 5 to 4 of 15.
+        - The LLM went from 54.5% to 59.1%; its `code_question` recall went from 52.9% to 76.5%. It sent KB questions to `code_question` 14 times (was 12) and to `code_issue` 4 times (was 6).
+      - Verifier agreement: code went from 15/18 to 17/18 with the corrected judge prompt. KB (24/27) and vision (10/12) are unchanged.
+  - **Code questions in five languages**: code-QA fixtures were added for NestJS (TypeScript), Jellyfin (C#), Apache Commons Lang (Java) and Prometheus (Go), alongside Django (Python). Each has ten questions, each tagged with a kind (documented, undocumented, method, decorated, arrow). `e2e-code/all` runs them all.
+    - LLM baseline before the changes below (names the answer / right file retrieved):
+
+      | Repository | `Llm` | `Jev` + `Enforce` |
+      |---|---|---|
+      | Django | 7 / 6 | 6 / 6 |
+      | Commons Lang | 7 / 7 | 7 / 8 |
+      | Jellyfin | 6 / 7 | 5 / 5 |
+      | NestJS | 2 / 2 | 2 / 3 |
+      | Prometheus | 7 / 6 | 5 / 4 |
+      | **Total** | **29 / 28** | **25 / 26** |
+
+    - `.github/workflows/code-retrieval.yml` (on `code-retrieval/**` pushes) checks retrieval alone, with no LLM call. It runs the real extractor, import and search on every fixture repository and reports whether the expected definition reaches the answering model's context. Answer in context, out of 50:
+      - Baseline: 27.
+      - With body terms (the words a definition's body uses): 31.
+      - With extractor coverage for C# and Java methods, TypeScript arrow functions, methods, enums and types, annotations and decorators, nested ids, and Kotlin, Ruby, PHP, Rust, Swift and Scala: 36.
+      - With body terms weighted like names and summaries (1.0, chosen by a sweep on all five repositories): 39.
+    - **Semantic code search** (opt-in, under the code-classifier consent) embeds top-level definitions and merges them with keyword matches by reciprocal rank fusion. On the same 50 questions it brings 39 to 42, with no question lost:
+
+      | Repository | Keyword | Hybrid | Definitions embedded |
+      |---|---|---|---|
+      | Django | 9 | 9 | 3,361 (295 s) |
+      | Commons Lang | 7 | 8 | 247 (36 s) |
+      | Jellyfin | 9 | 9 | 1,937 (29 s) |
+      | NestJS | 7 | 8 | 2,383 (35 s) |
+      | Prometheus | 7 | 8 | 3,703 (54 s) |
+      | **Total** | **39** | **42** | |
+
+      - Gained: `ToStringBuilder`, `BaseExceptionFilter`, `WL`.
+      - Ranked higher: `Paginator` (19 to 2), `MovieResolver` (18 to 3), `RandomStringUtils` (8 to 1), `DatabaseCache` (15 to 9).
+      - Still missed: two Java methods (`isBlank`, `abbreviate`; methods are not embedded), and the undocumented `Signer`, `EncoderValidator`, `NestFactory`, `ParseExpr`, plus `ValidationPipe` and `LeveledCompactor`.
+    - **LLM e2e after the changes** (`e2e-code/all` on 436af1d; keyword search, since the e2e projects do not consent to embeddings). Also changed: triage rule 4b (code-by-signal), the Drafter names the answer in its first sentence, and per-file snippets.
+
+      | Repository | `Llm` | `Jev` + `Enforce` |
+      |---|---|---|
+      | Django | 7 / 8 (was 7 / 6) | 6 / 6 (was 6 / 6) |
+      | Commons Lang | 8 / 9 (was 7 / 7) | 8 / 10 (was 7 / 8) |
+      | Jellyfin | 6 / 7 (was 6 / 7) | 6 / 7 (was 5 / 5) |
+      | NestJS | 5 / 5 (was 2 / 2) | 8 / 7 (was 2 / 3) |
+      | Prometheus | 7 / 8 (was 7 / 6) | 5 / 5 (was 5 / 4) |
+      | **Total** | **33 / 37 (was 29 / 28)** | **33 / 35 (was 25 / 26)** |
+
+      - No answer was replaced by `LeakFallback`. One internal-reader leak check fired on a first attempt and the retry passed.
+      - Four requests got no answer: three Jellyfin questions in `Llm` mode and one Django question in `Jev` mode, after 1 to 5 minutes each. The run records no cause, so these are counted as misses.
+      - Most remaining misses are triage, not retrieval. The LLM sent 7 clear "which X does Y" questions to `unclear`, because its prompt kept `unclear` for anything that "plausibly fits more than one category". Jev sent 8 to `unclear` and 3 to `kb_question`, two of them Go "which type" questions. Both classifiers were changed (de04808, bcaf1f7), and the triage eval decided what stayed (0349e61):
+        - Jev's `code_question` description now also names types, interfaces, methods, decorators and exceptions. At the shipped thresholds, clear accuracy went from 92.0% to 93.2% and clear messages sent to `unclear` from 4.5% to 2.3%, with the same 26.7% of ambiguous messages caught.
+        - The same wording in the LLM prompt, with `unclear` narrowed to "no answerable question", was reverted. LLM clear accuracy went from 59.1% to 54.5%: KB questions sent to `code_question` rose from 14 to 21 (KB recall 8.3%), against `code_question` recall from 76.5% to 88.2%. A narrower variant (only the `unclear` rewording) scored the same 54.5%, with 20 of 24 KB questions sent to a code label, so the LLM prompt keeps its original text. With this model every wording tried sends most KB questions to code. Answers suffer less than the label accuracy suggests, because `code_question` also retrieves the KB.
+        - With it, `e2e-code/all` on 4069c31 (names the answer / right file retrieved, out of 50): `Llm` 39 / 43 (was 33 / 37), `Jev` + `Enforce` 40 / 42 (was 33 / 35). No question went to `unclear`.
+          - The largest loss is now requests with no answer within the script's 300 s: 3 per mode, with single answers taking up to about 4 minutes. f11ed44 adds an optional per-attempt timeout (`Llm:{Provider}:RequestTimeout`), off until the next run's per-agent timings show a safe value.
+          - Most of the rest is retrieval or ranking: `Paginator`, `QuickConnectManager` and `BaseExceptionFilter` are found or ranked higher by semantic search, while `Signer`, `isBlank`, `abbreviate`, `ParseExpr` and `LeveledCompactor` are not found either way.
+        - `CodeElementQuestion` (4069c31) answers a "which/what <class, type, method, decorator, exception ...>" question as `code_question` when either classifier lands on `unclear` or `kb_question`. None of the triage fixtures' KB or vague messages match it; 49 of the 50 code-QA questions do.
+      - The rest are answers that name a neighbour of the retrieved answer (`pagination` for `Paginator`, `IQuickConnect` for `QuickConnectManager`, `parseAsStringLiteral` for `ParseExpr`), or definitions keyword search does not find (`Signer`, `BaseExceptionFilter`, `LeveledCompactor`).
   - **NIM embedding model**: NVIDIA also retired `nvidia/nv-embedqa-e5-v5` (2026-08-25). It is replaced by `nvidia/llama-nemotron-embed-vl-1b-v2`, which has 2048 dimensions instead of 1024, so existing deployments must re-index (see the configuration guide).
   - **Verifier agreement** with the new LLM model: KB 24/27, code 15/18, vision 10/12, code-node classifier 3/4 (52/61 overall). The DISAGREE lines are findings, not crashes.
   - **Open Questions answered**: 1 (wire format, usage, error codes; no rate-limit headers seen), 5 (no question limit at or below 100, and questions can name JSON-state keys) and 6 (Score takes an ordered criteria array and returns a probability-weighted level, which maps to 0–1 by dividing by the top level). 4 is answered in part (see Triage). 2, 3, 7, 8 and 9 are still open.

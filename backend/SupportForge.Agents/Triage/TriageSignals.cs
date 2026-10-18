@@ -5,7 +5,7 @@ namespace SupportForge.Agents.Triage;
 // U5 (JEV intent classification plan, KTD3): names and fixed wording of the atomic Noul signals asked in the same Jev
 // request as the intent Choice. The statements are constants, never customer text (the customer only appears in state).
 // Signals feed TriageDecisionPolicy's override rules and are logged. They are not a second classifier, and
-// TriageDecisionPolicy only reads the first three of them. about_source_code is logged for U1's eval.
+// TriageDecisionPolicy reads all four: about_source_code keeps an uncertain code question from going to "unclear".
 public static class TriageSignals
 {
     public const string HasSupportQuestion = "has_support_question";

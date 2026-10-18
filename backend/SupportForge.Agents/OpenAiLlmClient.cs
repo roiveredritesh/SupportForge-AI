@@ -5,6 +5,7 @@ using OpenAI.Embeddings;
 using Polly;
 using Polly.CircuitBreaker;
 using Polly.Retry;
+using Polly.Timeout;
 
 namespace SupportForge.Agents;
 
@@ -36,30 +37,40 @@ public class OpenAiLlmClient : ILlmClient
     // (see KTD2), so the retry/circuit-breaker pipeline wraps the call site here instead. One pipeline
     // per client instance -- each registered provider (OpenAI/NIM/Azure) gets its own circuit breaker
     // rather than sharing failure state across unrelated endpoints.
-    private readonly ResiliencePipeline _resilience = new ResiliencePipelineBuilder()
-        .AddRetry(new RetryStrategyOptions
-        {
-            MaxRetryAttempts = 3,
-            BackoffType = DelayBackoffType.Exponential,
-            Delay = TimeSpan.FromSeconds(1),
-            UseJitter = true,
-            ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
-        })
-        .AddCircuitBreaker(new CircuitBreakerStrategyOptions
-        {
-            FailureRatio = 0.5,
-            MinimumThroughput = 4,
-            SamplingDuration = TimeSpan.FromSeconds(30),
-            BreakDuration = TimeSpan.FromSeconds(15),
-            ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
-        })
-        .Build();
+    private readonly ResiliencePipeline _resilience;
+
+    // attemptTimeout (Llm:{Provider}:RequestTimeout) cuts one attempt that hangs and lets the retry try again, instead of
+    // the request waiting out the SDK's own 100 s network timeout. Unset, attempts are not timed here.
+    private static ResiliencePipeline BuildResilience(TimeSpan? attemptTimeout)
+    {
+        var builder = new ResiliencePipelineBuilder()
+            .AddRetry(new RetryStrategyOptions
+            {
+                MaxRetryAttempts = 3,
+                BackoffType = DelayBackoffType.Exponential,
+                Delay = TimeSpan.FromSeconds(1),
+                UseJitter = true,
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+            })
+            .AddCircuitBreaker(new CircuitBreakerStrategyOptions
+            {
+                FailureRatio = 0.5,
+                MinimumThroughput = 4,
+                SamplingDuration = TimeSpan.FromSeconds(30),
+                BreakDuration = TimeSpan.FromSeconds(15),
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+            });
+        // Innermost, so each attempt gets its own budget.
+        if (attemptTimeout is { } timeout && timeout > TimeSpan.Zero) builder.AddTimeout(timeout);
+        return builder.Build();
+    }
 
     private static bool IsTransientFailure(Exception ex) => ex switch
     {
         ClientResultException cre => cre.Status == 429 || cre.Status >= 500,
         HttpRequestException => true,
         TimeoutException => true,
+        TimeoutRejectedException => true,
         _ => false,
     };
 
@@ -76,8 +87,10 @@ public class OpenAiLlmClient : ILlmClient
         string? embeddingInputType = null,
         bool supportsVision = true,
         long? seed = null,
-        int? maxOutputTokens = null)
+        int? maxOutputTokens = null,
+        TimeSpan? attemptTimeout = null)
     {
+        _resilience = BuildResilience(attemptTimeout);
         _chatClient = chatClient;
         _embeddingClient = embeddingClient;
         _embeddingModel = embeddingModel;
@@ -130,12 +143,18 @@ public class OpenAiLlmClient : ILlmClient
     // Uses the protocol-level (raw JSON) embeddings call rather than IEmbeddingGenerator: the OpenAI SDK's
     // typed EmbeddingGenerationOptions silently drops unrecognized fields like NIM's "input_type" instead
     // of forwarding them, so the strongly-typed path can't express this provider-specific parameter.
-    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query)
+    public virtual async Task<float[]> EmbedAsync(string text, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Query) =>
+        (await EmbedManyAsync([text], ct, purpose))[0];
+
+    // One request for the whole batch: the OpenAI-compatible embeddings API (and NIM's) takes an input array and returns
+    // one vector per input, each tagged with its index.
+    public virtual async Task<IReadOnlyList<float[]>> EmbedManyAsync(
+        IReadOnlyList<string> texts, CancellationToken ct = default, EmbeddingPurpose purpose = EmbeddingPurpose.Passage)
     {
         var payload = new Dictionary<string, object?>
         {
             ["model"] = _embeddingModel,
-            ["input"] = new[] { text },
+            ["input"] = texts,
             ["encoding_format"] = "float",
         };
         if (_embeddingInputType is not null)
@@ -146,15 +165,23 @@ public class OpenAiLlmClient : ILlmClient
             new System.ClientModel.Primitives.RequestOptions { CancellationToken = ct });
 
         using var doc = JsonDocument.Parse(response.GetRawResponse().Content);
-        var vectorJson = doc.RootElement.GetProperty("data")[0].GetProperty("embedding");
-        var vector = new float[vectorJson.GetArrayLength()];
-        for (var i = 0; i < vector.Length; i++)
-            vector[i] = vectorJson[i].GetSingle();
+        var vectors = new float[texts.Count][];
+        var position = 0;
+        foreach (var item in doc.RootElement.GetProperty("data").EnumerateArray())
+        {
+            var index = item.TryGetProperty("index", out var i) ? i.GetInt32() : position;
+            var vectorJson = item.GetProperty("embedding");
+            var vector = new float[vectorJson.GetArrayLength()];
+            for (var j = 0; j < vector.Length; j++)
+                vector[j] = vectorJson[j].GetSingle();
+            vectors[index] = vector;
+            position++;
+        }
 
         LastTotalTokens = doc.RootElement.TryGetProperty("usage", out var usage) && usage.TryGetProperty("total_tokens", out var total)
             ? total.GetInt32()
             : 0;
-        return vector;
+        return vectors;
     }
 
     public virtual async Task<string> AnalyzeImageAsync(string base64Image, string prompt, CancellationToken ct = default)

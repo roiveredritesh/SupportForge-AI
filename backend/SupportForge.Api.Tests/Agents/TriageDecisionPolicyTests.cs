@@ -353,4 +353,83 @@ public class TriageDecisionPolicyTests
         Assert.Equal(TriageLabels.Unclear, result.Intent);
         Assert.Equal("unknown-label", result.AppliedRule);
     }
+
+    // Rule 4b: the django template question as Jev scored it.
+    [Fact]
+    public void LowConfidenceCodeQuestion_AboutSourceCode_IsAnsweredNotClarified()
+    {
+        var decision = Decision(0.24, new Dictionary<string, double>
+        {
+            [TriageLabels.CodeQuestion] = 0.39,
+            [TriageLabels.CodeIssue] = 0.32,
+            [TriageLabels.KbQuestion] = 0.29,
+        }, new Dictionary<string, double>
+        {
+            [TriageSignals.HasSupportQuestion] = 0.95,
+            [TriageSignals.AboutSourceCode] = 0.8,
+            [TriageSignals.ReportsMalfunction] = 0.1,
+        });
+
+        var result = Decide(decision);
+
+        Assert.Equal(TriageLabels.CodeQuestion, result.Intent);
+        Assert.Equal("code-by-signal", result.AppliedRule);
+    }
+
+    [Fact]
+    public void SmallMarginKbVersusCode_AboutSourceCode_ReportingAFault_IsACodeIssue()
+    {
+        var decision = Decision(0.7, new Dictionary<string, double>
+        {
+            [TriageLabels.KbQuestion] = 0.52,
+            [TriageLabels.CodeQuestion] = 0.46,
+            [TriageLabels.Greeting] = 0.02,
+        }, new Dictionary<string, double>
+        {
+            [TriageSignals.HasSupportQuestion] = 0.9,
+            [TriageSignals.AboutSourceCode] = 0.7,
+            [TriageSignals.ReportsMalfunction] = 0.8,
+        });
+
+        var result = Decide(decision);
+
+        Assert.Equal(TriageLabels.CodeIssue, result.Intent);
+        Assert.Equal("code-by-signal", result.AppliedRule);
+    }
+
+    [Theory]
+    [InlineData(0.2, 0.9)]  // not about source code ("it broke")
+    [InlineData(0.8, 0.2)]  // no actual support question
+    public void LowConfidence_WithoutBothSignals_StaysUnclear(double aboutSourceCode, double hasSupportQuestion)
+    {
+        var decision = Decision(0.3, new Dictionary<string, double>
+        {
+            [TriageLabels.CodeIssue] = 0.4,
+            [TriageLabels.KbQuestion] = 0.35,
+            [TriageLabels.Greeting] = 0.25,
+        }, new Dictionary<string, double>
+        {
+            [TriageSignals.HasSupportQuestion] = hasSupportQuestion,
+            [TriageSignals.AboutSourceCode] = aboutSourceCode,
+        });
+
+        Assert.Equal(TriageLabels.Unclear, Decide(decision).Intent);
+    }
+
+    [Fact]
+    public void LowConfidence_MostlyOnNonRetrievalLabels_StaysUnclear()
+    {
+        var decision = Decision(0.3, new Dictionary<string, double>
+        {
+            [TriageLabels.CodeQuestion] = 0.35,
+            [TriageLabels.Greeting] = 0.33,
+            [TriageLabels.ScreenshotError] = 0.32,
+        }, new Dictionary<string, double>
+        {
+            [TriageSignals.HasSupportQuestion] = 0.9,
+            [TriageSignals.AboutSourceCode] = 0.9,
+        });
+
+        Assert.Equal(TriageLabels.Unclear, Decide(decision).Intent);
+    }
 }

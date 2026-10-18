@@ -36,6 +36,28 @@ public sealed class CodeGraphNode
     [JsonPropertyName("summary")]
     public string Summary { get; set; } = "";
 
+    // The node's identifier (a definition) or relative path (a file) split into lower-case words, e.g. "CsrfViewMiddleware"
+    // -> "csrf view middleware". The full-text analyzer keeps a camel-case identifier as one token, so without this a
+    // question's plain words ("which middleware ...") can never match a name. Indexed by GraphDbQueryTool's search index.
+    [JsonPropertyName("name_terms")]
+    public string NameTerms { get; set; } = "";
+
+    // True when the node's file is test code (a tests directory or a test-file name). GraphDbQueryTool ranks test nodes
+    // below real code unless the question is about tests, since in a large repository they outnumber it.
+    [JsonPropertyName("is_test")]
+    public bool IsTest { get; set; }
+
+    // The first lines of a definition's source (signature plus docstring or opening body), so the answering model sees
+    // what the matched code does, not just its name. "" on file and endpoint nodes.
+    [JsonPropertyName("excerpt")]
+    public string Excerpt { get; set; } = "";
+
+    // The words a definition's body uses (identifiers split into words, string literals, comments), most frequent first.
+    // Indexed with a lower weight than names and summaries; it is what lets a question find undocumented code. "" on
+    // file and endpoint nodes.
+    [JsonPropertyName("body_terms")]
+    public string BodyTerms { get; set; } = "";
+
     // Tier 0 admissibility marks (CodeFileAdmissibility) as flag names, e.g. ["Minified", "Banner"].
     // Never an exclusion decision on its own -- consumed by later classification-pipeline stages
     // (docs/plans/2026-08-16-001-feat-code-graph-classification-plan.md). Empty for a plain

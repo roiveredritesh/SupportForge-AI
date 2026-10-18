@@ -33,29 +33,66 @@ public static class CodeGraphExtractor
         [".py"] = "python",
         [".java"] = "java",
         [".go"] = "go",
+        [".kt"] = "kotlin",
+        [".kts"] = "kotlin",
+        [".rb"] = "ruby",
+        [".php"] = "php",
+        [".rs"] = "rust",
+        [".swift"] = "swift",
+        [".scala"] = "scala",
     };
 
+    // One regex per language, every alternative capturing the definition's name as "name" (and, for a Go method, its
+    // receiver type as "recv"). Methods are matched only where a modifier or a same-line body makes them unambiguous, so
+    // an ordinary statement or call is not mistaken for a definition.
     private static readonly Dictionary<string, Regex> DefinitionPatternByFileType = new()
     {
         ["csharp"] = new Regex(
-            @"^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|async|virtual|override)\s+)*\b(?:class|interface|struct|record|enum)\s+(?<name>[A-Za-z_]\w*)",
+            @"^\s*(?:\[[^\]]*\]\s*)*(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|async|virtual|override|unsafe|file)\s+)*\b(?:class|interface|struct|record|enum)\s+(?<name>[A-Za-z_]\w*)"
+            + @"|^[ \t]*(?:(?:public|private|protected|internal|static|virtual|override|abstract|async|sealed|extern|unsafe)[ \t]+)+[\w.]+(?:<[^\n()]*?>)?(?:\[\])*\??[ \t]+(?<name>[A-Za-z_]\w*)[ \t]*(?:<[^\n()]*?>)?[ \t]*\(",
             RegexOptions.Compiled | RegexOptions.Multiline),
-        ["typescript"] = new Regex(
-            @"^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?\b(?:class|interface|function)\s+(?<name>[A-Za-z_]\w*)",
-            RegexOptions.Compiled | RegexOptions.Multiline),
-        ["javascript"] = new Regex(
-            @"^\s*(?:export\s+)?(?:default\s+)?\b(?:class|function)\s+(?<name>[A-Za-z_]\w*)",
-            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["typescript"] = JsLikePattern(),
+        ["javascript"] = JsLikePattern(),
         ["python"] = new Regex(
-            @"^\s*(?:class|def)\s+(?<name>[A-Za-z_]\w*)",
+            @"^\s*(?:async\s+)?(?:class|def)\s+(?<name>[A-Za-z_]\w*)",
             RegexOptions.Compiled | RegexOptions.Multiline),
         ["java"] = new Regex(
-            @"^\s*(?:(?:public|private|protected|static|final|abstract)\s+)*\b(?:class|interface|enum)\s+(?<name>[A-Za-z_]\w*)",
+            @"^\s*(?:(?:public|private|protected|static|final|abstract|sealed|strictfp)\s+)*\b(?:class|interface|enum|record)\s+(?<name>[A-Za-z_]\w*)"
+            + @"|^[ \t]*(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|strictfp)[ \t]+)+(?:<[^\n()]*?>[ \t]+)?[\w.]+(?:<[^\n()]*?>)?(?:\[\])*[ \t]+(?<name>[A-Za-z_]\w*)[ \t]*\(",
             RegexOptions.Compiled | RegexOptions.Multiline),
         ["go"] = new Regex(
-            @"^\s*(?:func\s+(?:\([^)]*\)\s*)?(?<name>[A-Za-z_]\w*)\s*\(|type\s+(?<name>[A-Za-z_]\w*)\s+(?:struct|interface)\b)",
+            @"^\s*(?:func\s+(?:\(\s*\w*\s*\*?(?<recv>[A-Za-z_]\w*)(?:\[[^\]]*\])?\s*\)\s*)?(?<name>[A-Za-z_]\w*)\s*[\[(]|type\s+(?<name>[A-Za-z_]\w*)\s+(?:struct|interface)\b)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["kotlin"] = new Regex(
+            @"^\s*(?:(?:public|private|protected|internal|open|abstract|sealed|data|enum|inner|annotation|value|override|suspend|inline|operator|infix|tailrec|external|actual|expect)\s+)*(?:class|interface|object|fun)\s+(?:<[^>\n]*>\s*)?(?:[\w.]+\.)?(?<name>[A-Za-z_]\w*)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["ruby"] = new Regex(
+            @"^\s*(?:class|module)\s+(?:[A-Z]\w*::)*(?<name>[A-Z]\w*)|^\s*def\s+(?:self\.)?(?<name>[A-Za-z_]\w*[?!=]?)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["php"] = new Regex(
+            @"^\s*(?:(?:abstract|final|readonly)\s+)*(?:class|interface|trait|enum)\s+(?<name>[A-Za-z_]\w*)|^\s*(?:(?:public|private|protected|static|abstract|final)\s+)*function\s+&?(?<name>[A-Za-z_]\w*)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["rust"] = new Regex(
+            @"^\s*(?:pub(?:\([^)\n]*\))?\s+)?(?:(?:async|const|unsafe|extern(?:\s+""[^""\n]*"")?)\s+)*(?:fn|struct|enum|trait|type|union)\s+(?<name>[A-Za-z_]\w*)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["swift"] = new Regex(
+            @"^\s*(?:(?:public|private|fileprivate|internal|open|final|static|class|override|mutating|required|convenience|nonisolated)\s+)*(?:class|struct|enum|protocol|actor|func)\s+(?<name>[A-Za-z_]\w*)",
+            RegexOptions.Compiled | RegexOptions.Multiline),
+        ["scala"] = new Regex(
+            @"^\s*(?:(?:private|protected|final|sealed|abstract|implicit|override|case|lazy)\s+)*(?:class|object|trait|def|enum)\s+(?<name>[A-Za-z_]\w*)",
             RegexOptions.Compiled | RegexOptions.Multiline),
     };
+
+    // TypeScript and JavaScript: classes, interfaces, functions, enums and type aliases; a top-level const or let bound to
+    // an arrow function or function expression (export const SetMetadata = <K>(...) => ...); a class method with a
+    // modifier (the parameters may continue on later lines); and a method without one whose parameters close and whose
+    // body opens on the same line. Control-flow keywords are excluded so "if (x) {" is not taken for a method.
+    private static Regex JsLikePattern() => new(
+        @"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?\b(?:class|interface|function\*?|enum|type)\s+(?<name>[A-Za-z_$][\w$]*)"
+        + @"|^(?:export\s+)?(?:const|let|var)\s+(?<name>[A-Za-z_$][\w$]*)\s*(?::[^=\n]+)?=\s*(?:async\s+)?(?:function\b|\([^)\n]*\)\s*(?::\s*[^=\n]+)?=>|\(\s*$|<[^\n]*>\s*\(|[A-Za-z_$][\w$]*\s*=>)"
+        + @"|^[ \t]+(?:(?:public|private|protected|static|readonly|async|abstract|override)[ \t]+)+(?:get[ \t]+|set[ \t]+)?(?<name>[A-Za-z_$][\w$]*)[ \t]*(?:<[^\n]*?>)?[ \t]*\("
+        + @"|^[ \t]+(?!(?:if|for|while|switch|catch|function|return|else|do|try|new|await|typeof|delete|throw|with)\b)(?:async[ \t]+)?(?<name>[A-Za-z_$][\w$]*)[ \t]*(?:<[^\n]*?>)?[ \t]*\((?:[^()\n]|\([^()\n]*\))*\)[ \t]*(?::[ \t]*[^{;=\n]+)?\{[ \t]*$",
+        RegexOptions.Compiled | RegexOptions.Multiline);
 
     private static readonly Regex JsImportPattern = new(
         @"(?:import[^'""]*from\s*|require\()\s*['""](\.[^'""]+)['""]",
@@ -109,6 +146,58 @@ public static class CodeGraphExtractor
 
     private const int MaxSummaryLength = 500;
 
+    // A Python def/class docstring is the first statement after the signature's closing ':'. \G anchors at the index the
+    // match starts from, so this only accepts a string literal that opens the body.
+    private static readonly Regex PythonBodyDocstring = new(
+        "\\G\\s*[rRuU]?(\"\"\"|''')(?<body>.*?)\\1",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+
+    // How far past a "def"/"class" keyword the signature's closing ':' is looked for. Long enough for a many-parameter,
+    // multi-line signature; a miss just means no docstring.
+    private const int MaxSignatureScan = 2000;
+
+    private const int MaxExcerptLines = 12;
+    private const int MaxExcerptChars = 700;
+
+    // A definition's body terms come from at most this much of its body, and at most this many distinct words are kept,
+    // most frequent first. Enough to carry what an undocumented definition does; small enough to keep the index lean.
+    private const int MaxBodyChars = 8000;
+    private const int MaxBodyTerms = 60;
+
+    private static readonly Regex Word = new(@"[A-Za-z][A-Za-z0-9_]*", RegexOptions.Compiled);
+
+    // Keywords and plumbing words of the supported languages, which say nothing about what a definition does.
+    private static readonly HashSet<string> BodyStopWords = new(StringComparer.Ordinal)
+    {
+        "the", "and", "for", "not", "are", "was", "this", "that", "with", "from", "into", "has", "have", "its",
+        "def", "class", "self", "cls", "return", "returns", "none", "null", "nil", "true", "false", "elif", "else",
+        "while", "foreach", "switch", "case", "break", "continue", "try", "catch", "except", "finally", "throw", "throws",
+        "raise", "import", "using", "namespace", "package", "async", "await", "yield", "lambda", "function", "func",
+        "struct", "interface", "type", "extends", "implements", "override", "virtual", "readonly", "final", "abstract",
+        "sealed", "static", "public", "private", "protected", "internal", "void", "var", "let", "const", "new", "get",
+        "set", "string", "int", "bool", "boolean", "long", "double", "float", "char", "byte", "object", "err", "args",
+        "kwargs", "param", "params", "summary", "inheritdoc", "see", "cref", "todo", "nolint", "export", "default",
+    };
+
+    // Splits an identifier into words: "CsrfViewMiddleware" -> Csrf View Middleware, "get_object_or_404" -> get object
+    // or 404, "PBKDF2PasswordHasher" -> PBKDF2 Password Hasher.
+    private static readonly Regex IdentifierWord = new(
+        @"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+\d*|[A-Z]+\d*|\d+",
+        RegexOptions.Compiled);
+
+    // Directory names that mark test code anywhere in a path, and suffixes of .NET test-project directories.
+    private static readonly HashSet<string> TestDirNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "test", "tests", "__tests__", "spec", "specs", "testdata",
+    };
+
+    private static readonly string[] TestProjectDirSuffixes = [".Tests", ".Test", ".UnitTests", ".IntegrationTests", ".Specs"];
+
+    // Case-sensitive on purpose: "OrderServiceTests.cs" is a test file, "Latest.cs" is not.
+    private static readonly Regex TestFileName = new(
+        @"^(test_.*\.py|.*_test\.(py|go|rb|rs)|.*_spec\.rb|conftest\.py|.*[a-z0-9](Tests?|Spec)\.(cs|java|kt|swift|php|scala)|.*\.(test|spec)\.(ts|tsx|js|jsx))$",
+        RegexOptions.Compiled);
+
     // Minified content has nothing meaningful for a regex definition-pattern to match, and a
     // multi-hundred-KB single-line file would dominate header-comment extraction cost for no benefit
     // -- cap what's read for summary purposes to the first 2KB (reused as-is by the Tier 2 enrichment
@@ -147,6 +236,8 @@ public static class CodeGraphExtractor
                 SourceFile = relativePath,
                 SourceLocation = "L1",
                 Summary = ExtractFileHeaderComment(summaryInput, fileType),
+                NameTerms = PathNameTerms(relativePath),
+                IsTest = IsTestPath(relativePath),
                 Shape = ShapeFlagsToNames(admissibility.Shape),
                 CoverageLevel = DetermineCoverageLevel(fileType),
             });
@@ -243,6 +334,8 @@ public static class CodeGraphExtractor
                 SourceFile = relativePath,
                 SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
                 Summary = "",
+                NameTerms = IdentifierTerms($"{verb} {route}"),
+                IsTest = IsTestPath(relativePath),
             });
             graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = endpointId, Relation = "defines_endpoint", Confidence = "high" });
         }
@@ -275,24 +368,59 @@ public static class CodeGraphExtractor
     private static void AddDefinitionNodesAndEdges(
         CodeGraphFile graph, string relativePath, string fileType, string text, Regex definitionPattern)
     {
-        var seenNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (Match match in definitionPattern.Matches(text))
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var matches = definitionPattern.Matches(text).Where(m => m.Groups["name"].Success).ToList();
+        var lineStarts = matches.Select(m => LineStart(text, m.Groups["name"].Index)).ToList();
+        var bodyEnds = matches.Select((_, i) => BodyEnd(text, lineStarts, i)).ToList();
+        var nodeIds = new string?[matches.Count];
+        for (var i = 0; i < matches.Count; i++)
         {
+            var match = matches[i];
             var name = match.Groups["name"].Value;
-            if (!seenNames.Add(name)) continue; // same symbol matched by more than one alternation branch
 
-            var nodeId = $"{relativePath}::{name}";
+            // A member is identified through what contains it (SecurityMiddleware.__init__), so two classes in one file
+            // can each have an __init__ or a ToString. A Go method's container is its receiver type.
+            var container = ContainerIndex(text, lineStarts, bodyEnds, i);
+            var containerId = container is int c ? nodeIds[c] : null;
+            var receiver = match.Groups["recv"].Success ? match.Groups["recv"].Value : null;
+            var nodeId = containerId is not null ? $"{containerId}.{name}"
+                : receiver is not null ? $"{relativePath}::{receiver}.{name}"
+                : $"{relativePath}::{name}";
+            if (!seenIds.Add(nodeId)) continue; // an overload, or the same symbol matched by more than one alternative
+            nodeIds[i] = nodeId;
+
+            // The name, not the match start: the pattern's leading \s* can begin on a blank line above the definition.
+            var nameIndex = match.Groups["name"].Index;
+            var docstring = fileType == "python" ? ExtractPythonDefinitionDocstring(text, nameIndex) : "";
             graph.Nodes.Add(new CodeGraphNode
             {
                 Id = nodeId,
                 Label = name,
                 FileType = fileType,
                 SourceFile = relativePath,
-                SourceLocation = $"L{CountLinesBefore(text, match.Index)}",
-                Summary = ExtractPrecedingCommentBlock(text, match.Index),
+                SourceLocation = $"L{CountLinesBefore(text, lineStarts[i])}",
+                Summary = docstring.Length > 0 ? docstring : ExtractPrecedingCommentBlock(text, lineStarts[i], fileType),
+                NameTerms = DefinitionNameTerms(name),
+                IsTest = IsTestPath(relativePath),
+                Excerpt = ExtractExcerpt(text, nameIndex),
+                BodyTerms = BodyTerms(text, lineStarts[i], bodyEnds[i]),
             });
             graph.Edges.Add(new CodeGraphEdge { Source = relativePath, Target = nodeId, Relation = "defines", Confidence = "high" });
+            if (containerId is not null)
+                graph.Edges.Add(new CodeGraphEdge { Source = containerId, Target = nodeId, Relation = "contains", Confidence = "high" });
         }
+    }
+
+    // The nearest earlier definition whose body encloses this one and is indented less: its class (or outer function).
+    private static int? ContainerIndex(string text, IReadOnlyList<int> lineStarts, IReadOnlyList<int> bodyEnds, int index)
+    {
+        var indent = Indentation(text, lineStarts[index]);
+        for (var j = index - 1; j >= 0; j--)
+        {
+            if (lineStarts[j] < lineStarts[index] && bodyEnds[j] > lineStarts[index] && Indentation(text, lineStarts[j]) < indent)
+                return j;
+        }
+        return null;
     }
 
     private static void AddImportEdges(
@@ -345,11 +473,17 @@ public static class CodeGraphExtractor
 
     private static int CountLinesBefore(string text, int index) => text.AsSpan(0, index).Count('\n') + 1;
 
-    private static bool IsCommentLine(string trimmed) =>
-        trimmed.StartsWith("//") || trimmed.StartsWith("*") || trimmed.StartsWith("/*");
+    private static bool IsCommentLine(string trimmed, string fileType) =>
+        trimmed.StartsWith("//") || trimmed.StartsWith("*") || trimmed.StartsWith("/*")
+        || (fileType is "python" or "ruby" && trimmed.StartsWith('#') && !trimmed.StartsWith("#!"));
+
+    // A decorator, annotation or attribute line between a doc comment and its definition (@Injectable(), @Override,
+    // [Authorize], #[derive(Debug)]): skipped when walking up to the comment, so the comment still belongs to it.
+    private static bool IsAnnotationLine(string trimmed) =>
+        trimmed.StartsWith('@') || trimmed.StartsWith("#[") || (trimmed.StartsWith('[') && trimmed.EndsWith(']'));
 
     private static string StripCommentMarkers(string trimmed) =>
-        trimmed.TrimStart('/', '*').TrimEnd('*', '/').Trim();
+        trimmed.TrimStart('/', '*', '#').TrimEnd('*', '/').Trim();
 
     private static string Truncate(string s) =>
         s.Length <= MaxSummaryLength ? s : s[..MaxSummaryLength] + "…";
@@ -371,7 +505,7 @@ public static class CodeGraphExtractor
                 if (lines.Count > 0) break; // blank line after content ends the header
                 continue; // allow blank lines before the header starts
             }
-            if (!IsCommentLine(trimmed)) break;
+            if (!IsCommentLine(trimmed, fileType)) break;
             var stripped = StripCommentMarkers(trimmed);
             if (stripped.Length > 0) lines.Add(stripped);
         }
@@ -387,24 +521,143 @@ public static class CodeGraphExtractor
     // Backward from a definition's match start: XML-doc (///), JSDoc (/** */), and plain // blocks
     // directly above it, the dominant per-symbol doc-comment convention for C#/TS/JS/Java/Go. Stops
     // at the first blank or non-comment line -- a real doc comment sits with no gap above its symbol.
-    // Not attempted for Python: its docstring is the first statement INSIDE the body, not a comment
-    // above it, and a regex pass can't reliably find where a (possibly multi-line) signature ends.
-    private static string ExtractPrecedingCommentBlock(string text, int definitionIndex)
+    // Python's docstring is the first statement INSIDE the body instead; ExtractPythonDefinitionDocstring
+    // handles that, and this stays the fallback for a Python definition without one.
+    // The comment block directly above a definition's line, skipping decorator, annotation and attribute lines in between.
+    private static string ExtractPrecedingCommentBlock(string text, int definitionLineStart, string fileType)
     {
-        if (definitionIndex <= 0) return "";
+        if (definitionLineStart <= 0) return "";
 
         var lines = new List<string>();
-        var lineEnd = text.LastIndexOf('\n', definitionIndex - 1);
+        var lineEnd = definitionLineStart - 1; // the '\n' that ends the line above
         while (lineEnd >= 0)
         {
-            var lineStart = text.LastIndexOf('\n', lineEnd - 1) + 1;
+            var lineStart = lineEnd > 0 ? text.LastIndexOf('\n', lineEnd - 1) + 1 : 0;
             var line = text[lineStart..lineEnd].TrimEnd('\r').Trim();
-            if (line.Length == 0 || !IsCommentLine(line)) break;
+            lineEnd = lineStart - 1;
+            if (lines.Count == 0 && IsAnnotationLine(line)) continue;
+            if (line.Length == 0 || !IsCommentLine(line, fileType)) break;
             var stripped = StripCommentMarkers(line);
             if (stripped.Length > 0) lines.Insert(0, stripped);
-            lineEnd = lineStart - 1;
         }
         return Truncate(string.Join(' ', lines));
+    }
+
+    private static string ExtractPythonDefinitionDocstring(string text, int definitionIndex)
+    {
+        var bodyStart = FindPythonSignatureEnd(text, definitionIndex);
+        if (bodyStart < 0) return "";
+        var match = PythonBodyDocstring.Match(text, bodyStart);
+        return match.Success ? Truncate(Regex.Replace(match.Groups["body"].Value, @"\s+", " ").Trim()) : "";
+    }
+
+    // Index just past the ':' that ends a def/class signature, which may span several lines. Brackets are tracked so a ':'
+    // inside a type annotation, default value or base-class list isn't taken for it. -1 when none is found in range.
+    private static int FindPythonSignatureEnd(string text, int start)
+    {
+        var depth = 0;
+        var end = Math.Min(text.Length, start + MaxSignatureScan);
+        for (var i = start; i < end; i++)
+        {
+            switch (text[i])
+            {
+                case '(' or '[' or '{': depth++; break;
+                case ')' or ']' or '}': depth--; break;
+                case ':' when depth == 0: return i + 1;
+            }
+        }
+        return -1;
+    }
+
+    // From the definition's line: at most MaxExcerptLines lines and MaxExcerptChars characters, trailing blank lines dropped.
+    private static string ExtractExcerpt(string text, int definitionIndex)
+    {
+        var lineStart = definitionIndex > 0 ? text.LastIndexOf('\n', definitionIndex - 1) + 1 : 0;
+        var lines = text[lineStart..Math.Min(text.Length, lineStart + MaxExcerptChars)]
+            .Split('\n')
+            .Take(MaxExcerptLines)
+            .Select(l => l.TrimEnd('\r', ' ', '\t'))
+            .ToList();
+        while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+        return string.Join('\n', lines);
+    }
+
+    // A definition's name terms: its words, preceded by the whole identifier when it has more than one word, so a
+    // question that names it exactly ("what does CsrfViewMiddleware do?") still matches it as one term.
+    internal static string DefinitionNameTerms(string name)
+    {
+        var words = IdentifierTerms(name);
+        return words.Contains(' ') ? $"{name.ToLowerInvariant()} {words}" : words;
+    }
+
+    // Where a definition's body ends: at the next definition indented no deeper than it (a sibling, or the next
+    // top-level definition), so a class's body includes its methods. Indentation, not braces, so it works the same way
+    // for every supported language.
+    private static int BodyEnd(string text, IReadOnlyList<int> lineStarts, int index)
+    {
+        var indent = Indentation(text, lineStarts[index]);
+        for (var j = index + 1; j < lineStarts.Count; j++)
+        {
+            if (lineStarts[j] > lineStarts[index] && Indentation(text, lineStarts[j]) <= indent) return lineStarts[j];
+        }
+        return text.Length;
+    }
+
+    private static int LineStart(string text, int index) => index > 0 ? text.LastIndexOf('\n', index - 1) + 1 : 0;
+
+    private static int Indentation(string text, int lineStart)
+    {
+        var width = 0;
+        for (var i = lineStart; i < text.Length && text[i] is ' ' or '\t'; i++) width += text[i] == '\t' ? 4 : 1;
+        return width;
+    }
+
+    // The words a definition's body uses -- identifiers split into words, string literals and comments alike -- most
+    // frequent first, without keywords and plumbing words. This is what makes undocumented code findable: Django's
+    // SecurityMiddleware has no docstring, but its body reads SECURE_HSTS_SECONDS and sets Strict-Transport-Security.
+    internal static string BodyTerms(string text, int start, int end)
+    {
+        var span = text.AsSpan(start, Math.Min(end, start + MaxBodyChars) - start).ToString();
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var order = new List<string>();
+        foreach (Match token in Word.Matches(span))
+        {
+            foreach (Match part in IdentifierWord.Matches(token.Value))
+            {
+                var word = part.Value.ToLowerInvariant();
+                if (word.Length < 3 || BodyStopWords.Contains(word)) continue;
+                if (counts.TryGetValue(word, out var n)) counts[word] = n + 1;
+                else { counts[word] = 1; order.Add(word); }
+            }
+        }
+        return string.Join(' ', order
+            .Select((word, firstSeen) => (word, firstSeen))
+            .OrderByDescending(w => counts[w.word]).ThenBy(w => w.firstSeen)
+            .Take(MaxBodyTerms)
+            .Select(w => w.word));
+    }
+
+    internal static string IdentifierTerms(string identifier) =>
+        string.Join(' ', IdentifierWord.Matches(identifier).Select(m => m.Value.ToLowerInvariant()));
+
+    // Every directory and the file name (without extension) of a relative path, split into words:
+    // "django/core/cache/backends/db.py" -> "django core cache backends db".
+    private static string PathNameTerms(string relativePath) =>
+        string.Join(' ', Path.ChangeExtension(relativePath, null)
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(IdentifierTerms)
+            .Where(t => t.Length > 0));
+
+    internal static bool IsTestPath(string relativePath)
+    {
+        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0) return false;
+        foreach (var dir in segments[..^1])
+        {
+            if (TestDirNames.Contains(dir)) return true;
+            if (TestProjectDirSuffixes.Any(suffix => dir.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))) return true;
+        }
+        return TestFileName.IsMatch(segments[^1]);
     }
 
     // U4: no longer filtered by extension -- every file reaches CodeFileAdmissibility in Extract(),

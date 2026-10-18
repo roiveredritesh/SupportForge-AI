@@ -19,6 +19,10 @@ public sealed class AgentContext
     // instruction. Both optional -- most callers won't set either.
     public string? ProductVersion { get; init; }
     public IReadOnlyDictionary<string, string>? Config { get; init; }
+    // True when the asker may see code details (L2/L3/Admin, or invited into the conversation; ChatController.IsElevated).
+    // DrafterAgent then writes an internal answer that may name the classes, functions and files involved and explain the
+    // code. False is the customer-facing reply, which never names code. Set once, before the pipeline runs.
+    public bool InternalAudience { get; init; }
 
     public string Intent { get; set; } = string.Empty;
     // U2 (JEV intent classification plan): richer intent output written by TriageAgent from the classifier's

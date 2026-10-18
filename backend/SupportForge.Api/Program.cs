@@ -349,8 +349,15 @@ builder.Services.AddSingleton<Neo4j.Driver.IDriver>(_ =>
     });
 });
 builder.Services.AddSingleton<IIngestionJobFactory>(sp => new GraphImportJobFactory(sp, repoCacheRoot));
+// Semantic code search: embeds top-level definitions after the graph import, only with the code-classification consent
+// (org and project); see CodeVectorIndex. Without vectors a question makes no embedding call.
+builder.Services.AddSingleton<IIngestionJobFactory>(sp => new CodeVectorIndexJobFactory(sp, repoCacheRoot));
 builder.Services.AddScoped<ICodeGraphQueryTool>(sp =>
-    new GraphDbQueryTool(sp.GetRequiredService<Neo4j.Driver.IDriver>(), neo4jOptions.Database));
+    new GraphDbQueryTool(sp.GetRequiredService<Neo4j.Driver.IDriver>(), neo4jOptions.Database,
+        sp.GetRequiredService<ILogger<GraphDbQueryTool>>(),
+        semantic: new VectorCodeSemanticSearch(
+            sp.GetRequiredService<SupportForge.VectorStore.IVectorStoreService>(),
+            sp.GetRequiredService<ILlmEmbeddingClient>())));
 // U24: same pooled driver, separate query mode (calls_endpoint traversal instead of fulltext + BFS).
 builder.Services.AddScoped<IBlastRadiusQueryTool>(sp =>
     new BlastRadiusQueryTool(sp.GetRequiredService<Neo4j.Driver.IDriver>(), neo4jOptions.Database));

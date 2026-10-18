@@ -323,4 +323,366 @@ public class CodeGraphExtractorTests
         Assert.DoesNotContain(graph.Nodes, n => n.Id.StartsWith("endpoint::", StringComparison.Ordinal));
         Assert.DoesNotContain(graph.Edges, e => e.Relation is "defines_endpoint" or "calls_endpoint");
     }
+
+    [Fact]
+    public void Extract_CapturesPythonDefinitionDocstring_AsDefinitionNodeSummary()
+    {
+        var repoDir = CreateRepoFixture(("hooks.py",
+            "class SignatureCheck:\n    \"\"\"Rejects webhooks whose\n    signature does not match.\"\"\"\n\n    def verify(self):\n        '''Compares the HMAC.'''\n        return True\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Equal("Rejects webhooks whose signature does not match.", graph.Nodes.Single(n => n.Id == "hooks.py::SignatureCheck").Summary);
+        Assert.Equal("Compares the HMAC.", graph.Nodes.Single(n => n.Id == "hooks.py::SignatureCheck.verify").Summary);
+    }
+
+    // A ':' inside annotations, defaults or brackets must not be taken for the end of the signature.
+    [Fact]
+    public void Extract_CapturesPythonDocstring_AfterMultiLineAnnotatedSignature()
+    {
+        var repoDir = CreateRepoFixture(("svc.py",
+            "async def fetch(\n    url: str,\n    headers: dict[str, str] = {\"a\": \"b\"},\n) -> list[int]:\n    \"\"\"Downloads the page.\"\"\"\n    return []\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Equal("Downloads the page.", graph.Nodes.Single(n => n.Id == "svc.py::fetch").Summary);
+    }
+
+    [Fact]
+    public void Extract_LeavesPythonSummaryEmpty_WhenBodyDoesNotStartWithDocstring()
+    {
+        var repoDir = CreateRepoFixture(("svc.py", "def run():\n    x = \"\"\"not a docstring\"\"\"\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Equal("", graph.Nodes.Single(n => n.Id == "svc.py::run").Summary);
+    }
+
+    [Fact]
+    public void Extract_SplitsIdentifiersAndPathsIntoNameTerms()
+    {
+        var repoDir = CreateRepoFixture(
+            ("django/middleware/csrf.py", "class CsrfViewMiddleware:\n    pass\n\ndef get_object_or_404():\n    pass\n"),
+            ("src/Hashers.cs", "public class PBKDF2PasswordHasher { }\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.Equal("csrfviewmiddleware csrf view middleware", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py::CsrfViewMiddleware").NameTerms);
+        Assert.Equal("get_object_or_404 get object or 404", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py::get_object_or_404").NameTerms);
+        Assert.Equal("pbkdf2passwordhasher pbkdf2 password hasher", graph.Nodes.Single(n => n.Id == "src/Hashers.cs::PBKDF2PasswordHasher").NameTerms);
+        Assert.Equal("django middleware csrf", graph.Nodes.Single(n => n.Id == "django/middleware/csrf.py").NameTerms);
+    }
+
+    [Fact]
+    public void Extract_KeepsAOneWordNameAsItsOnlyNameTerm()
+    {
+        var repoDir = CreateRepoFixture(("signing.py", "class Signer:\n    pass\n"));
+
+        Assert.Equal("signer", CodeGraphExtractor.Extract(repoDir).Nodes.Single(n => n.Id == "signing.py::Signer").NameTerms);
+    }
+
+    [Fact]
+    public void Extract_BodyTermsMakeAnUndocumentedClassFindableByWhatItDoes()
+    {
+        // Django's SecurityMiddleware has no docstring; what it does is only in its methods' bodies.
+        const string source = """
+            class SecurityMiddleware(MiddlewareMixin):
+                async_capable = False
+
+                def __init__(self, get_response):
+                    self.sts_seconds = settings.SECURE_HSTS_SECONDS
+
+                def process_response(self, request, response):
+                    if self.sts_seconds:
+                        response.headers["Strict-Transport-Security"] = "max-age=%s" % self.sts_seconds
+                    return response
+
+
+            def unrelated_helper():
+                return "cookie banner"
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("django/middleware/security.py", source)));
+
+        var classTerms = graph.Nodes.Single(n => n.Id == "django/middleware/security.py::SecurityMiddleware").BodyTerms.Split(' ');
+        Assert.Contains("hsts", classTerms);
+        Assert.Contains("transport", classTerms);
+        Assert.Contains("middleware", classTerms); // the base class on the definition line
+        Assert.DoesNotContain("cookie", classTerms); // the next top-level definition is not part of the class
+        Assert.DoesNotContain("self", classTerms);
+        Assert.DoesNotContain("return", classTerms);
+
+        // A method's body stops at the next method.
+        var initTerms = graph.Nodes.Single(n => n.Id == "django/middleware/security.py::SecurityMiddleware.__init__").BodyTerms.Split(' ');
+        Assert.Contains("hsts", initTerms);
+        Assert.DoesNotContain("transport", initTerms);
+    }
+
+    [Fact]
+    public void Extract_BodyTermsWorkForBraceLanguages()
+    {
+        const string source = """
+            namespace Demo
+            {
+                public class ReceiptPrinter
+                {
+                    public void Print(Invoice invoice)
+                    {
+                        // Sends the invoice to the thermal printer queue.
+                        _queue.Enqueue(invoice.ToThermalFormat());
+                    }
+                }
+
+                public class Unrelated
+                {
+                    private const string Banner = "cookie banner";
+                }
+            }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("src/ReceiptPrinter.cs", source)));
+
+        var terms = graph.Nodes.Single(n => n.Id == "src/ReceiptPrinter.cs::ReceiptPrinter").BodyTerms.Split(' ');
+        Assert.Contains("thermal", terms);
+        Assert.Contains("invoice", terms);
+        Assert.Equal("invoice", terms[0]); // most frequent first
+        Assert.DoesNotContain("cookie", terms);
+        Assert.DoesNotContain("public", terms);
+    }
+
+    [Fact]
+    public void Extract_GivesEndpointsNameTerms()
+    {
+        const string source = """
+            [Route("api/orders")]
+            public class OrdersController : ControllerBase
+            {
+                [HttpGet("{id}")]
+                public IActionResult Get(int id) => Ok();
+            }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("Controllers/OrdersController.cs", source)));
+
+        Assert.Equal("get api orders id", graph.Nodes.Single(n => n.Id.StartsWith("endpoint::", StringComparison.Ordinal)).NameTerms);
+    }
+
+    [Theory]
+    [InlineData("tests/cache/test_db.py", true)]
+    [InlineData("django/contrib/auth/test_hashers.py", true)]
+    [InlineData("pkg/server_test.go", true)]
+    [InlineData("backend/SupportForge.Api.Tests/Agents/DrafterAgentTests.cs", true)]
+    [InlineData("src/OrderServiceTests.cs", true)]
+    [InlineData("web/app/page.spec.ts", true)]
+    [InlineData("web/__tests__/page.tsx", true)]
+    [InlineData("conftest.py", true)]
+    [InlineData("src/Latest.cs", false)]
+    [InlineData("src/Contest.java", false)]
+    [InlineData("django/core/paginator.py", false)]
+    [InlineData("src/testimonials.ts", false)]
+    public void IsTestPath_RecognisesTestDirectoriesAndFileNames(string path, bool expected)
+    {
+        Assert.Equal(expected, CodeGraphExtractor.IsTestPath(path));
+    }
+
+    [Fact]
+    public void Extract_MarksTestNodes()
+    {
+        var repoDir = CreateRepoFixture(
+            ("tests/test_cache.py", "def test_get():\n    pass\n"),
+            ("app/cache.py", "def get():\n    pass\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        Assert.True(graph.Nodes.Single(n => n.Id == "tests/test_cache.py").IsTest);
+        Assert.True(graph.Nodes.Single(n => n.Id == "tests/test_cache.py::test_get").IsTest);
+        Assert.False(graph.Nodes.Single(n => n.Id == "app/cache.py::get").IsTest);
+    }
+
+    [Fact]
+    public void Extract_StoresDefinitionExcerpt_FromItsFirstLine()
+    {
+        var body = string.Join("\n", Enumerable.Range(1, 30).Select(i => $"    x{i} = {i}"));
+        var repoDir = CreateRepoFixture(("mod.py", $"import os\n\n\ndef build():\n{body}\n"));
+
+        var graph = CodeGraphExtractor.Extract(repoDir);
+
+        var excerpt = graph.Nodes.Single(n => n.Id == "mod.py::build").Excerpt;
+        Assert.StartsWith("def build():", excerpt);
+        Assert.True(excerpt.Split('\n').Length <= 12);
+        Assert.Equal("", graph.Nodes.Single(n => n.Id == "mod.py").Excerpt);
+    }
+
+    [Fact]
+    public void Extract_IdentifiesMembersThroughTheirContainer_AndLinksThem()
+    {
+        const string source = """
+            class Reader:
+                def close(self):
+                    pass
+
+
+            class Writer:
+                def close(self):
+                    pass
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("io.py", source)));
+
+        Assert.Contains(graph.Nodes, n => n.Id == "io.py::Reader.close" && n.Label == "close");
+        Assert.Contains(graph.Nodes, n => n.Id == "io.py::Writer.close" && n.Label == "close");
+        Assert.Contains(graph.Edges, e => e.Source == "io.py::Writer" && e.Target == "io.py::Writer.close" && e.Relation == "contains");
+    }
+
+    [Fact]
+    public void Extract_CSharpMethods_WithTheirDocComment()
+    {
+        const string source = """
+            namespace Demo
+            {
+                public class CryptographyProvider
+                {
+                    /// <summary>Creates a salted PBKDF2 hash of a password.</summary>
+                    [Obsolete("use the span overload")]
+                    public PasswordHash CreatePasswordHash(ReadOnlySpan<char> password)
+                    {
+                        return Hash(password);
+                    }
+
+                    public IDictionary<FilterOptionType, bool> GetFiltersWithOption() => _filters;
+
+                    private void Log()
+                    {
+                        if (enabled) Write("x");
+                        return;
+                    }
+                }
+            }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("Crypto.cs", source)));
+
+        var method = graph.Nodes.Single(n => n.Id == "Crypto.cs::CryptographyProvider.CreatePasswordHash");
+        Assert.Contains("Creates a salted PBKDF2 hash", method.Summary);
+        Assert.Contains(graph.Nodes, n => n.Id == "Crypto.cs::CryptographyProvider.GetFiltersWithOption");
+        Assert.Contains(graph.Nodes, n => n.Id == "Crypto.cs::CryptographyProvider.Log");
+        Assert.DoesNotContain(graph.Nodes, n => n.Label is "Write" or "Hash" or "if");
+    }
+
+    [Fact]
+    public void Extract_JavaMethods_AndClassDocAboveAnAnnotation()
+    {
+        const string source = """
+            package demo;
+
+            /**
+             * Validates arguments.
+             */
+            @Deprecated
+            public class Validate {
+                /**
+                 * Throws when the object is null.
+                 */
+                public static <T> T notNull(final T object, final String message) {
+                    return Objects.requireNonNull(object, message);
+                }
+            }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("Validate.java", source)));
+
+        Assert.Equal("Validates arguments.", graph.Nodes.Single(n => n.Id == "Validate.java::Validate").Summary);
+        Assert.Equal("Throws when the object is null.", graph.Nodes.Single(n => n.Id == "Validate.java::Validate.notNull").Summary);
+        Assert.DoesNotContain(graph.Nodes, n => n.Label == "requireNonNull");
+    }
+
+    [Fact]
+    public void Extract_TypeScriptArrowFunctionsDecoratedClassesAndMethods()
+    {
+        const string source = """
+            /**
+             * Attaches custom metadata to a handler.
+             */
+            export const SetMetadata = <K = string, V = any>(
+              metadataKey: K,
+              metadataValue: V,
+            ) => decorator;
+
+            /**
+             * Validates request payloads.
+             */
+            @Injectable()
+            export class ValidationPipe implements PipeTransform {
+              public getAllAndMerge<TParam = any>(
+                decorator: ReflectableDecorator<TParam>,
+              ): TParam[] {
+                if (decorator) {
+                  return [];
+                }
+              }
+
+              transform(value: unknown, metadata: ArgumentMetadata) {
+                return value;
+              }
+            }
+
+            const local = compute(1);
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("pipes.ts", source)));
+
+        Assert.Equal("Attaches custom metadata to a handler.", graph.Nodes.Single(n => n.Id == "pipes.ts::SetMetadata").Summary);
+        Assert.Equal("Validates request payloads.", graph.Nodes.Single(n => n.Id == "pipes.ts::ValidationPipe").Summary);
+        Assert.Contains(graph.Nodes, n => n.Id == "pipes.ts::ValidationPipe.getAllAndMerge");
+        Assert.Contains(graph.Nodes, n => n.Id == "pipes.ts::ValidationPipe.transform");
+        Assert.DoesNotContain(graph.Nodes, n => n.Label is "if" or "local" or "compute");
+    }
+
+    [Fact]
+    public void Extract_GoMethodsAreIdentifiedThroughTheirReceiver()
+    {
+        const string source = """
+            package promql
+
+            // Engine handles the lifetime of queries.
+            type Engine struct{}
+
+            // NewInstantQuery returns an evaluation query.
+            func (ng *Engine) NewInstantQuery(qs string) (Query, error) {
+                return nil, nil
+            }
+
+            func (q *query) String() string { return "" }
+            func (e Expr) String() string { return "" }
+            """;
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("engine.go", source)));
+
+        Assert.Equal("NewInstantQuery returns an evaluation query.", graph.Nodes.Single(n => n.Id == "engine.go::Engine.NewInstantQuery").Summary);
+        Assert.Contains(graph.Nodes, n => n.Id == "engine.go::query.String");
+        Assert.Contains(graph.Nodes, n => n.Id == "engine.go::Expr.String");
+    }
+
+    [Fact]
+    public void Extract_PythonHashCommentAboveADefinition_IsItsSummary()
+    {
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("cache.py", "# Stores entries in a database table.\nclass DatabaseCache:\n    pass\n")));
+
+        Assert.Equal("Stores entries in a database table.", graph.Nodes.Single(n => n.Id == "cache.py::DatabaseCache").Summary);
+    }
+
+    [Theory]
+    [InlineData("Billing.kt", "/** Charges cards. */\ndata class Invoice(val id: Int)\nfun String.slugify(): String = this\n", "Billing.kt::Invoice", "Billing.kt::slugify")]
+    [InlineData("billing.rb", "# Charges cards.\nclass Billing::Invoice\n  def total?\n  end\nend\n", "billing.rb::Invoice", "billing.rb::Invoice.total?")]
+    [InlineData("Invoice.php", "<?php\nfinal class Invoice {\n    public static function total() {}\n}\n", "Invoice.php::Invoice", "Invoice.php::Invoice.total")]
+    [InlineData("invoice.rs", "/// Charges cards.\n#[derive(Debug)]\npub struct Invoice {}\npub async fn total() {}\n", "invoice.rs::Invoice", "invoice.rs::total")]
+    [InlineData("Invoice.swift", "public final class Invoice {\n    func total() -> Int { 0 }\n}\n", "Invoice.swift::Invoice", "Invoice.swift::Invoice.total")]
+    [InlineData("Invoice.scala", "case class Invoice(id: Int)\nobject Billing {\n  def total(): Int = 0\n}\n", "Invoice.scala::Invoice", "Invoice.scala::Billing.total")]
+    public void Extract_DefinitionsInMoreLanguages(string file, string source, string typeId, string memberId)
+    {
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture((file, source)));
+
+        Assert.Contains(graph.Nodes, n => n.Id == typeId);
+        Assert.Contains(graph.Nodes, n => n.Id == memberId);
+    }
+
+    [Fact]
+    public void Extract_RustDocCommentAboveAnAttribute_IsItsSummary()
+    {
+        var graph = CodeGraphExtractor.Extract(CreateRepoFixture(("invoice.rs", "/// Charges cards.\n#[derive(Debug)]\npub struct Invoice {}\n")));
+
+        Assert.Equal("Charges cards.", graph.Nodes.Single(n => n.Id == "invoice.rs::Invoice").Summary);
+    }
 }
