@@ -1,7 +1,7 @@
 {
   "repo": "django/django",
   "branch": "main",
-  "note": "Answers checked against django/django main at d430084 (2026-10-15). kind: documented, undocumented.",
+  "note": "Answers checked against django/django main at d430084 (2026-10-15). kind: documented, undocumented, rca (bug reports whose answer is the root-cause definition; checked against the branch head on 2026-10-18).",
   "questions": [
     { "q": "Which middleware protects against cross-site request forgery?", "answer": "CsrfViewMiddleware", "path": "django/middleware/csrf.py", "kind": "documented" },
     { "q": "Which class implements the PBKDF2 password hasher?", "answer": "PBKDF2PasswordHasher", "path": "django/contrib/auth/hashers.py", "kind": "documented" },
@@ -12,6 +12,11 @@
     { "q": "Which helper returns an object or raises a 404 error when it does not exist?", "answer": "get_object_or_404", "path": "django/shortcuts.py", "kind": "documented" },
     { "q": "Which middleware sets security headers such as HSTS?", "answer": "SecurityMiddleware", "path": "django/middleware/security.py", "kind": "undocumented" },
     { "q": "Which class signs values so they cannot be tampered with?", "answer": "Signer", "path": "django/core/signing.py", "kind": "undocumented" },
-    { "q": "Which response class streams its content instead of building it in memory?", "answer": "StreamingHttpResponse", "path": "django/http/response.py", "kind": "documented" }
+    { "q": "Which response class streams its content instead of building it in memory?", "answer": "StreamingHttpResponse", "path": "django/http/response.py", "kind": "documented" },
+    { "q": "After deploying our Django app behind a new load balancer hostname, every request returns HTTP 400 and the error log is full of lines like \"Invalid HTTP_HOST header: \" followed by the new hostname. It works fine locally with DEBUG=True. Where does Django decide to reject the host, and why does it only happen in production?", "answer": "get_host", "path": "django/http/request.py", "kind": "rca" },
+    { "q": "We switched to ManifestStaticFilesStorage and now rendering any template that uses {% static %} for a file we forgot to run collectstatic for crashes with ValueError: \"Missing staticfiles manifest entry for\" the file path. Before the switch the same page just rendered. What code raises this and is there a way to make it fall back instead of crashing?", "answer": "stored_name", "path": "django/contrib/staticfiles/storage.py", "kind": "rca" },
+    { "q": "In development, submitting our signup form crashes with a RuntimeError that ends with \"slash), or set APPEND_SLASH=False in your Django settings.\" The form's action URL is /accounts/signup without a trailing slash. In production (DEBUG=False) the same submit is redirected to the slash URL and the POST data is lost. Which part of Django produces this error and why can't it just redirect?", "answer": "get_full_path_with_slash", "path": "django/middleware/common.py", "kind": "rca" },
+    { "q": "We store a 'last_step' value in request.session inside a view. When that view ends up returning a 500 error response (we render a custom error page), the session change is never persisted and the browser does not get an updated session cookie, while the exact same code path with a 200 response saves fine. Why are session modifications dropped only for server-error responses?", "answer": "SessionMiddleware", "path": "django/contrib/sessions/middleware.py", "kind": "rca" },
+    { "q": "We enabled the site-wide cache middleware, but our home page is never stored in the cache: every hit renders the view again. The page sets a cookie (a language preference) and the response carries Vary: Cookie. Other pages without that cookie are cached correctly, and pages that send Cache-Control: private are also never cached. What decides that these responses are skipped?", "answer": "UpdateCacheMiddleware", "path": "django/middleware/cache.py", "kind": "rca" }
   ]
 }
