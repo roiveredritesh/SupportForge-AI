@@ -186,6 +186,14 @@ ask_all() {
   say "- Exceptions logged ($mode): $(grep -oE '\b[A-Z][A-Za-z.]*Exception\b' "$OUT/code-qa.$mode.log" | sort | uniq -c | awk '{printf "%s x%s; ", $2, $1}')"
   # Status codes only: what the provider answered when a client call failed (ClientResultException messages carry "Status: NNN").
   say "- Provider HTTP status on failed calls ($mode): $(grep -oE 'Status: [0-9]{3}' "$OUT/code-qa.$mode.log" | sort | uniq -c | awk '{printf "%s x%s; ", $3, $1}')"
+  # Whether the API outlived the questions (in run 15 every Jev-mode request after the second got no HTTP response and
+  # no exception was logged). Exit code and an OOM kill only, no log text.
+  local alive=yes rc="" oom=""
+  if ! kill -0 "$API_PID" 2>/dev/null; then
+    alive=no; rc=0; wait "$API_PID" 2>/dev/null || rc=$?
+    sudo -n dmesg 2>/dev/null | grep -qiE 'out of memory|oom-kill' && oom="; kernel logged an OOM kill"
+  fi
+  say "- API process still running after the questions ($mode): $alive${rc:+ (exit code $rc)}$oom"
   say ""
   say "<details><summary>Drafts ($mode)</summary>"; say ""
   for i in $(seq 0 $((COUNT - 1))); do
