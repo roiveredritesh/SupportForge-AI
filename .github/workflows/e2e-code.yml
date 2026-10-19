@@ -50,8 +50,9 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      # NVIDIA's API is rate-limited; more parallel runs slow every answer down.
-      max-parallel: 2
+      # NVIDIA's API is rate-limited per key. With two repositories at once, run 13 got 429s that failed most of
+      # Jellyfin's Jev-mode requests, which measured the rate limit instead of the answers. One at a time.
+      max-parallel: 1
       matrix:
         fixture: ${{ fromJson(needs.fixtures.outputs.list) }}
 

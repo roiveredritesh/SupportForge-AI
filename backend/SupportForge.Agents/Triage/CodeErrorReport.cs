@@ -24,7 +24,7 @@ public static partial class CodeErrorReport
     private static partial Regex CodeEvidence();
 
     [GeneratedRegex(
-        @"\b(?:where|why|what\s+(?:decides|determines|causes|counts|triggers)|which\s+(?:code|part|component|file|line)s?)\b",
+        @"\b(?:where|why|what\s+(?:decides|determines|causes|counts|triggers)|(?:which|what)\s+(?:code|part|component|file|line)s?)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AsksWhereOrWhy();
 

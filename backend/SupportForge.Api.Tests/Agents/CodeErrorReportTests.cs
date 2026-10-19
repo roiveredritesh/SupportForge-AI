@@ -16,6 +16,7 @@ public class CodeErrorReportTests
     [InlineData("Our client sends ?active=1 and gets a 400. Where does Nest decide which values count as a boolean?")]
     [InlineData("Nest can't resolve dependencies of the OrdersService. Where does Nest decide to print the hint?")]
     [InlineData("Startup dies with an InvalidOperationException about free space. What decides the threshold?")]
+    [InlineData("Rendering crashes with ValueError: \"Missing staticfiles manifest entry\". What code raises this?")]
     public void Matches_BugReportsThatNameCodeAndAskWhereOrWhy(string query)
     {
         Assert.True(CodeErrorReport.Matches(query));
