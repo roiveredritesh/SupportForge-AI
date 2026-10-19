@@ -51,6 +51,9 @@ public class RagPipelineE2ETests : IClassFixture<WebApplicationFactory<Program>>
                 // (CI runs with an empty OpenAI__ApiKey). A no-vision stand-in sends every image and
                 // diagram down the captioner's placeholder path, which is what these tests assert on.
                 services.AddSingleton<ILlmChatClient, NoVisionChatClient>();
+                // Every ingestion also asks CodeIngestionJobFactory for jobs, and it resolves the cheap tier for the code
+                // classifier, so that tier needs the same stand-in.
+                services.AddKeyedSingleton<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey, (_, _) => new NoVisionChatClient());
             });
         });
     }
