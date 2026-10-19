@@ -170,6 +170,20 @@ public class IngestionJobFactoryTests
         Assert.Single(jobs.OfType<ConfluenceIngestionJob>());
     }
 
+    [Theory]
+    [InlineData("small-model", "big-model", "small-model")]
+    [InlineData(null, "big-model", "big-model")]
+    [InlineData(null, null, "unknown")]
+    public void CodeIngestionJobFactory_CacheKeyModel_IsTheCheapTierModel_WhenConfigured(string? cheap, string? main, string expected)
+    {
+        var values = new Dictionary<string, string?> { ["Llm:Provider"] = "NvidiaNim" };
+        if (cheap is not null) values["Llm:NvidiaNim:CheapChatModel"] = cheap;
+        if (main is not null) values["Llm:NvidiaNim:ChatModel"] = main;
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+
+        Assert.Equal(expected, CodeIngestionJobFactory.ResolveConfiguredChatModel(configuration));
+    }
+
     [Fact]
     public void CodeIngestionJobFactory_CreatesOneJobPerConfiguredRepo()
     {

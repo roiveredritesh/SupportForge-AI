@@ -28,7 +28,11 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
 
         // One classifier instance shared across every repo of this project -- it's stateless beyond
         // its injected dependencies, so there's no reason to construct it per repo.
-        var llm = _services.GetRequiredService<ILlmChatClient>();
+        // The cheap tier, like triage and the verifiers: classifying up to 300 files is a bulk classifier job, and on the
+        // main tier (Nemotron 3 Ultra on NIM) Django's consented ingestion took 29 minutes, then over 40 once rate
+        // limits were waited out. Falls back to the main client where no cheap tier is registered.
+        var llm = _services.GetKeyedService<ILlmChatClient>(LlmServiceCollectionExtensions.CheapTierKey)
+            ?? _services.GetRequiredService<ILlmChatClient>();
         var contentHashes = _services.GetRequiredService<IContentHashRepository>();
         var configuration = _services.GetRequiredService<IConfiguration>();
         var loggerFactory = _services.GetRequiredService<ILoggerFactory>();
@@ -45,13 +49,13 @@ public sealed class CodeIngestionJobFactory : IIngestionJobFactory
             gitSync, projects, orgs, classifier)).ToList();
     }
 
-    // Mirrors LlmServiceCollectionExtensions' own "Llm:Provider" / "Llm:{Provider}:ChatModel"
-    // resolution closely enough for cache-key purposes (R7/KTD7) -- it only needs to change when the
-    // actually-configured chat model changes, not match that resolution byte-for-byte.
-    private static string ResolveConfiguredChatModel(IConfiguration configuration)
+    // Mirrors LlmServiceCollectionExtensions' own "Llm:Provider" / "Llm:{Provider}:CheapChatModel" (falling back to
+    // ChatModel) resolution closely enough for cache-key purposes (R7/KTD7) -- it only needs to change when the
+    // model the classifier actually runs on changes, not match that resolution byte-for-byte.
+    internal static string ResolveConfiguredChatModel(IConfiguration configuration)
     {
         var provider = configuration["Llm:Provider"];
         provider = string.IsNullOrWhiteSpace(provider) ? "OpenAI" : provider;
-        return configuration[$"Llm:{provider}:ChatModel"] ?? "unknown";
+        return configuration[$"Llm:{provider}:CheapChatModel"] ?? configuration[$"Llm:{provider}:ChatModel"] ?? "unknown";
     }
 }
