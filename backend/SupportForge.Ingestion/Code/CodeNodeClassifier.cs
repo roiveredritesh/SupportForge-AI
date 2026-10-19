@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -30,6 +31,12 @@ public sealed class CodeNodeClassifier
     // Files beyond it stay unenriched (R6) -- not a correctness issue, just deferred to the next run.
     internal const int MaxFilesPerRun = 300;
 
+    // A wall-clock budget for the same reason: classification is enrichment, and the code graph is imported only after
+    // it. With a slow or rate-limited provider, 30 batches at up to four 40 s attempts each kept Commons Lang's and
+    // Jellyfin's ingestion from finishing within 40 minutes in the code-QA benchmark. Batches not started within the
+    // budget stay unenriched until the next run, exactly like files beyond MaxFilesPerRun.
+    internal static readonly TimeSpan DefaultTimeBudget = TimeSpan.FromMinutes(10);
+
     private static readonly HashSet<string> ValidKinds =
         new(StringComparer.Ordinal) { "handwritten", "vendored", "generated", "test", "config", "unknown" };
     private static readonly HashSet<string> ValidLayers = new(StringComparer.Ordinal)
@@ -41,13 +48,16 @@ public sealed class CodeNodeClassifier
     private readonly IContentHashRepository _contentHashes;
     private readonly string _modelId;
     private readonly ILogger<CodeNodeClassifier> _logger;
+    private readonly TimeSpan _timeBudget;
 
-    public CodeNodeClassifier(ILlmChatClient llm, IContentHashRepository contentHashes, string modelId, ILogger<CodeNodeClassifier> logger)
+    public CodeNodeClassifier(
+        ILlmChatClient llm, IContentHashRepository contentHashes, string modelId, ILogger<CodeNodeClassifier> logger, TimeSpan? timeBudget = null)
     {
         _llm = llm;
         _contentHashes = contentHashes;
         _modelId = modelId;
         _logger = logger;
+        _timeBudget = timeBudget ?? DefaultTimeBudget;
     }
 
     // Caller (CodeIngestionJob) is responsible for the org/project consent gate -- this method always
@@ -88,9 +98,32 @@ public sealed class CodeNodeClassifier
         }
 
         // Batched by directory (§6.4 of the design) so related files share prompt context.
+        var clock = Stopwatch.StartNew();
+        var sent = 0;
+        var skipped = 0;
         foreach (var group in pending.GroupBy(p => Path.GetDirectoryName(p.Node.SourceFile) ?? ""))
             foreach (var batch in Chunk(group.ToList(), BatchSize))
+            {
+                if (clock.Elapsed >= _timeBudget)
+                {
+                    skipped += batch.Count;
+                    continue;
+                }
+
+                sent += batch.Count;
                 await ClassifyBatchAsync(graph, batch, projectId, ct);
+            }
+
+        if (skipped > 0)
+        {
+            _logger.LogWarning(
+                "Code classification reached its {BudgetMinutes} min budget: {Sent} files sent, {Skipped} left unenriched until the next run",
+                _timeBudget.TotalMinutes, sent, skipped);
+        }
+        else if (sent > 0)
+        {
+            _logger.LogInformation("Code classification sent {Sent} files in {ElapsedMs}ms", sent, clock.ElapsedMilliseconds);
+        }
     }
 
     private async Task ClassifyBatchAsync(CodeGraphFile graph, IReadOnlyList<PendingFile> batch, string projectId, CancellationToken ct)

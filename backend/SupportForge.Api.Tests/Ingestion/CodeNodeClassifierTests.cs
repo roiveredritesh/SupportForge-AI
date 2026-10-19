@@ -129,6 +129,20 @@ public class CodeNodeClassifierTests : IDisposable
         Assert.Equal("", graph.Nodes.Single(n => n.Id == "A.cs").Kind);
     }
 
+    [Fact]
+    public async Task ClassifyAsync_OverTimeBudget_SendsNoFurtherBatches_LeavesFilesUnenriched()
+    {
+        WriteFile("A.cs", "namespace Demo;\npublic class A {}\n");
+        var graph = CodeGraphExtractor.Extract(_repoDir);
+        SetLlmResponse("""[{"id": "A.cs", "kind": "handwritten", "confidence": 0.9, "purpose": "A.", "domainTerms": [], "layer": "util"}]""");
+        var classifier = new CodeNodeClassifier(_llm.Object, _hashes, "test-model", NullLogger<CodeNodeClassifier>.Instance, TimeSpan.Zero);
+
+        await classifier.ClassifyAsync(graph, _repoDir, "proj1", "repo1", CancellationToken.None);
+
+        Assert.Equal("", graph.Nodes.Single(n => n.Id == "A.cs").Kind);
+        _llm.Verify(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // Bug fix: observed live against the real configured model -- despite the system prompt's
     // explicit "respond with ONLY a JSON array" instruction, some responses came back as multiple
     // separate top-level arrays ("[{...file1}]\n\n[{...file2}]") instead of one combined array. The
