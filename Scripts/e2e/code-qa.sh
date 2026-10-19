@@ -184,6 +184,8 @@ ask_all() {
     | awk '{ms=$4; sub("ms","",ms); n[$1]++; if (ms+0 > max[$1]) max[$1]=ms+0} END {for (a in max) printf "%s %d (x%d); ", a, max[a], n[a]}')"
   # Exception type names only.
   say "- Exceptions logged ($mode): $(grep -oE '\b[A-Z][A-Za-z.]*Exception\b' "$OUT/code-qa.$mode.log" | sort | uniq -c | awk '{printf "%s x%s; ", $2, $1}')"
+  # Status codes only: what the provider answered when a client call failed (ClientResultException messages carry "Status: NNN").
+  say "- Provider HTTP status on failed calls ($mode): $(grep -oE 'Status: [0-9]{3}' "$OUT/code-qa.$mode.log" | sort | uniq -c | awk '{printf "%s x%s; ", $3, $1}')"
   say ""
   say "<details><summary>Drafts ($mode)</summary>"; say ""
   for i in $(seq 0 $((COUNT - 1))); do

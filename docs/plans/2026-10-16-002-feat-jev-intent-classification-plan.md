@@ -995,6 +995,25 @@ Report pass/fail agreement for every judge. For judges that return scores, also 
           - Most of the rest is retrieval or ranking: `Paginator`, `QuickConnectManager` and `BaseExceptionFilter` are found or ranked higher by semantic search, while `Signer`, `isBlank`, `abbreviate`, `ParseExpr` and `LeveledCompactor` are not found either way.
         - `CodeElementQuestion` (4069c31) answers a "which/what <class, type, method, decorator, exception ...>" question as `code_question` when either classifier lands on `unclear` or `kb_question`. None of the triage fixtures' KB or vague messages match it; 49 of the 50 code-QA questions do.
       - The rest are answers that name a neighbour of the retrieved answer (`pagination` for `Paginator`, `IQuickConnect` for `QuickConnectManager`, `parseAsStringLiteral` for `ParseExpr`), or definitions keyword search does not find (`Signer`, `BaseExceptionFilter`, `LeveledCompactor`).
+      - **Stronger model, semantic search and root-cause questions** (`e2e-code/all` on 8ea85cd). Nemotron 3 Ultra answers and investigates code, the 11B stays on the cheap tier and images, attempts are cut at 40 s, and the e2e projects consent to semantic search (test-only). Each fixture also gained five root-cause (RCA) questions: a customer's bug report that names an error or log line and asks where and why. Names the answer, out of 10 "which X" and 5 RCA questions per repository:
+
+        | Repository | `Llm` which X | `Llm` RCA | `Jev` + `Enforce` which X | `Jev` + `Enforce` RCA |
+        |---|---|---|---|---|
+        | Django | 10 | 2 | 10 | 3 |
+        | Commons Lang | 9 | 3 | 9 | 4 |
+        | Jellyfin | 8 | 0 | 8 | 0 |
+        | NestJS | 10 | 2 | 10 | 4 |
+        | Prometheus | 9 | 1 | 9 | 0 |
+        | **Total** | **46 / 50 (was 39)** | **8 / 25** | **46 / 50 (was 40)** | **11 / 25** |
+
+        - Right file retrieved, all 75 questions: `Llm` 57, `Jev` + `Enforce` 61.
+        - "Which X" misses, the same four in both modes: `abbreviate` (not found), `EncoderValidator` (named its caller `MediaEncoder`), `LeveledCompactor` (named the `Compactor` interface), and `BaseUrlRedirectionMiddleware` (draft replaced by `LeakFallback`).
+        - Every `Llm` request was answered (the slowest took 118 s). In `Jev` mode, four Prometheus RCA requests failed: NIM returned errors (8 `ClientResultException`), the circuit breaker opened (8 `BrokenCircuitException`), and the run does not record the HTTP status. They are counted as misses.
+        - RCA misses by cause:
+          - Triage: the 11B LLM classifier sent 6 bug reports to `unclear` (NestJS 3, Prometheus 3), so the customer got a clarifying question. Jev sent 3 to `kb_question` (Jellyfin 2, Prometheus 1), which searches no code.
+          - Retrieval: the answer's file was not in context (Jellyfin session limit and remote-access login, NestJS scope resolution, Prometheus `queryRange`).
+          - Neighbours and deflections: `validate_host` for `get_host`, `TestCommonPathsForStorageCapacity` for `TestDataDirectorySize`, and `LeakFallback` on `inclusiveBetween` and `stored_name`.
+        - `CodeErrorReport` answers a bug report as `code_issue` when either classifier lands on `unclear` or `kb_question` and the message both names something from the code (an exception type, a snake_case or camelCase identifier, a call, a `--flag`, a `?param=`) and asks where or why. It matches 8 of the 9 RCA questions triage sent away (not the Jellyfin `.ignore` report) and none of the triage fixtures' messages. The benchmark script now also lists the provider's HTTP status codes on failed calls.
   - **NIM embedding model**: NVIDIA also retired `nvidia/nv-embedqa-e5-v5` (2026-08-25). It is replaced by `nvidia/llama-nemotron-embed-vl-1b-v2`, which has 2048 dimensions instead of 1024, so existing deployments must re-index (see the configuration guide).
   - **Verifier agreement** with the new LLM model: KB 24/27, code 15/18, vision 10/12, code-node classifier 3/4 (52/61 overall). The DISAGREE lines are findings, not crashes.
   - **Open Questions answered**: 1 (wire format, usage, error codes; no rate-limit headers seen), 5 (no question limit at or below 100, and questions can name JSON-state keys) and 6 (Score takes an ordered criteria array and returns a probability-weighted level, which maps to 0–1 by dividing by the top level). 4 is answered in part (see Triage). 2, 3, 7, 8 and 9 are still open.
