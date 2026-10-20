@@ -1,3 +1,5 @@
+using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Net;
 using Amazon.BedrockRuntime;
 using Amazon.BedrockRuntime.Model;
@@ -252,6 +254,97 @@ public class LlmClientResilienceTests
         await Assert.ThrowsAsync<BrokenCircuitException>(() => sut.CompleteAsync("system", "user"));
 
         Assert.Equal(callsAfterFirstRequest, chatClient.Invocations.Count);
+    }
+
+    // A provider response with only a status and headers, for the ClientResultException a 429 surfaces as.
+    private sealed class StatusOnlyResponse(int status, IReadOnlyDictionary<string, string> headers) : PipelineResponse
+    {
+        public override int Status => status;
+        public override string ReasonPhrase => "";
+        public override Stream? ContentStream { get; set; }
+        public override BinaryData Content => BinaryData.FromString("");
+        protected override PipelineResponseHeaders HeadersCore => new HeaderSet(headers);
+        public override BinaryData BufferContent(CancellationToken cancellationToken = default) => Content;
+        public override ValueTask<BinaryData> BufferContentAsync(CancellationToken cancellationToken = default) => new(Content);
+        public override void Dispose() { }
+
+        private sealed class HeaderSet(IReadOnlyDictionary<string, string> map) : PipelineResponseHeaders
+        {
+            public override bool TryGetValue(string name, out string? value) => map.TryGetValue(name, out value);
+
+            public override bool TryGetValues(string name, out IEnumerable<string>? values)
+            {
+                var found = map.TryGetValue(name, out var value);
+                values = found ? [value!] : null;
+                return found;
+            }
+
+            public override IEnumerator<KeyValuePair<string, string>> GetEnumerator() => map.GetEnumerator();
+        }
+    }
+
+    private static ClientResultException RateLimited(string retryAfter) =>
+        new("rate limited", new StatusOnlyResponse(429, new Dictionary<string, string> { ["Retry-After"] = retryAfter }));
+
+    [Fact]
+    public async Task OpenAi_RateLimit_DoesNotOpenTheCircuitBreaker()
+    {
+        var chatClient = new Mock<IChatClient>();
+        chatClient
+            .Setup(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(RateLimited("0"));
+        var sut = new OpenAiLlmClient(chatClient.Object, null!, "unused-model");
+
+        var first = await Assert.ThrowsAsync<ClientResultException>(() => sut.CompleteAsync("system", "user"));
+        Assert.Equal(429, first.Status);
+
+        // A sustained HttpRequestException opens the breaker after one request (above); four 429s do not, so the next
+        // request is still sent and retried.
+        await Assert.ThrowsAsync<ClientResultException>(() => sut.CompleteAsync("system", "user"));
+        chatClient.Verify(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()), Times.Exactly(8));
+    }
+
+    [Fact]
+    public async Task OpenAi_RateLimit_WaitsForRetryAfter_ThenSucceeds()
+    {
+        var calls = 0;
+        var chatClient = new Mock<IChatClient>();
+        chatClient
+            .Setup(c => c.GetResponseAsync(It.IsAny<IEnumerable<ChatMessage>>(), It.IsAny<ChatOptions>(), It.IsAny<CancellationToken>()))
+            .Returns(() => ++calls == 1
+                ? Task.FromException<ChatResponse>(RateLimited("1"))
+                : Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "after the wait"))));
+        var sut = new OpenAiLlmClient(chatClient.Object, null!, "unused-model");
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = await sut.CompleteAsync("system", "user");
+
+        Assert.Equal("after the wait", result);
+        Assert.Equal(2, calls);
+        Assert.True(started.Elapsed >= TimeSpan.FromMilliseconds(900), $"took {started.Elapsed}");
+    }
+
+    [Theory]
+    [InlineData("7", 0, 7)]
+    [InlineData("0", 2, 0)]
+    [InlineData("120", 0, 30)]
+    [InlineData(null, 0, 5)]
+    [InlineData(null, 1, 10)]
+    [InlineData(null, 2, 20)]
+    [InlineData("soon", 0, 5)]
+    public void RateLimitDelay_FollowsRetryAfterSeconds_CapsIt_AndBacksOffWithoutIt(string? retryAfter, int attempt, int expectedSeconds)
+    {
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), OpenAiLlmClient.RateLimitDelay(retryAfter, attempt));
+    }
+
+    [Fact]
+    public void RateLimitDelay_ReadsAnHttpDate_AndCapsIt()
+    {
+        var past = DateTimeOffset.UtcNow.AddMinutes(-1).ToString("R");
+        var far = DateTimeOffset.UtcNow.AddMinutes(5).ToString("R");
+
+        Assert.Equal(TimeSpan.Zero, OpenAiLlmClient.RateLimitDelay(past, 0));
+        Assert.Equal(TimeSpan.FromSeconds(30), OpenAiLlmClient.RateLimitDelay(far, 0));
     }
 
     // ---- Bedrock: Polly pipeline wrapping the call site (C6 -- gap-closing-solutions.md Phase C item 6) ----

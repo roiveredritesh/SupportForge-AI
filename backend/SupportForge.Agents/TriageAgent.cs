@@ -56,6 +56,8 @@ public sealed class TriageAgent : IAgent
                 : LlmRule(decision);
             // A "which <code element>" question is a code question whichever classifier answered (see CodeElementQuestion).
             policy = CodeElementQuestion.Apply(policy, context.Query);
+            // So is a bug report that names something from the code and asks where or why (see CodeErrorReport).
+            policy = CodeErrorReport.Apply(policy, context.Query);
 
             context.Intent = policy.Intent;
             context.IntentRule = policy.AppliedRule;

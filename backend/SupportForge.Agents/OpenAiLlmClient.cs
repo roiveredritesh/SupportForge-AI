@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using OpenAI.Embeddings;
@@ -26,6 +27,9 @@ public class OpenAiLlmClient : ILlmClient
     private const int DefaultMaxOutputTokens = 4096;
 
     private readonly IChatClient _chatClient;
+    // Answers image prompts. The chat client unless a separate vision model is configured (Llm:{Provider}:VisionModel),
+    // for a text-only chat model such as a large reasoning model.
+    private readonly IChatClient _visionChatClient;
     private readonly EmbeddingClient _embeddingClient;
     private readonly string _embeddingModel;
     private readonly string? _embeddingInputType;
@@ -51,6 +55,10 @@ public class OpenAiLlmClient : ILlmClient
                 Delay = TimeSpan.FromSeconds(1),
                 UseJitter = true,
                 ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+                DelayGenerator = args => new ValueTask<TimeSpan?>(
+                    args.Outcome.Exception is ClientResultException { Status: 429 } cre
+                        ? RateLimitDelay(RetryAfterHeader(cre), args.AttemptNumber)
+                        : null),
             })
             .AddCircuitBreaker(new CircuitBreakerStrategyOptions
             {
@@ -58,11 +66,44 @@ public class OpenAiLlmClient : ILlmClient
                 MinimumThroughput = 4,
                 SamplingDuration = TimeSpan.FromSeconds(30),
                 BreakDuration = TimeSpan.FromSeconds(15),
-                ShouldHandle = new PredicateBuilder().Handle<Exception>(IsTransientFailure),
+                // A 429 is the provider's rate limit, not an outage. Counting it opened the breaker during a burst of
+                // requests in the code-QA run, and every call then failed for 15 s instead of waiting its turn.
+                ShouldHandle = new PredicateBuilder().Handle<Exception>(ex => IsTransientFailure(ex) && !IsRateLimited(ex)),
             });
         // Innermost, so each attempt gets its own budget.
         if (attemptTimeout is { } timeout && timeout > TimeSpan.Zero) builder.AddTimeout(timeout);
         return builder.Build();
+    }
+
+    private static bool IsRateLimited(Exception ex) => ex is ClientResultException { Status: 429 };
+
+    private static string? RetryAfterHeader(ClientResultException ex)
+    {
+        string? value = null;
+        ex.GetRawResponse()?.Headers.TryGetValue("Retry-After", out value);
+        return value;
+    }
+
+    private static readonly TimeSpan RateLimitBaseDelay = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(30);
+
+    // How long to wait after a 429 before retry number attempt + 1: what Retry-After asks (seconds or an HTTP date),
+    // capped at 30 s, or 5, 10, 20 s when it is absent or unreadable. A per-minute rate window outlasts the 1, 2, 4 s
+    // used for other failures, which is why those retries also got 429.
+    public static TimeSpan RateLimitDelay(string? retryAfter, int attempt)
+    {
+        if (int.TryParse(retryAfter, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
+        {
+            return seconds >= MaxRetryAfter.TotalSeconds ? MaxRetryAfter : TimeSpan.FromSeconds(seconds);
+        }
+
+        if (DateTimeOffset.TryParse(retryAfter, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var at))
+        {
+            var wait = at - DateTimeOffset.UtcNow;
+            return wait <= TimeSpan.Zero ? TimeSpan.Zero : wait > MaxRetryAfter ? MaxRetryAfter : wait;
+        }
+
+        return RateLimitBaseDelay * Math.Pow(2, Math.Clamp(attempt, 0, 4));
     }
 
     private static bool IsTransientFailure(Exception ex) => ex switch
@@ -88,10 +129,12 @@ public class OpenAiLlmClient : ILlmClient
         bool supportsVision = true,
         long? seed = null,
         int? maxOutputTokens = null,
-        TimeSpan? attemptTimeout = null)
+        TimeSpan? attemptTimeout = null,
+        IChatClient? visionChatClient = null)
     {
         _resilience = BuildResilience(attemptTimeout);
         _chatClient = chatClient;
+        _visionChatClient = visionChatClient ?? chatClient;
         _embeddingClient = embeddingClient;
         _embeddingModel = embeddingModel;
         _embeddingInputType = embeddingInputType;
@@ -192,7 +235,7 @@ public class OpenAiLlmClient : ILlmClient
             new DataContent(Convert.FromBase64String(base64Image), "image/png"),
         ]);
         var response = await _resilience.ExecuteAsync(
-            callback: rct => new ValueTask<ChatResponse>(_chatClient.GetResponseAsync([message], cancellationToken: rct)),
+            callback: rct => new ValueTask<ChatResponse>(_visionChatClient.GetResponseAsync([message], cancellationToken: rct)),
             cancellationToken: ct);
         LastTotalTokens = (int)(response.Usage?.TotalTokenCount ?? 0);
         return response.Text.Trim();

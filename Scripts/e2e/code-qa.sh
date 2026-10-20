@@ -78,6 +78,18 @@ post /api/auth/register "$body" "$OUT/code-qa.register.json" >/dev/null
 TOKEN=$(jq -r '.accessToken // empty' "$OUT/code-qa.register.json" 2>/dev/null)
 rm -f "$OUT/code-qa.register.json" # holds the token; $OUT is uploaded as an artifact
 [ -n "$TOKEN" ] || { echo "::error::could not register"; exit 1; }
+TOKEN_AT=$(date +%s)
+
+# Access tokens last an hour (JwtTokenFactory), and a slow run reaches the Jev pass after that: in runs 15 and 17 every
+# later request was refused at once. Log in again once the token is 45 minutes old.
+refresh_token() {
+  [ $(( $(date +%s) - TOKEN_AT )) -lt 2700 ] && return 0
+  local f="$OUT/code-qa.token.json" t
+  post /api/auth/token "$(jq -nc --arg u "$USER_NAME" --arg p "$PASSWORD" '{UserName:$u, Password:$p}')" "$f" >/dev/null
+  t=$(jq -r '.accessToken // empty' "$f" 2>/dev/null); rm -f "$f"
+  [ -n "$t" ] && { TOKEN=$t; TOKEN_AT=$(date +%s); }
+  return 0
+}
 
 body=$(jq -nc --arg id "$PROJECT" --arg o "${REPO%%/*}" --arg r "${REPO#*/}" --arg b "$BRANCH" \
   '{Id:$id, Name:"Code QA", KbSources:[], Repos:[{Owner:$o, Repo:$r, DefaultBranch:$b}]}')
@@ -151,6 +163,7 @@ ask_all() {
     q=$(jq -r ".questions[$i].q" "$FIXTURE"); answer=$(jq -r ".questions[$i].answer" "$FIXTURE"); path=$(jq -r ".questions[$i].path" "$FIXTURE")
     kind=$(jq -r ".questions[$i].kind // \"-\"" "$FIXTURE")
     file="$OUT/code-qa.$mode.$i.json"
+    refresh_token
     t0=$(date +%s)
     code=$(post /api/chat/query "$(jq -nc --arg p "$PROJECT" --arg q "$q" '{ProjectId:$p, Query:$q}')" "$file")
     secs=$(( $(date +%s) - t0 ))
@@ -184,6 +197,18 @@ ask_all() {
     | awk '{ms=$4; sub("ms","",ms); n[$1]++; if (ms+0 > max[$1]) max[$1]=ms+0} END {for (a in max) printf "%s %d (x%d); ", a, max[a], n[a]}')"
   # Exception type names only.
   say "- Exceptions logged ($mode): $(grep -oE '\b[A-Z][A-Za-z.]*Exception\b' "$OUT/code-qa.$mode.log" | sort | uniq -c | awk '{printf "%s x%s; ", $2, $1}')"
+  # Status codes only: what the provider answered when a client call failed (ClientResultException messages carry "Status: NNN").
+  say "- Provider HTTP status on failed calls ($mode): $(grep -oE 'Status: [0-9]{3}' "$OUT/code-qa.$mode.log" | sort | uniq -c | awk '{printf "%s x%s; ", $3, $1}')"
+  # A count, not the message: whether a 400 was the provider's context-length limit (the likely cause of run 17's 400s).
+  say "- Context-length rejections ($mode): $(grep -ciE 'maximum context length|context_length_exceeded|too many tokens' "$OUT/code-qa.$mode.log" || true)"
+  # Whether the API outlived the questions (in run 15 every Jev-mode request after the second got no HTTP response and
+  # no exception was logged). Exit code and an OOM kill only, no log text.
+  local alive=yes rc="" oom=""
+  if ! kill -0 "$API_PID" 2>/dev/null; then
+    alive=no; rc=0; wait "$API_PID" 2>/dev/null || rc=$?
+    sudo -n dmesg 2>/dev/null | grep -qiE 'out of memory|oom-kill' && oom="; kernel logged an OOM kill"
+  fi
+  say "- API process still running after the questions ($mode): $alive${rc:+ (exit code $rc)}$oom"
   say ""
   say "<details><summary>Drafts ($mode)</summary>"; say ""
   for i in $(seq 0 $((COUNT - 1))); do
